@@ -1,0 +1,467 @@
+/* Custom styles for شركة مقاولات السجيني */
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(6px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes scaleUp {
+    from {
+        opacity: 0;
+        transform: scale(0.95);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+@keyframes slideUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.animate-fadeIn {
+    animation: fadeIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-scaleUp {
+    animation: scaleUp 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-slideUp {
+    animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: #0f172a;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #334155;
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #475569;
+}
+
+/* Hide scrollbar utility */
+.scrollbar-none::-webkit-scrollbar {
+    display: none;
+}
+.scrollbar-none {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+
+/* Active navigation tab highlight */
+.nav-tab.active-tab {
+    background-color: #059669;
+    color: #ffffff;
+    box-shadow: 0 4px 12px rgba(5, 150, 105, 0.35);
+}
+
+.bg-slate-750 {
+    background-color: #243248;
+}
+
+.bg-slate-850 {
+    background-color: #162032;
+}
+
+/* Chat channel items */
+.chat-channel-item {
+    background-color: transparent;
+}
+.chat-channel-item:hover {
+    background-color: rgba(36, 50, 72, 0.7);
+}
+.chat-channel-item.active-channel {
+    background-color: rgba(16, 185, 129, 0.15);
+    border: 1px solid rgba(16, 185, 129, 0.35);
+}
+
+/* Bilingual & LTR Support */
+html[dir="ltr"] {
+    text-align: left;
+}
+
+html[dir="ltr"] .text-right {
+    text-align: left !important;
+}
+
+html[dir="ltr"] th.text-right,
+html[dir="ltr"] td.text-right {
+    text-align: left !important;
+}
+
+html[dir="ltr"] input,
+html[dir="ltr"] select,
+html[dir="ltr"] textarea {
+    text-align: left !important;
+}
+
+html[dir="ltr"] #user-menu,
+html[dir="ltr"] #quick-menu,
+html[dir="ltr"] #notifications-menu {
+    left: auto !important;
+    right: 0 !important;
+}
+
+html[lang="en"] body {
+    font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+html[lang="ar"] body {
+    font-family: 'Cairo', system-ui, sans-serif;
+}
+
+
+/* Print styles for project reports & official detailed reports */
+@media print {
+    body {
+        background-color: #ffffff !important;
+        color: #0f172a !important;
+        font-size: 11px !important;
+    }
+    header, nav, #quick-menu, .modal-overlay, button, input, select, .print\:hidden {
+        display: none !important;
+    }
+    #tab-reports, #tab-cashflow {
+        display: block !important;
+    }
+    .rep-pane {
+        display: block !important;
+        margin-bottom: 2rem !important;
+        page-break-inside: avoid;
+    }
+    .bg-slate-850, .bg-slate-800, .bg-slate-900 {
+        background-color: transparent !important;
+        color: #0f172a !important;
+        border: 1px solid #e2e8f0 !important;
+        box-shadow: none !important;
+    }
+    h1, h2, h3, h4, strong {
+        color: #0f172a !important;
+    }
+    table {
+        width: 100% !important;
+        border-collapse: collapse !important;
+    }
+    thead {
+        background-color: #f1f5f9 !important;
+    }
+    th, td {
+        border: 1px solid #cbd5e1 !important;
+        color: #0f172a !important;
+        padding: 6px 8px !important;
+    }
+    .text-emerald-400, .text-rose-400, .text-amber-400, .text-blue-400, .text-purple-400 {
+        color: #0f172a !important;
+        font-weight: bold !important;
+    }
+}
+
+/* ========================================================
+   LIGHT MODE THEME SYSTEM (الوضع الفاتح والداكن المتكامل)
+   ======================================================== */
+
+html[data-theme="light"] {
+    color-scheme: light;
+}
+
+html[data-theme="light"] body {
+    background-color: #f1f5f9 !important;
+    color: #0f172a !important;
+}
+
+/* Background Color Overrides for Light Mode */
+html[data-theme="light"] .bg-slate-900 {
+    background-color: #f1f5f9 !important;
+}
+
+html[data-theme="light"] header.bg-slate-900\/95,
+html[data-theme="light"] header {
+    background-color: rgba(255, 255, 255, 0.95) !important;
+    border-bottom-color: #e2e8f0 !important;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.05) !important;
+}
+
+html[data-theme="light"] .bg-slate-850 {
+    background-color: #ffffff !important;
+    border-color: #e2e8f0 !important;
+    box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05), 0 1px 2px -1px rgba(0, 0, 0, 0.05);
+}
+
+html[data-theme="light"] .bg-slate-800 {
+    background-color: #ffffff !important;
+    border-color: #e2e8f0 !important;
+}
+
+html[data-theme="light"] .bg-slate-750 {
+    background-color: #f8fafc !important;
+    border-color: #e2e8f0 !important;
+}
+
+html[data-theme="light"] .bg-slate-700 {
+    background-color: #e2e8f0 !important;
+    color: #334155 !important;
+}
+
+/* Opacity variants for subtle cards / rows */
+html[data-theme="light"] .bg-slate-800\/60,
+html[data-theme="light"] .bg-slate-800\/40,
+html[data-theme="light"] .bg-slate-800\/80,
+html[data-theme="light"] .bg-slate-800\/90,
+html[data-theme="light"] .bg-slate-850\/60,
+html[data-theme="light"] .bg-slate-850\/70,
+html[data-theme="light"] .bg-slate-850\/80,
+html[data-theme="light"] .bg-slate-900\/60,
+html[data-theme="light"] .bg-slate-900\/50,
+html[data-theme="light"] .bg-slate-900\/80 {
+    background-color: #f8fafc !important;
+    border-color: #e2e8f0 !important;
+}
+
+/* Hover background states */
+html[data-theme="light"] .hover\:bg-slate-750:hover,
+html[data-theme="light"] .hover\:bg-slate-800:hover,
+html[data-theme="light"] .hover\:bg-slate-850:hover {
+    background-color: #f1f5f9 !important;
+}
+
+html[data-theme="light"] .hover\:bg-slate-800\/40:hover,
+html[data-theme="light"] .hover\:bg-slate-800\/50:hover {
+    background-color: #f8fafc !important;
+}
+
+/* Borders */
+html[data-theme="light"] .border-slate-800,
+html[data-theme="light"] .border-slate-750,
+html[data-theme="light"] .border-slate-700 {
+    border-color: #e2e8f0 !important;
+}
+
+/* Typography / Text Colors */
+html[data-theme="light"] .text-white {
+    color: #0f172a !important;
+}
+
+html[data-theme="light"] .text-slate-100 {
+    color: #0f172a !important;
+}
+
+html[data-theme="light"] .text-slate-200 {
+    color: #1e293b !important;
+}
+
+html[data-theme="light"] .text-slate-300 {
+    color: #334155 !important;
+}
+
+html[data-theme="light"] .text-slate-400 {
+    color: #64748b !important;
+}
+
+html[data-theme="light"] .text-slate-500 {
+    color: #64748b !important;
+}
+
+/* PRESERVE WHITE TEXT ON SENSITIVE / SATURATED SOLID BUTTONS & BADGES */
+html[data-theme="light"] .bg-emerald-600,
+html[data-theme="light"] .bg-emerald-500,
+html[data-theme="light"] .bg-teal-600,
+html[data-theme="light"] .bg-rose-600,
+html[data-theme="light"] .bg-rose-500,
+html[data-theme="light"] .bg-blue-600,
+html[data-theme="light"] .bg-indigo-600,
+html[data-theme="light"] .bg-amber-500,
+html[data-theme="light"] .bg-gradient-to-r,
+html[data-theme="light"] .active-tab {
+    color: #ffffff !important;
+}
+
+html[data-theme="light"] .bg-emerald-600 *,
+html[data-theme="light"] .bg-emerald-500 *,
+html[data-theme="light"] .bg-teal-600 *,
+html[data-theme="light"] .bg-rose-600 *,
+html[data-theme="light"] .bg-rose-500 *,
+html[data-theme="light"] .bg-blue-600 *,
+html[data-theme="light"] .bg-indigo-600 *,
+html[data-theme="light"] .bg-amber-500 *,
+html[data-theme="light"] .bg-gradient-to-r *,
+html[data-theme="light"] .active-tab * {
+    color: #ffffff !important;
+}
+
+/* High-contrast Accent Colors in Light Mode */
+html[data-theme="light"] .bg-emerald-500\/10,
+html[data-theme="light"] .bg-emerald-500\/20 {
+    background-color: #ecfdf5 !important;
+    border-color: #a7f3d0 !important;
+}
+html[data-theme="light"] .text-emerald-400 {
+    color: #059669 !important;
+}
+
+html[data-theme="light"] .bg-amber-500\/10,
+html[data-theme="light"] .bg-amber-500\/15,
+html[data-theme="light"] .bg-amber-500\/20 {
+    background-color: #fffbeb !important;
+    border-color: #fde68a !important;
+}
+html[data-theme="light"] .text-amber-400 {
+    color: #d97706 !important;
+}
+
+html[data-theme="light"] .bg-rose-500\/10,
+html[data-theme="light"] .bg-rose-500\/20 {
+    background-color: #fff1f2 !important;
+    border-color: #fecdd3 !important;
+}
+html[data-theme="light"] .text-rose-400 {
+    color: #e11d48 !important;
+}
+
+html[data-theme="light"] .bg-blue-500\/10,
+html[data-theme="light"] .bg-blue-500\/15,
+html[data-theme="light"] .bg-blue-500\/20 {
+    background-color: #eff6ff !important;
+    border-color: #bfdbfe !important;
+}
+html[data-theme="light"] .text-blue-400 {
+    color: #2563eb !important;
+}
+
+html[data-theme="light"] .bg-indigo-500\/10,
+html[data-theme="light"] .bg-indigo-500\/20 {
+    background-color: #eef2ff !important;
+    border-color: #c7d2fe !important;
+}
+html[data-theme="light"] .text-indigo-400 {
+    color: #4f46e5 !important;
+}
+
+html[data-theme="light"] .bg-purple-500\/10,
+html[data-theme="light"] .bg-purple-500\/20 {
+    background-color: #faf5ff !important;
+    border-color: #e9d5ff !important;
+}
+html[data-theme="light"] .text-purple-400 {
+    color: #9333ea !important;
+}
+
+/* Form Controls (Inputs, Selects, Textareas) */
+html[data-theme="light"] input:not([type="checkbox"]):not([type="radio"]),
+html[data-theme="light"] select,
+html[data-theme="light"] textarea {
+    background-color: #ffffff !important;
+    color: #0f172a !important;
+    border-color: #cbd5e1 !important;
+}
+
+html[data-theme="light"] input:not([type="checkbox"]):not([type="radio"]):focus,
+html[data-theme="light"] select:focus,
+html[data-theme="light"] textarea:focus {
+    background-color: #ffffff !important;
+    border-color: #10b981 !important;
+    box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.15) !important;
+}
+
+html[data-theme="light"] select option {
+    background-color: #ffffff !important;
+    color: #0f172a !important;
+}
+
+html[data-theme="light"] input::placeholder,
+html[data-theme="light"] textarea::placeholder {
+    color: #94a3b8 !important;
+}
+
+/* Modals */
+html[data-theme="light"] .modal-overlay {
+    background-color: rgba(15, 23, 42, 0.5) !important;
+}
+
+html[data-theme="light"] .modal-overlay > div {
+    background-color: #ffffff !important;
+    border-color: #e2e8f0 !important;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.18) !important;
+}
+
+/* Navigation Tabs */
+html[data-theme="light"] .nav-tab:not(.active-tab) {
+    color: #475569 !important;
+}
+html[data-theme="light"] .nav-tab:not(.active-tab):hover {
+    background-color: #e2e8f0 !important;
+    color: #0f172a !important;
+}
+
+/* Progress bar background tracks */
+html[data-theme="light"] .bg-slate-700.rounded-full,
+html[data-theme="light"] .bg-slate-800.rounded-full {
+    background-color: #e2e8f0 !important;
+}
+
+/* Tables */
+html[data-theme="light"] table thead tr {
+    background-color: #f1f5f9 !important;
+}
+
+html[data-theme="light"] table thead th {
+    color: #475569 !important;
+    border-color: #e2e8f0 !important;
+}
+
+html[data-theme="light"] table tbody tr {
+    border-color: #e2e8f0 !important;
+}
+
+html[data-theme="light"] table tbody tr:hover {
+    background-color: #f8fafc !important;
+}
+
+/* Dropdown Menus (User menu, quick menu, notif menu) */
+html[data-theme="light"] #user-menu,
+html[data-theme="light"] #quick-menu,
+html[data-theme="light"] #notifications-menu {
+    background-color: #ffffff !important;
+    border-color: #e2e8f0 !important;
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1) !important;
+}
+
+/* Scrollbar in Light Mode */
+html[data-theme="light"] ::-webkit-scrollbar-track {
+    background: #f1f5f9;
+}
+html[data-theme="light"] ::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+}
+html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+}
+
+/* Smooth transitions when switching themes */
+body, header, nav, div, button, input, select, textarea, table {
+    transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}

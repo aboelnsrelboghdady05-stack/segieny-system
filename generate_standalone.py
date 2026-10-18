@@ -59,21 +59,76 @@ def build_standalone():
 (function() {{
     const INITIAL_DB = {json.dumps(db_dump, ensure_ascii=False)};
     
-    // Always sync or initialize LocalStorage
-    if (!localStorage.getItem('segieny_standalone_db_v5')) {{
-        localStorage.setItem('segieny_standalone_db_v5', JSON.stringify(INITIAL_DB));
-    }}
-    
     function getDB() {{
         try {{
-            return JSON.parse(localStorage.getItem('segieny_standalone_db_v5')) || INITIAL_DB;
+            const stored = JSON.parse(localStorage.getItem('segieny_standalone_db_v5'));
+            if (!stored) return INITIAL_DB;
+
+            const merged = Object.assign({{}}, INITIAL_DB);
+
+            // 1. Team members (users): combine and preserve added users like fatima
+            const teamMap = new Map();
+            (INITIAL_DB.team_members || []).forEach(m => teamMap.set(String(m.id || m.username).toLowerCase(), m));
+            (stored.team_members || []).forEach(m => teamMap.set(String(m.id || m.username).toLowerCase(), m));
+            merged.team_members = Array.from(teamMap.values());
+
+            // 2. HR employees: preserve user modifications & additions
+            if (stored.hr_employees && Array.isArray(stored.hr_employees) && stored.hr_employees.length > 0) {{
+                merged.hr_employees = stored.hr_employees;
+            }} else {{
+                merged.hr_employees = INITIAL_DB.hr_employees || [];
+            }}
+
+            // 3. Client payments: preserve user collection payments
+            if (stored.client_payments && Array.isArray(stored.client_payments) && stored.client_payments.length > 0) {{
+                const payMap = new Map();
+                (INITIAL_DB.client_payments || []).forEach(cp => payMap.set(Number(cp.id), cp));
+                (stored.client_payments || []).forEach(cp => {{
+                    const existing = payMap.get(Number(cp.id));
+                    if (existing) {{
+                        payMap.set(Number(cp.id), Object.assign({{}}, existing, cp));
+                    }} else {{
+                        payMap.set(Number(cp.id), cp);
+                    }}
+                }});
+                merged.client_payments = Array.from(payMap.values());
+            }} else {{
+                merged.client_payments = INITIAL_DB.client_payments || [];
+            }}
+
+            // 4. Expenses: preserve existing plus latest
+            const expMap = new Map();
+            (INITIAL_DB.expenses || []).forEach(e => expMap.set(Number(e.id), e));
+            (stored.expenses || []).forEach(e => {{
+                if (!expMap.has(Number(e.id))) expMap.set(Number(e.id), e);
+            }});
+            merged.expenses = Array.from(expMap.values());
+
+            // 5. Projects
+            const projMap = new Map();
+            (INITIAL_DB.projects || []).forEach(p => projMap.set(Number(p.id), p));
+            (stored.projects || []).forEach(p => {{
+                const base = projMap.get(Number(p.id));
+                if (base) {{
+                    projMap.set(Number(p.id), Object.assign({{}}, base, p));
+                }} else {{
+                    projMap.set(Number(p.id), p);
+                }}
+            }});
+            merged.projects = Array.from(projMap.values());
+
+            return merged;
         }} catch(e) {{
             return INITIAL_DB;
         }}
     }}
     
     function saveDB(data) {{
-        localStorage.setItem('segieny_standalone_db_v5', JSON.stringify(data));
+        try {{
+            localStorage.setItem('segieny_standalone_db_v5', JSON.stringify(data));
+        }} catch(e) {{
+            console.error('Error saving standalone DB:', e);
+        }}
     }}
 
     const originalFetch = window.fetch;
@@ -180,6 +235,29 @@ def build_standalone():
                     is_admin: (m.id === 1 || String(m.username).toLowerCase() === 'baghdadi' || (m.name && m.name.includes('ابوالنصر')))
                 }}));
                 return new Response(JSON.stringify(list), {{ status: 200, headers: {{ 'Content-Type': 'application/json' }} }});
+            }} else if (method === 'POST') {{
+                const newMember = Object.assign({{
+                    id: (db.team_members.length ? Math.max(...db.team_members.map(m => Number(m.id) || 0)) : 0) + 1,
+                    status: 'active',
+                    permissions: body.permissions || 'all'
+                }}, body);
+                db.team_members.push(newMember);
+                saveDB(db);
+                return new Response(JSON.stringify({{ success: true, message: 'تمت إضافة المستخدم بنجاح', id: newMember.id }}), {{ status: 201, headers: {{ 'Content-Type': 'application/json' }} }});
+            }} else if (method === 'PUT') {{
+                const id = parseInt(urlStr.split('/').pop());
+                const idx = db.team_members.findIndex(m => m.id === id);
+                if (idx !== -1) {{
+                    db.team_members[idx] = Object.assign(db.team_members[idx], body);
+                    saveDB(db);
+                    return new Response(JSON.stringify({{ success: true, message: 'تم تحديث بيانات المستخدم بنجاح' }}), {{ status: 200, headers: {{ 'Content-Type': 'application/json' }} }});
+                }}
+                return new Response(JSON.stringify({{ error: 'المستخدم غير موجود' }}), {{ status: 404, headers: {{ 'Content-Type': 'application/json' }} }});
+            }} else if (method === 'DELETE') {{
+                const id = parseInt(urlStr.split('/').pop());
+                db.team_members = db.team_members.filter(m => m.id !== id);
+                saveDB(db);
+                return new Response(JSON.stringify({{ success: true, message: 'تم حذف المستخدم بنجاح' }}), {{ status: 200, headers: {{ 'Content-Type': 'application/json' }} }});
             }}
             return new Response(JSON.stringify({{ success: true }}), {{ status: 200, headers: {{ 'Content-Type': 'application/json' }} }});
         }}
@@ -281,6 +359,139 @@ def build_standalone():
                 }});
             }});
             return new Response(JSON.stringify(projsWithStats), {{ status: 200, headers: {{ 'Content-Type': 'application/json' }} }});
+        }}
+
+        // 3.5 Client Payments (استحقاقات وتحصيلات العملاء)
+        if (urlStr.includes('/api/client-payments')) {{
+            db.client_payments = db.client_payments || [];
+
+            // Receive payment
+            if (urlStr.match(/\\/api\\/client-payments\\/\\d+\\/receive$/) && method === 'POST') {{
+                const parts = urlStr.split('/');
+                const id = parseInt(parts[parts.length - 2]);
+                const cp = db.client_payments.find(p => p.id === id);
+                if (cp) {{
+                    const recAmt = body.received_amount !== undefined ? (parseFloat(body.received_amount) || 0) : (parseFloat(cp.amount_with_tax) || 0);
+                    cp.is_received = 1;
+                    cp.received_amount = recAmt;
+                    cp.received_date = body.received_date || new Date().toISOString().split('T')[0];
+                    cp.status = 'paid';
+                    cp.notes = body.notes || cp.notes || '';
+                    saveDB(db);
+                    return new Response(JSON.stringify({{ success: true, message: 'تم تسجيل تحصيل الدفعة بنجاح' }}), {{ status: 200, headers: {{ 'Content-Type': 'application/json' }} }});
+                }}
+                return new Response(JSON.stringify({{ error: 'الدفعة غير موجودة' }}), {{ status: 404, headers: {{ 'Content-Type': 'application/json' }} }});
+            }}
+
+            // Reset payment receipt
+            if (urlStr.match(/\\/api\\/client-payments\\/\\d+\\/reset$/) && method === 'POST') {{
+                const parts = urlStr.split('/');
+                const id = parseInt(parts[parts.length - 2]);
+                const cp = db.client_payments.find(p => p.id === id);
+                if (cp) {{
+                    cp.is_received = 0;
+                    cp.received_amount = 0.0;
+                    cp.received_date = null;
+                    cp.status = 'pending';
+                    saveDB(db);
+                    return new Response(JSON.stringify({{ success: true, message: 'تم إلغاء تحصيل الدفعة وإعادتها لحالة الانتظار' }}), {{ status: 200, headers: {{ 'Content-Type': 'application/json' }} }});
+                }}
+                return new Response(JSON.stringify({{ error: 'الدفعة غير موجودة' }}), {{ status: 404, headers: {{ 'Content-Type': 'application/json' }} }});
+            }}
+
+            // Auto-allocate preview
+            if (urlStr.includes('/auto-allocate-preview')) {{
+                const mPrj = urlStr.match(/project_id=([^&]+)/);
+                const mAmt = urlStr.match(/amount=([^&]+)/);
+                const projId = mPrj ? parseInt(mPrj[1]) : 0;
+                let remainAlloc = mAmt ? (parseFloat(mAmt[1]) || 0) : 0;
+                const pays = db.client_payments.filter(cp => cp.project_id === projId).sort((a,b) => (a.payment_number || 0) - (b.payment_number || 0));
+                const plan = [];
+                pays.forEach(cp => {{
+                    const due = parseFloat(cp.amount_with_tax) || 0;
+                    const curRecv = parseFloat(cp.received_amount) || 0;
+                    const need = Math.max(0, due - curRecv);
+                    if (need > 0 && remainAlloc > 0) {{
+                        const alloc = Math.min(need, remainAlloc);
+                        remainAlloc -= alloc;
+                        plan.push({{
+                            id: cp.id,
+                            name: cp.name,
+                            payment_number: cp.payment_number,
+                            amount_with_tax: due,
+                            currently_received: curRecv,
+                            allocated: alloc,
+                            remaining_after: need - alloc,
+                            will_be_fully_paid: (curRecv + alloc) >= due
+                        }});
+                    }}
+                }});
+                return new Response(JSON.stringify({{ success: true, plan: plan, surplus: remainAlloc }}), {{ status: 200, headers: {{ 'Content-Type': 'application/json' }} }});
+            }}
+
+            // Auto-allocate execution
+            if (urlStr.includes('/auto-allocate') && method === 'POST') {{
+                const projId = parseInt(body.project_id);
+                let remainAlloc = parseFloat(body.amount) || 0;
+                const recDate = body.payment_date || new Date().toISOString().split('T')[0];
+                const pays = db.client_payments.filter(cp => cp.project_id === projId).sort((a,b) => (a.payment_number || 0) - (b.payment_number || 0));
+                pays.forEach(cp => {{
+                    if (remainAlloc <= 0) return;
+                    const due = parseFloat(cp.amount_with_tax) || 0;
+                    const curRecv = parseFloat(cp.received_amount) || 0;
+                    const need = Math.max(0, due - curRecv);
+                    if (need > 0) {{
+                        const alloc = Math.min(need, remainAlloc);
+                        cp.received_amount = curRecv + alloc;
+                        remainAlloc -= alloc;
+                        cp.received_date = recDate;
+                        cp.is_received = cp.received_amount >= due ? 1 : 0;
+                        cp.status = cp.received_amount >= due ? 'paid' : 'partially_paid';
+                    }}
+                }});
+                saveDB(db);
+                return new Response(JSON.stringify({{ success: true, message: 'تم تسوية وتوزيع الدفعة على المستحقات بنجاح' }}), {{ status: 200, headers: {{ 'Content-Type': 'application/json' }} }});
+            }}
+
+            // Update / Delete by ID
+            if (urlStr.match(/\\/api\\/client-payments\\/\\d+$/)) {{
+                const id = parseInt(urlStr.split('/').pop());
+                if (method === 'PUT') {{
+                    const cp = db.client_payments.find(p => p.id === id);
+                    if (cp) {{
+                        Object.assign(cp, body);
+                        saveDB(db);
+                        return new Response(JSON.stringify({{ success: true, message: 'تم تحديث بيانات الدفعة بنجاح' }}), {{ status: 200, headers: {{ 'Content-Type': 'application/json' }} }});
+                    }}
+                }} else if (method === 'DELETE') {{
+                    db.client_payments = db.client_payments.filter(p => p.id !== id);
+                    saveDB(db);
+                    return new Response(JSON.stringify({{ success: true, message: 'تم حذف الدفعة بنجاح' }}), {{ status: 200, headers: {{ 'Content-Type': 'application/json' }} }});
+                }}
+            }}
+
+            // Create new payment
+            if (method === 'POST') {{
+                const count = db.client_payments.length ? Math.max(...db.client_payments.map(p => p.id || 0)) : 0;
+                const newCp = Object.assign({{
+                    id: count + 1,
+                    status: 'pending',
+                    is_received: 0,
+                    received_amount: 0.0,
+                    created_at: new Date().toISOString()
+                }}, body);
+                db.client_payments.push(newCp);
+                saveDB(db);
+                return new Response(JSON.stringify({{ success: true, message: 'تم حفظ الدفعة بنجاح', id: newCp.id }}), {{ status: 201, headers: {{ 'Content-Type': 'application/json' }} }});
+            }}
+
+            // List payments
+            const m = urlStr.match(/project_id=([^&]+)/);
+            let result = db.client_payments;
+            if (m && m[1]) {{
+                result = db.client_payments.filter(cp => String(cp.project_id) === String(m[1]));
+            }}
+            return new Response(JSON.stringify({{ success: true, payments: result }}), {{ status: 200, headers: {{ 'Content-Type': 'application/json' }} }});
         }}
 
         // 4. Expenses

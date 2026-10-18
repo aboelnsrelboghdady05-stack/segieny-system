@@ -676,6 +676,17 @@ def init_db():
         ''', (hq_id, 'مصاريف إدارية وعمومية وتشغيل المقر', 2, 50.0, 0.0, 0.0, 100, 'in_progress', 'إيجار المقر، فواتير الكهرباء والإنترنت، الضيافة، والقرطاسية'))
         conn.commit()
 
+    # Company settings (e.g. opening cash balance)
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS company_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    ''')
+    cursor.execute("INSERT OR IGNORE INTO company_settings (key, value) VALUES ('opening_cash_balance', '300000.0')")
+    conn.commit()
+
     conn.close()
 
 def seed_demo_data(cursor):
@@ -838,3 +849,27 @@ def seed_hr_demo_data(cursor):
     INSERT INTO hr_advances (employee_id, employee_name, amount, request_date, monthly_deduction, paid_amount, remaining_amount, status, notes)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''', advances)
+
+def get_setting(key, default=None):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('CREATE TABLE IF NOT EXISTS company_settings (key TEXT PRIMARY KEY, value TEXT, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)')
+    cursor.execute('SELECT value FROM company_settings WHERE key = ?', (key,))
+    row = cursor.fetchone()
+    conn.close()
+    if row and row['value'] is not None:
+        return row['value']
+    return default
+
+def set_setting(key, value):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('CREATE TABLE IF NOT EXISTS company_settings (key TEXT PRIMARY KEY, value TEXT, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)')
+    cursor.execute('''
+        INSERT INTO company_settings (key, value, updated_at)
+        VALUES (?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP
+    ''', (key, str(value)))
+    conn.commit()
+    conn.close()
+

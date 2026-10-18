@@ -7486,6 +7486,12 @@ function renderCashFlowUI() {
     const kpiSpentEl = document.getElementById('cf-kpi-tot-spent');
     if (kpiSpentEl) kpiSpentEl.innerText = formatMoney(totSpent);
 
+    const openingBal = (summary && summary.opening_cash_balance !== undefined) ? summary.opening_cash_balance : 300000;
+    const btnOpeningEl = document.getElementById('cf-btn-opening-cash');
+    if (btnOpeningEl) btnOpeningEl.innerText = formatMoney(openingBal);
+    const kpiOpeningEl = document.getElementById('cf-kpi-opening-cash');
+    if (kpiOpeningEl) kpiOpeningEl.innerText = formatMoney(openingBal);
+
     const kpiNextInflowEl = document.getElementById('cf-kpi-next-inflow');
     if (kpiNextInflowEl) kpiNextInflowEl.innerText = formatMoney(nextInflowAmount);
     const kpiNextInflowDescEl = document.getElementById('cf-kpi-next-inflow-desc');
@@ -8103,6 +8109,56 @@ function renderCashFlowPaymentsTable() {
     }
 
     initLucide();
+}
+
+function openEditOpeningCashModal() {
+    const curVal = (currentCashFlowData && currentCashFlowData.summary && currentCashFlowData.summary.opening_cash_balance !== undefined) 
+        ? currentCashFlowData.summary.opening_cash_balance 
+        : 300000;
+    const input = document.getElementById('opening-cash-input');
+    if (input) {
+        input.value = curVal;
+    }
+    openModal('edit-opening-cash-modal');
+}
+
+async function saveOpeningCash(e) {
+    if (e && e.preventDefault) e.preventDefault();
+    const input = document.getElementById('opening-cash-input');
+    if (!input) return;
+    const val = parseFloat(input.value) || 0;
+    const btn = document.getElementById('btn-save-opening-cash');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `<span class="inline-block animate-spin mr-1">⌛</span> جاري الحفظ...`;
+    }
+
+    try {
+        const res = await fetch('/api/settings/opening-cash', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ opening_cash_balance: val })
+        });
+        const data = await res.json();
+        if (data.success) {
+            showToast('تم تحديث الرصيد الافتتاحي للسيولة بنجاح', 'success');
+            closeModal('edit-opening-cash-modal');
+            if (typeof loadCashFlow === 'function') {
+                await loadCashFlow();
+            }
+        } else {
+            showToast(data.error || 'فشل تحديث الرصيد الافتتاحي', 'error');
+        }
+    } catch (err) {
+        console.error('Error saving opening cash:', err);
+        showToast('تعذر حفظ الرصيد الافتتاحي، يرجى المحاولة لاحقاً', 'error');
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = `<i data-lucide="check" class="w-4 h-4"></i><span>حفظ واعتماد الرصيد</span>`;
+            initLucide();
+        }
+    }
 }
 
 function openDirectReceiveModal() {

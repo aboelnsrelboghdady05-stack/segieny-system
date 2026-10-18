@@ -31,7 +31,8 @@ def build_standalone():
         'hr_payrolls': get_all('hr_payrolls'),
         'hr_payroll_items': get_all('hr_payroll_items'),
         'hr_leaves': get_all('hr_leaves'),
-        'hr_advances': get_all('hr_advances')
+        'hr_advances': get_all('hr_advances'),
+        'company_settings': get_all('company_settings')
     }
     conn.close()
 
@@ -534,6 +535,226 @@ def build_standalone():
                 active_custody_balance: db.custody_requests.filter(c => c.status === 'disbursed').reduce((s, c) => s + (parseFloat(c.disbursed_amount) || 0), 0)
             }};
             return new Response(JSON.stringify(stats), {{ status: 200, headers: {{ 'Content-Type': 'application/json' }} }});
+        }}
+
+        // 9.5 Cash Flow & Settings Offline Routes
+        if (urlStr.includes('/api/settings/opening-cash')) {{
+            db.company_settings = db.company_settings || [];
+            if (method === 'POST') {{
+                const val = parseFloat(body.opening_cash_balance !== undefined ? body.opening_cash_balance : 300000.0);
+                const s = db.company_settings.find(x => x.key === 'opening_cash_balance');
+                if (s) {{
+                    s.value = String(val);
+                }} else {{
+                    db.company_settings.push({{ key: 'opening_cash_balance', value: String(val) }});
+                }}
+                saveDB(db);
+                return new Response(JSON.stringify({{ success: true, opening_cash_balance: val, message: 'تم تحديث الرصيد الافتتاحي للسيولة بنجاح' }}), {{ status: 200, headers: {{ 'Content-Type': 'application/json' }} }});
+            }}
+            const s = db.company_settings.find(x => x.key === 'opening_cash_balance');
+            const val = s ? parseFloat(s.value) : 300000.0;
+            return new Response(JSON.stringify({{ success: true, opening_cash_balance: val }}), {{ status: 200, headers: {{ 'Content-Type': 'application/json' }} }});
+        }}
+
+        if (urlStr.includes('/api/cashflow')) {{
+            db.company_settings = db.company_settings || [];
+            const s = db.company_settings.find(x => x.key === 'opening_cash_balance');
+            const opening_cash = s ? parseFloat(s.value) : 300000.0;
+
+            let prjId = null;
+            let simNum = 1;
+            try {{
+                const u = new URL(urlStr, window.location.href);
+                prjId = u.searchParams.get('project_id');
+                simNum = parseInt(u.searchParams.get('simulate_phase') || '1');
+            }} catch(e) {{
+                const mPrj = urlStr.match(/project_id=([^&]+)/);
+                if (mPrj) prjId = mPrj[1];
+                const mSim = urlStr.match(/simulate_phase=([^&]+)/);
+                if (mSim) simNum = parseInt(mSim[1]) || 1;
+            }}
+
+            let company_tot_contract = 0, company_tot_received = 0, company_tot_spent = 0, company_tot_pending_inflow = 0, company_tot_remaining_cost = 0, company_tot_final_cash = 0;
+            const all_projects_cashflow = [];
+
+            (db.projects || []).forEach(p => {{
+                const pid = p.id;
+                const cVal = parseFloat(p.contract_value) || 0;
+                company_tot_contract += cVal;
+
+                const pExps = (db.expenses || []).filter(e => e.project_id === pid);
+                const pSpent = pExps.reduce((sum, e) => sum + (parseFloat(e.amount) || 0), 0);
+                const spentByPhase = {{}};
+                pExps.forEach(e => {{
+                    spentByPhase[e.phase_id] = (spentByPhase[e.phase_id] || 0) + (parseFloat(e.amount) || 0);
+                }});
+
+                const pPays = (db.client_payments || []).filter(cp => cp.project_id === pid);
+                const pRecv = pPays.filter(cp => cp.is_received || cp.status === 'paid' || cp.status === 'partially_paid').reduce((sum, cp) => sum + (parseFloat(cp.received_amount) || 0), 0);
+                const pDue = pPays.reduce((sum, cp) => sum + (parseFloat(cp.amount_with_tax) || 0), 0);
+                const pPending = Math.max(0, pDue - pRecv);
+
+                const enrichedPayments = pPays.map(cp => Object.assign({{}}, cp, {{ project_id: pid, project_name: p.name, project_code: p.code }}));
+                const paymentsByPhase = {{}};
+                enrichedPayments.forEach(cp => {{
+                    if (!paymentsByPhase[cp.phase_id]) paymentsByPhase[cp.phase_id] = [];
+                    paymentsByPhase[cp.phase_id].push(cp);
+                }});
+
+                const pPhases = (db.project_phases || []).filter(ph => ph.project_id === pid).sort((a,b) => (a.order_num || 0) - (b.order_num || 0));
+                let curCash = pRecv - pSpent;
+                let runCash = curCash;
+                let totRemCost = 0;
+                const phaseFlows = [];
+
+                pPhases.forEach(ph => {{
+                    const cCost = parseFloat(ph.cost_price) || 0;
+                    const cSell = parseFloat(ph.selling_price) || 0;
+                    const actSpent = spentByPhase[ph.id] || 0;
+                    const remCost = Math.max(0, cCost - actSpent);
+                    totRemCost += remCost;
+
+                    const phPays = paymentsByPhase[ph.id] || [];
+                    const phDue = phPays.reduce((sum, cp) => sum + (parseFloat(cp.amount_with_tax) || 0), 0);
+                    const phRec = phPays.filter(cp => cp.is_received || cp.status === 'paid' || cp.status === 'partially_paid').reduce((sum, cp) => sum + (parseFloat(cp.received_amount) || 0), 0);
+                    const phPending = Math.max(0, phDue - phRec);
+
+                    const netFlow = phPending - remCost;
+                    runCash += netFlow;
+
+                    phaseFlows.push({{
+                        phase_id: ph.id,
+                        order_num: ph.order_num,
+                        name: ph.name,
+                        cost_price: cCost,
+                        selling_price: cSell,
+                        actual_spent: actSpent,
+                        remaining_cost: remCost,
+                        inflow_due: phDue,
+                        inflow_received: phRec,
+                        inflow_pending: phPending,
+                        net_phase_flow: netFlow,
+                        projected_cash_after: runCash,
+                        progress_percent: parseFloat(ph.progress_percent) || 0,
+                        status: ph.status || 'in_progress',
+                        payments: phPays
+                    }});
+                }});
+
+                const nextPay = enrichedPayments.find(cp => !cp.is_received && cp.status !== 'paid');
+                const projSim = phaseFlows.find(pf => pf.order_num === simNum) || phaseFlows[0] || null;
+
+                company_tot_received += pRecv;
+                company_tot_spent += pSpent;
+                company_tot_pending_inflow += pPending;
+                company_tot_remaining_cost += totRemCost;
+                company_tot_final_cash += runCash;
+
+                all_projects_cashflow.push({{
+                    project_id: pid,
+                    name: p.name,
+                    code: p.code,
+                    contract_value: cVal,
+                    status: p.status,
+                    progress_percent: p.progress_percent,
+                    total_received: pRecv,
+                    total_spent: pSpent,
+                    current_cash: curCash,
+                    total_pending_inflow: pPending,
+                    total_remaining_cost: totRemCost,
+                    final_projected_cash: runCash,
+                    next_payment: nextPay,
+                    sim_phase: projSim,
+                    phases: phaseFlows,
+                    all_payments: enrichedPayments,
+                    payments_count: enrichedPayments.length
+                }});
+            }});
+
+            const company_current_cash = opening_cash + company_tot_received - company_tot_spent;
+            company_tot_final_cash += opening_cash;
+
+            let company_cash_at_sim_phase = opening_cash;
+            all_projects_cashflow.forEach(pd => {{
+                const phasesUpTo = (pd.phases || []).filter(pf => pf.order_num <= simNum);
+                if (phasesUpTo.length) {{
+                    company_cash_at_sim_phase += phasesUpTo[phasesUpTo.length - 1].projected_cash_after;
+                }} else {{
+                    company_cash_at_sim_phase += pd.current_cash;
+                }}
+            }});
+
+            const consMap = {{}};
+            all_projects_cashflow.forEach(pd => {{
+                (pd.phases || []).forEach(ph => {{
+                    const onum = ph.order_num;
+                    if (!consMap[onum]) {{
+                        consMap[onum] = {{
+                            order_num: onum,
+                            name: ph.name,
+                            cost_price: 0, selling_price: 0, actual_spent: 0, remaining_cost: 0,
+                            inflow_due: 0, inflow_received: 0, inflow_pending: 0, net_phase_flow: 0,
+                            progress_sum: 0, projects_count: 0, payments: []
+                        }};
+                    }}
+                    const c = consMap[onum];
+                    c.cost_price += ph.cost_price;
+                    c.selling_price += ph.selling_price;
+                    c.actual_spent += ph.actual_spent;
+                    c.remaining_cost += ph.remaining_cost;
+                    c.inflow_due += ph.inflow_due;
+                    c.inflow_received += ph.inflow_received;
+                    c.inflow_pending += ph.inflow_pending;
+                    c.net_phase_flow += ph.net_phase_flow;
+                    c.progress_sum += ph.progress_percent;
+                    c.projects_count += 1;
+                    if (ph.payments && ph.payments.length) c.payments.push(...ph.payments);
+                }});
+            }});
+
+            const consolidated_phases = [];
+            let company_running_cash = company_current_cash;
+            Object.keys(consMap).sort((a,b) => parseInt(a) - parseInt(b)).forEach(k => {{
+                const c = consMap[k];
+                company_running_cash += c.net_phase_flow;
+                c.projected_cash_after = company_running_cash;
+                c.progress_percent = Math.round((c.progress_sum / Math.max(1, c.projects_count)) * 10) / 10;
+                consolidated_phases.push(c);
+            }});
+
+            const company_sim_phase = consolidated_phases.find(cp => cp.order_num === simNum) || consolidated_phases[0] || null;
+
+            const summary = {{
+                opening_cash_balance: opening_cash,
+                total_contract_value: company_tot_contract,
+                total_received: company_tot_received,
+                total_spent: company_tot_spent,
+                current_net_cash: company_current_cash,
+                total_pending_inflow: company_tot_pending_inflow,
+                total_remaining_cost: company_tot_remaining_cost,
+                final_projected_cash: company_tot_final_cash,
+                company_cash_at_sim_phase: company_cash_at_sim_phase,
+                company_sim_phase: company_sim_phase,
+                sim_phase_num: simNum,
+                active_projects_count: (db.projects || []).length
+            }};
+
+            let dispProjects = all_projects_cashflow;
+            if (prjId) {{
+                dispProjects = all_projects_cashflow.filter(p => String(p.project_id) === String(prjId));
+            }}
+            const all_payments_flat = [];
+            dispProjects.forEach(p => all_payments_flat.push(...(p.all_payments || [])));
+
+            return new Response(JSON.stringify({{
+                success: true,
+                summary: summary,
+                projects: dispProjects,
+                consolidated_phases: consolidated_phases,
+                all_payments: all_payments_flat,
+                all_projects_list: all_projects_cashflow.map(p => ({{ id: p.project_id, name: p.name, code: p.code }})),
+                selected_project_id: prjId ? parseInt(prjId) : null
+            }}), {{ status: 200, headers: {{ 'Content-Type': 'application/json' }} }});
         }}
         
         // 10. HR SYSTEM OFFLINE ROUTES

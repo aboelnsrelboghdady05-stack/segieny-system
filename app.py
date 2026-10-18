@@ -3624,10 +3624,12 @@ def get_cashflow():
             'payments_count': len(enriched_payments)
         })
         
-    company_current_cash = company_tot_received - company_tot_spent
+    opening_cash = float(database.get_setting('opening_cash_balance', '300000.0') or 300000.0)
+    company_current_cash = opening_cash + company_tot_received - company_tot_spent
+    company_tot_final_cash += opening_cash
     
     # Calculate company cash at simulated phase across all projects
-    company_cash_at_sim_phase = 0.0
+    company_cash_at_sim_phase = opening_cash
     for pd in all_projects_cashflow:
         phases_up_to = [pf for pf in pd['phases'] if pf['order_num'] <= int(sim_phase_num)]
         if phases_up_to:
@@ -3684,6 +3686,7 @@ def get_cashflow():
         company_sim_phase = consolidated_phases[0]
 
     summary = {
+        'opening_cash_balance': opening_cash,
         'total_contract_value': company_tot_contract,
         'total_received': company_tot_received,
         'total_spent': company_tot_spent,
@@ -3716,6 +3719,22 @@ def get_cashflow():
         'all_projects_list': [{'id': p['project_id'], 'name': p['name'], 'code': p['code']} for p in all_projects_cashflow],
         'selected_project_id': int(project_id) if project_id else None
     })
+
+# ----------------- COMPANY SETTINGS API (OPENING CASH BALANCE) -----------------
+@app.route('/api/settings/opening-cash', methods=['GET', 'POST'])
+def manage_opening_cash():
+    if request.method == 'POST':
+        data = request.get_json() or {}
+        try:
+            val = float(data.get('opening_cash_balance', 300000.0))
+        except (ValueError, TypeError):
+            val = 300000.0
+        database.set_setting('opening_cash_balance', val)
+        return jsonify({'success': True, 'opening_cash_balance': val, 'message': 'تم تحديث الرصيد الافتتاحي للسيولة بنجاح'})
+    
+    val = float(database.get_setting('opening_cash_balance', '300000.0') or 300000.0)
+    return jsonify({'success': True, 'opening_cash_balance': val})
+
 
 # ----------------- DOCUMENTS & BLUEPRINTS API -----------------
 @app.route('/api/documents', methods=['GET'])

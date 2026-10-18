@@ -771,6 +771,10 @@
                         <label class="text-[11px] text-slate-400 block mb-1">بند الصرف (التصنيف):</label>
                         <select id="expense-filter-category" onchange="loadExpenses()" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white">
                             <option value="">جميع البنود والتصنيفات</option>
+                            <option value="مسحوبات صاحب الشركة / الشركاء">👤 مسحوبات صاحب الشركة / الشركاء</option>
+                            <option value="مصاريف عمومية وإدارية">🏢 مصاريف عمومية وإدارية ومقر</option>
+                            <option value="تراخيص واشتراكات عامة">🏛️ رسوم وتراخيص حكومية عامة</option>
+                            <option value="أتعاب مهنية واستشارات">💼 أتعاب مهنية واستشارات</option>
                             <option value="تجهيز موقع">تجهيز موقع (هدم، تسوير، لوحات، لوازم)</option>
                             <option value="رواتب وأجور">رواتب وأجور (مهندسين وإداريين وعمالة)</option>
                             <option value="بدلات ومكافآت">بدلات ومكافآت وحوافز موقع</option>
@@ -2880,16 +2884,24 @@
                     </div>
                     <div id="expense-category-select-wrapper">
                         <select id="expense-category" onchange="onExpenseCategoryChanged(this.value)" required class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2.5 text-white focus:border-emerald-500 text-sm">
-                            <option value="رواتب وأجور">رواتب وأجور (رواتب مهندسين وإداريين وعمالة محملة ع المشروع)</option>
-                            <option value="بدلات ومكافآت">بدلات ومكافآت وحوافز موقع</option>
-                            <option value="إيجارات وتشغيل">إيجارات ومعدات وسيارات تشغيلية</option>
-                            <option value="نثريات وضيافة">نثريات وضيافة ومصاريف موقع</option>
-                            <option value="مواد بناء">مواد بناء (حديد، أسمنت، خرسانة، طوب/بلك)</option>
-                            <option value="عمالة ومقاولين باطن">عمالة ومقاولين باطن (يوميات ومستخلصات)</option>
-                            <option value="معدات وآليات">معدات وآليات (أوناش، سقالات، حفار)</option>
-                            <option value="محروقات ونقل">محروقات ونقل وتشوينات</option>
-                            <option value="تراخيص وتأمينات">تراخيص وتأمينات ورسوم رسمية</option>
-                            <option value="إداريات ومكتب">إداريات ومطبوعات ومصاريف مكتب</option>
+                            <optgroup label="🏢 مصاريف عامة وخارج المشاريع ومسحوبات">
+                                <option value="مسحوبات صاحب الشركة / الشركاء">👤 مسحوبات صاحب الشركة / الشركاء (توزيعات أو سحب نقدية)</option>
+                                <option value="مصاريف عمومية وإدارية">🏢 مصاريف عمومية وإدارية (إيجار المقر، كهرباء، إنترنت، ضيافة)</option>
+                                <option value="تراخيص واشتراكات عامة">🏛️ رسوم واشتراكات وتراخيص حكومية عامة للمؤسسة</option>
+                                <option value="أتعاب مهنية واستشارات">💼 أتعاب مهنية وقانونية ومحاسبية واستشارات</option>
+                            </optgroup>
+                            <optgroup label="🏗️ تكاليف ومصاريف المشاريع المباشرة">
+                                <option value="مواد بناء">مواد بناء (حديد، أسمنت، خرسانة، طوب/بلك)</option>
+                                <option value="عمالة ومقاولين باطن">عمالة ومقاولين باطن (يوميات ومستخلصات)</option>
+                                <option value="معدات وآليات">معدات وآليات (أوناش، سقالات، حفار)</option>
+                                <option value="محروقات ونقل">محروقات ونقل وتشوينات</option>
+                                <option value="تراخيص وتأمينات">تراخيص وتأمينات ورسوم رسمية للموقع</option>
+                                <option value="رواتب وأجور">رواتب وأجور (رواتب مهندسين وإداريين وعمالة محملة ع المشروع)</option>
+                                <option value="بدلات ومكافآت">بدلات ومكافآت وحوافز موقع</option>
+                                <option value="إيجارات وتشغيل">إيجارات ومعدات وسيارات تشغيلية</option>
+                                <option value="نثريات وضيافة">نثريات وضيافة ومصاريف موقع</option>
+                                <option value="إداريات ومكتب">إداريات ومطبوعات ومصاريف مكتبية</option>
+                            </optgroup>
                             <option value="__custom__">➕ كتابة مسمى / تصنيف مخصص آخر...</option>
                         </select>
                     </div>
@@ -5892,7 +5904,7 @@
 
     <!-- Scripts -->
     <script src="/static/js/i18n.js?v=20261018_v2"></script>
-    <script src="/static/js/app.js?v=20261018_hr_v8"></script>
+    <script src="/static/js/app.js?v=20261018_hr_v9"></script>
     <script>
     (function() {
         try {

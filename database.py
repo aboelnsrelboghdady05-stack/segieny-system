@@ -646,6 +646,36 @@ def init_db():
         seed_hr_demo_data(cursor)
         conn.commit()
 
+    # Ensure corporate / HQ non-project account exists for G&A expenses and owner withdrawals
+    cursor.execute("SELECT id FROM projects WHERE code = 'HQ-GEN'")
+    if not cursor.fetchone():
+        cursor.execute('''
+            INSERT INTO projects (name, code, client_name, location, contract_value, start_date, end_date, status, progress_percent, manager_name, notes)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            '🏢 الإدارة العامة ومسحوبات الشركاء (خارج المشاريع)',
+            'HQ-GEN',
+            'شركة السجيني للمقاولات',
+            'المقر الرئيسي - الإدارة العامة',
+            0.0,
+            '2026-01-01',
+            '2030-12-31',
+            'in_progress',
+            100,
+            'ابوالنصر البغدادي',
+            'حساب عام لتسجيل المصاريف الإدارية والعمومية وتكاليف المقر ومسحوبات صاحب الشركة والشركاء لخصمها من الكاش فلو دون التأثير على أرباح مشاريع المقاولات'
+        ))
+        hq_id = cursor.lastrowid
+        cursor.execute('''
+            INSERT INTO project_phases (project_id, name, order_num, weight_percent, cost_price, selling_price, progress_percent, status, notes)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (hq_id, 'مسحوبات صاحب الشركة / الشركاء', 1, 50.0, 0.0, 0.0, 100, 'in_progress', 'مسحوبات نقدية وتوزيعات تحت الحساب للمالك أو الشركاء'))
+        cursor.execute('''
+            INSERT INTO project_phases (project_id, name, order_num, weight_percent, cost_price, selling_price, progress_percent, status, notes)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (hq_id, 'مصاريف إدارية وعمومية وتشغيل المقر', 2, 50.0, 0.0, 0.0, 100, 'in_progress', 'إيجار المقر، فواتير الكهرباء والإنترنت، الضيافة، والقرطاسية'))
+        conn.commit()
+
     conn.close()
 
 def seed_demo_data(cursor):

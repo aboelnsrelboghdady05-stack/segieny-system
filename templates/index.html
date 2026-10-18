@@ -4963,7 +4963,23 @@
     </div>
 
     <!-- Scripts -->
-    <script src="/static/js/i18n.js?v=20261013_exp1"></script>
-    <script src="/static/js/app.js?v=20261013_exp1"></script>
+    <script src="/static/js/i18n.js?v=20261018_v2"></script>
+    <script src="/static/js/app.js?v=20261018_v2"></script>
+    <script>
+    (function() {
+        try {
+            const raw = localStorage.getItem('segieny_auth_user') || localStorage.getItem('segieny_current_user');
+            if (raw) {
+                const u = JSON.parse(raw);
+                if (u && (u.username === 'baghdadi' || (u.name && u.name.includes('ابوالنصر')) || u.is_admin || u.id === 1)) {
+                    const nt = document.getElementById('nav-team');
+                    if (nt) nt.classList.remove('hidden');
+                    const mt = document.getElementById('menu-btn-team');
+                    if (mt) mt.classList.remove('hidden');
+                }
+            }
+        } catch(e) {}
+    })();
+    </script>
 </body>
 </html>

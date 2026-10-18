@@ -59,20 +59,20 @@ def build_standalone():
     const INITIAL_DB = {json.dumps(db_dump, ensure_ascii=False)};
     
     // Always sync or initialize LocalStorage
-    if (!localStorage.getItem('segieny_standalone_db_v3')) {{
-        localStorage.setItem('segieny_standalone_db_v3', JSON.stringify(INITIAL_DB));
+    if (!localStorage.getItem('segieny_standalone_db_v4')) {{
+        localStorage.setItem('segieny_standalone_db_v4', JSON.stringify(INITIAL_DB));
     }}
     
     function getDB() {{
         try {{
-            return JSON.parse(localStorage.getItem('segieny_standalone_db_v3')) || INITIAL_DB;
+            return JSON.parse(localStorage.getItem('segieny_standalone_db_v4')) || INITIAL_DB;
         }} catch(e) {{
             return INITIAL_DB;
         }}
     }}
     
     function saveDB(data) {{
-        localStorage.setItem('segieny_standalone_db_v3', JSON.stringify(data));
+        localStorage.setItem('segieny_standalone_db_v4', JSON.stringify(data));
     }}
 
     const originalFetch = window.fetch;
@@ -482,6 +482,260 @@ def build_standalone():
             return new Response(JSON.stringify(stats), {{ status: 200, headers: {{ 'Content-Type': 'application/json' }} }});
         }}
         
+        // 10. HR SYSTEM OFFLINE ROUTES
+        if (urlStr.includes('/api/hr/stats')) {{
+            const emps = db.hr_employees || [];
+            const activeEmps = emps.filter(e => e.status === 'active');
+            const monthlyPayroll = activeEmps.reduce((s, e) => s + (parseFloat(e.basic_salary) || 0) + (parseFloat(e.housing_allowance) || 0) + (parseFloat(e.transport_allowance) || 0) + (parseFloat(e.other_allowances) || 0), 0);
+            const activeLeaves = (db.hr_leaves || []).filter(l => l.status === 'approved').length;
+            const activeAdvances = (db.hr_advances || []).filter(a => a.status === 'active');
+            const remAdvances = activeAdvances.reduce((s, a) => s + (parseFloat(a.remaining_amount) || 0), 0);
+
+            const today = new Date();
+            let expCount = 0;
+            emps.forEach(e => {{
+                ['iqama_expiry_date', 'contract_end_date', 'insurance_expiry_date', 'passport_expiry_date'].forEach(f => {{
+                    if (e[f]) {{
+                        const diff = (new Date(e[f]) - today) / (1000 * 60 * 60 * 24);
+                        if (diff >= 0 && diff <= 60) expCount++;
+                    }}
+                }});
+            }});
+
+            return new Response(JSON.stringify({{
+                total_active: activeEmps.length,
+                total_employees: activeEmps.length,
+                monthly_payroll: monthlyPayroll,
+                total_monthly_payroll: monthlyPayroll,
+                on_leave: activeLeaves,
+                active_leaves: activeLeaves,
+                expiring_docs: expCount,
+                expiring_docs_60d: expCount,
+                total_advances: remAdvances,
+                remaining_advances: remAdvances
+            }}), {{ status: 200, headers: {{ 'Content-Type': 'application/json' }} }});
+        }}
+
+        if (urlStr.includes('/api/hr/employees')) {{
+            db.hr_employees = db.hr_employees || [];
+            if (method === 'GET') {{
+                return new Response(JSON.stringify(db.hr_employees), {{ status: 200, headers: {{ 'Content-Type': 'application/json' }} }});
+            }} else if (method === 'POST') {{
+                const newEmp = Object.assign({{}}, body, {{
+                    id: Date.now(),
+                    created_at: new Date().toISOString()
+                }});
+                db.hr_employees.push(newEmp);
+                saveDB(db);
+                return new Response(JSON.stringify({{ success: true, id: newEmp.id, message: 'تمت إضافة الموظف بنجاح' }}), {{ status: 200, headers: {{ 'Content-Type': 'application/json' }} }});
+            }} else if (method === 'PUT') {{
+                const id = parseInt(urlStr.split('/').pop());
+                const idx = db.hr_employees.findIndex(e => e.id === id);
+                if (idx !== -1) {{
+                    db.hr_employees[idx] = Object.assign(db.hr_employees[idx], body);
+                    saveDB(db);
+                }}
+                return new Response(JSON.stringify({{ success: true, message: 'تم تحديث بيانات الموظف بنجاح' }}), {{ status: 200, headers: {{ 'Content-Type': 'application/json' }} }});
+            }} else if (method === 'DELETE') {{
+                const id = parseInt(urlStr.split('/').pop());
+                db.hr_employees = db.hr_employees.filter(e => e.id !== id);
+                saveDB(db);
+                return new Response(JSON.stringify({{ success: true, message: 'تم حذف الموظف بنجاح' }}), {{ status: 200, headers: {{ 'Content-Type': 'application/json' }} }});
+            }}
+        }}
+
+        if (urlStr.includes('/api/hr/payrolls')) {{
+            db.hr_payrolls = db.hr_payrolls || [];
+            db.hr_payroll_items = db.hr_payroll_items || [];
+            if (urlStr.match(/\\/api\\/hr\\/payrolls\\/\\d+\\/status/) && method === 'PUT') {{
+                const id = parseInt(urlStr.split('/')[4]);
+                const p = db.hr_payrolls.find(item => item.id === id);
+                if (p) {{
+                    p.status = body.status || 'approved';
+                    saveDB(db);
+                }}
+                return new Response(JSON.stringify({{ success: true, message: 'تم تحديث حالة المسير بنجاح' }}), {{ status: 200, headers: {{ 'Content-Type': 'application/json' }} }});
+            }}
+            if (urlStr.match(/\\/api\\/hr\\/payrolls\\/\\d+$/)) {{
+                const id = parseInt(urlStr.split('/').pop());
+                if (method === 'GET') {{
+                    const p = db.hr_payrolls.find(item => item.id === id);
+                    if (p) {{
+                        const items = db.hr_payroll_items.filter(it => it.payroll_id === id);
+                        return new Response(JSON.stringify({{ payroll: p, items: items }}), {{ status: 200, headers: {{ 'Content-Type': 'application/json' }} }});
+                    }}
+                    return new Response(JSON.stringify({{ error: 'Not found' }}), {{ status: 404, headers: {{ 'Content-Type': 'application/json' }} }});
+                }} else if (method === 'DELETE') {{
+                    db.hr_payrolls = db.hr_payrolls.filter(item => item.id !== id);
+                    db.hr_payroll_items = db.hr_payroll_items.filter(it => it.payroll_id !== id);
+                    saveDB(db);
+                    return new Response(JSON.stringify({{ success: true, message: 'تم حذف المسير بنجاح' }}), {{ status: 200, headers: {{ 'Content-Type': 'application/json' }} }});
+                }}
+            }}
+            if (method === 'GET') {{
+                return new Response(JSON.stringify(db.hr_payrolls), {{ status: 200, headers: {{ 'Content-Type': 'application/json' }} }});
+            }} else if (method === 'POST') {{
+                const activeEmps = (db.hr_employees || []).filter(e => e.status === 'active');
+                const mYear = body.month_year || body.month || new Date().toISOString().slice(0, 7);
+                const pId = Date.now();
+                let totBasic = 0, totAllow = 0, totDed = 0, totNet = 0;
+                activeEmps.forEach(e => {{
+                    const b = parseFloat(e.basic_salary) || 0;
+                    const a = (parseFloat(e.housing_allowance) || 0) + (parseFloat(e.transport_allowance) || 0) + (parseFloat(e.other_allowances) || 0);
+                    const net = b + a;
+                    totBasic += b; totAllow += a; totNet += net;
+                    db.hr_payroll_items.push({{
+                        id: Date.now() + Math.random(),
+                        payroll_id: pId,
+                        employee_id: e.id,
+                        employee_name: e.name,
+                        job_title: e.job_title,
+                        basic_salary: b,
+                        allowances: a,
+                        deductions: 0,
+                        advances_deducted: 0,
+                        net_salary: net,
+                        iban: e.iban || ''
+                    }});
+                }});
+                const newP = {{
+                    id: pId,
+                    month_year: mYear,
+                    total_basic: totBasic,
+                    total_allowances: totAllow,
+                    total_deductions: 0,
+                    total_net: totNet,
+                    employees_count: activeEmps.length,
+                    status: 'draft',
+                    notes: body.notes || ''
+                }};
+                db.hr_payrolls.unshift(newP);
+                saveDB(db);
+                return new Response(JSON.stringify({{ success: true, id: pId, message: 'تم إصدار المسير بنجاح' }}), {{ status: 200, headers: {{ 'Content-Type': 'application/json' }} }});
+            }}
+        }}
+
+        if (urlStr.includes('/api/hr/leaves')) {{
+            db.hr_leaves = db.hr_leaves || [];
+            if (method === 'GET') {{
+                return new Response(JSON.stringify(db.hr_leaves), {{ status: 200, headers: {{ 'Content-Type': 'application/json' }} }});
+            }} else if (method === 'POST') {{
+                const emp = (db.hr_employees || []).find(e => e.id == body.employee_id);
+                const newLeave = Object.assign({{}}, body, {{
+                    id: Date.now(),
+                    employee_name: emp ? emp.name : 'موظف',
+                    status: 'approved'
+                }});
+                db.hr_leaves.unshift(newLeave);
+                if (emp && body.days_count) {{
+                    emp.vacation_balance = Math.max(0, (emp.vacation_balance || 30) - parseInt(body.days_count));
+                }}
+                saveDB(db);
+                return new Response(JSON.stringify({{ success: true, message: 'تم اعتماد الإجازة بنجاح' }}), {{ status: 200, headers: {{ 'Content-Type': 'application/json' }} }});
+            }} else if (method === 'DELETE') {{
+                const id = parseInt(urlStr.split('/').pop());
+                db.hr_leaves = db.hr_leaves.filter(l => l.id !== id);
+                saveDB(db);
+                return new Response(JSON.stringify({{ success: true, message: 'تم حذف الإجازة بنجاح' }}), {{ status: 200, headers: {{ 'Content-Type': 'application/json' }} }});
+            }}
+        }}
+
+        if (urlStr.includes('/api/hr/advances')) {{
+            db.hr_advances = db.hr_advances || [];
+            if (method === 'GET') {{
+                return new Response(JSON.stringify(db.hr_advances), {{ status: 200, headers: {{ 'Content-Type': 'application/json' }} }});
+            }} else if (method === 'POST') {{
+                const emp = (db.hr_employees || []).find(e => e.id == body.employee_id);
+                const newAdv = Object.assign({{}}, body, {{
+                    id: Date.now(),
+                    employee_name: emp ? emp.name : 'موظف',
+                    paid_amount: 0,
+                    remaining_amount: parseFloat(body.amount) || 0,
+                    request_date: body.request_date || body.advance_date || new Date().toISOString().slice(0, 10),
+                    status: 'active'
+                }});
+                db.hr_advances.unshift(newAdv);
+                saveDB(db);
+                return new Response(JSON.stringify({{ success: true, message: 'تم صرف السلفة بنجاح' }}), {{ status: 200, headers: {{ 'Content-Type': 'application/json' }} }});
+            }} else if (method === 'DELETE') {{
+                const id = parseInt(urlStr.split('/').pop());
+                db.hr_advances = db.hr_advances.filter(a => a.id !== id);
+                saveDB(db);
+                return new Response(JSON.stringify({{ success: true, message: 'تم حذف السلفة بنجاح' }}), {{ status: 200, headers: {{ 'Content-Type': 'application/json' }} }});
+            }}
+        }}
+
+        if (urlStr.includes('/api/hr/expirations')) {{
+            const today = new Date();
+            const docs = [];
+            (db.hr_employees || []).forEach(e => {{
+                const fields = [
+                    {{ key: 'iqama_expiry_date', type: 'الإقامة / الهوية', icon: 'file-badge' }},
+                    {{ key: 'contract_end_date', type: 'عقد العمل', icon: 'file-text' }},
+                    {{ key: 'insurance_expiry_date', type: 'التأمين الطبي', icon: 'shield-plus' }},
+                    {{ key: 'passport_expiry_date', type: 'جواز السفر', icon: 'plane' }}
+                ];
+                fields.forEach(f => {{
+                    if (e[f.key]) {{
+                        const diff = Math.ceil((new Date(e[f.key]) - today) / (1000 * 60 * 60 * 24));
+                        if (diff >= 0 && diff <= 60) {{
+                            docs.push({{
+                                employee_id: e.id,
+                                employee_name: e.name,
+                                job_title: e.job_title,
+                                department: e.department,
+                                doc_type: f.type,
+                                expiry_date: e[f.key],
+                                days_left: diff,
+                                urgency: diff <= 15 ? 'critical' : (diff <= 30 ? 'warning' : 'notice')
+                            }});
+                        }}
+                    }}
+                }});
+            }});
+            docs.sort((a, b) => a.days_left - b.days_left);
+            return new Response(JSON.stringify(docs), {{ status: 200, headers: {{ 'Content-Type': 'application/json' }} }});
+        }}
+
+        if (urlStr.includes('/api/hr/eos-calculate')) {{
+            const basic = parseFloat(body.basic_salary) || 0;
+            const allow = parseFloat(body.allowances) || 0;
+            const totalSal = basic + allow;
+            const y = parseFloat(body.years) || 0;
+            const m = parseFloat(body.months) || 0;
+            const d = parseFloat(body.days) || 0;
+            const totalYears = y + (m / 12) + (d / 365);
+
+            let first5 = 0, after5 = 0;
+            if (totalYears <= 5) {{
+                first5 = totalYears * (totalSal / 2);
+            }} else {{
+                first5 = 5 * (totalSal / 2);
+                after5 = (totalYears - 5) * totalSal;
+            }}
+            const unadjusted = first5 + after5;
+            let mult = 1.0;
+            let note = 'استحقاق كامل (100%)';
+            if (body.reason === 'resignation') {{
+                if (totalYears < 2) {{ mult = 0.0; note = 'لا يستحق مكافأة (خدمة أقل من سنتين)'; }}
+                else if (totalYears < 5) {{ mult = 1.0 / 3.0; note = 'يستحق ثلث المكافأة (خدمة من 2 إلى 5 سنوات)'; }}
+                else if (totalYears < 10) {{ mult = 2.0 / 3.0; note = 'يستحق ثلثي المكافأة (خدمة من 5 إلى 10 سنوات)'; }}
+                else {{ mult = 1.0; note = 'يستحق كامل المكافأة (خدمة 10 سنوات فأكثر)'; }}
+            }}
+            const finalAmt = Math.round(unadjusted * mult * 100) / 100;
+            return new Response(JSON.stringify({{
+                success: true,
+                total_salary: totalSal,
+                total_years_fraction: Math.round(totalYears * 100) / 100,
+                first_5_years_amount: Math.round(first5 * 100) / 100,
+                after_5_years_amount: Math.round(after5 * 100) / 100,
+                unadjusted_eos_amount: Math.round(unadjusted * 100) / 100,
+                multiplier: mult,
+                reduction_note: note,
+                final_eos_amount: finalAmt
+            }}), {{ status: 200, headers: {{ 'Content-Type': 'application/json' }} }});
+        }}
+
         return originalFetch.apply(this, arguments);
     }};
 }})();

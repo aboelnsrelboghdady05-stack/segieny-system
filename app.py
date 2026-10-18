@@ -4118,18 +4118,18 @@ def add_hr_employee():
         data.get('email', ''),
         data.get('join_date', ''),
         data.get('contract_type', 'محدد المدة'),
-        data.get('contract_end_date', ''),
-        data.get('iqama_expiry_date', ''),
-        data.get('insurance_expiry_date', ''),
-        data.get('passport_expiry_date', ''),
+        data.get('contract_end_date') or data.get('contract_end', ''),
+        data.get('iqama_expiry_date') or data.get('iqama_expiry', ''),
+        data.get('insurance_expiry_date') or data.get('medical_insurance_expiry', ''),
+        data.get('passport_expiry_date') or data.get('passport_expiry', ''),
         float(data.get('basic_salary') or 0),
         float(data.get('housing_allowance') or 0),
         float(data.get('transport_allowance') or 0),
-        float(data.get('other_allowances') or 0),
+        float(data.get('other_allowances') or data.get('other_allowance') or 0),
         data.get('bank_name', 'مصرف الراجحي'),
-        data.get('iban', ''),
+        data.get('iban') or data.get('bank_iban', ''),
         data.get('status', 'active'),
-        int(data.get('vacation_balance') or 30),
+        int(data.get('vacation_balance') or data.get('annual_leave_balance') or 30),
         data.get('notes', '')
     ))
     new_id = cursor.lastrowid
@@ -4204,18 +4204,18 @@ def update_hr_employee(id):
         data.get('email', ''),
         data.get('join_date', ''),
         data.get('contract_type', 'محدد المدة'),
-        data.get('contract_end_date', ''),
-        data.get('iqama_expiry_date', ''),
-        data.get('insurance_expiry_date', ''),
-        data.get('passport_expiry_date', ''),
+        data.get('contract_end_date') or data.get('contract_end', ''),
+        data.get('iqama_expiry_date') or data.get('iqama_expiry', ''),
+        data.get('insurance_expiry_date') or data.get('medical_insurance_expiry', ''),
+        data.get('passport_expiry_date') or data.get('passport_expiry', ''),
         float(data.get('basic_salary') or 0),
         float(data.get('housing_allowance') or 0),
         float(data.get('transport_allowance') or 0),
-        float(data.get('other_allowances') or 0),
+        float(data.get('other_allowances') or data.get('other_allowance') or 0),
         data.get('bank_name', 'مصرف الراجحي'),
-        data.get('iban', ''),
+        data.get('iban') or data.get('bank_iban', ''),
         data.get('status', 'active'),
-        int(data.get('vacation_balance') or 30),
+        int(data.get('vacation_balance') or data.get('annual_leave_balance') or 30),
         data.get('notes', ''),
         id
     ))
@@ -4245,7 +4245,7 @@ def get_hr_payrolls():
 @app.route('/api/hr/payrolls', methods=['POST'])
 def generate_hr_payroll():
     data = request.json or {}
-    month_year = data.get('month_year') or datetime.now().strftime('%Y-%m')
+    month_year = data.get('month_year') or data.get('month') or datetime.now().strftime('%Y-%m')
     notes = data.get('notes', '')
 
     conn = database.get_db_connection()
@@ -4458,7 +4458,7 @@ def add_hr_advance():
     employee_id = data.get('employee_id')
     amount = float(data.get('amount') or 0)
     monthly_deduction = float(data.get('monthly_deduction') or 0)
-    request_date = data.get('request_date') or datetime.now().strftime('%Y-%m-%d')
+    request_date = data.get('request_date') or data.get('advance_date') or datetime.now().strftime('%Y-%m-%d')
     notes = data.get('notes', '')
 
     if not employee_id or amount <= 0:

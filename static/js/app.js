@@ -12094,7 +12094,7 @@ function switchHrSubTab(subTabId) {
 
 async function loadHrData() {
     try {
-        await Promise.all([
+        await Promise.allSettled([
             loadHrStats(),
             loadHrEmployees(),
             loadHrPayrolls(),
@@ -12119,7 +12119,7 @@ async function loadHrStats() {
         const expEl = document.getElementById('stat-hr-expirations');
         const advEl = document.getElementById('stat-hr-advances');
         const badgeCount = document.getElementById('badge-hr-expirations-count');
-        const navAlert = document.getElementById('nav-hr-alert');
+        const navAlert = document.getElementById('badge-hr-alerts') || document.getElementById('nav-hr-alert');
 
         const totalEmployees = data.total_active ?? data.total_employees ?? 0;
         const totalPayroll = data.monthly_payroll ?? data.total_monthly_payroll ?? 0;
@@ -12230,7 +12230,15 @@ function renderHrEmployees() {
     const html = filtered.map(emp => {
         const cleanName = (emp.name || '').replace(/^(م\.|أ\.|Eng\.)\s*/, '').trim();
         const initial = cleanName.charAt(0) || 'م';
-        const totalSalary = (parseFloat(emp.basic_salary) || 0) + (parseFloat(emp.housing_allowance) || 0) + (parseFloat(emp.transport_allowance) || 0) + (parseFloat(emp.other_allowance) || 0);
+        const basicSalary = parseFloat(emp.basic_salary) || 0;
+        const housing = parseFloat(emp.housing_allowance) || 0;
+        const transport = parseFloat(emp.transport_allowance) || 0;
+        const other = parseFloat(emp.other_allowances ?? emp.other_allowance) || 0;
+        const totalSalary = basicSalary + housing + transport + other;
+
+        const iqamaEnd = emp.iqama_expiry_date || emp.iqama_expiry || '';
+        const contractEnd = emp.contract_end_date || emp.contract_end || '';
+        const vacationBal = emp.vacation_balance ?? emp.annual_leave_balance ?? 30;
 
         let statusBadge = '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">● على رأس العمل</span>';
         if (emp.status === 'on_leave') {
@@ -12272,7 +12280,7 @@ function renderHrEmployees() {
                     <div class="p-3 rounded-xl bg-slate-900 border border-slate-800 grid grid-cols-2 gap-2 text-xs">
                         <div>
                             <span class="text-[10px] text-slate-400 block">الراتب الأساسي</span>
-                            <span class="font-black text-white font-mono">${formatCurrency(emp.basic_salary || 0)}</span>
+                            <span class="font-black text-white font-mono">${formatCurrency(basicSalary)}</span>
                         </div>
                         <div>
                             <span class="text-[10px] text-emerald-400 block font-bold">إجمالي الراتب + البدلات</span>
@@ -12282,16 +12290,16 @@ function renderHrEmployees() {
 
                     <!-- Document Expiry Dates -->
                     <div class="space-y-1 text-[11px] text-slate-400 pt-1 border-t border-slate-800/80">
-                        ${emp.iqama_expiry ? `
+                        ${iqamaEnd ? `
                             <div class="flex items-center justify-between">
                                 <span>انتهاء الإقامة/الهوية:</span>
-                                <span class="font-mono text-slate-300 font-semibold">${emp.iqama_expiry}</span>
+                                <span class="font-mono text-slate-300 font-semibold">${iqamaEnd}</span>
                             </div>
                         ` : ''}
-                        ${emp.contract_end ? `
+                        ${contractEnd ? `
                             <div class="flex items-center justify-between">
                                 <span>انتهاء العقد:</span>
-                                <span class="font-mono text-slate-300 font-semibold">${emp.contract_end}</span>
+                                <span class="font-mono text-slate-300 font-semibold">${contractEnd}</span>
                             </div>
                         ` : ''}
                         ${emp.join_date ? `
@@ -12307,7 +12315,7 @@ function renderHrEmployees() {
                 <div class="flex items-center justify-between pt-3 border-t border-slate-750/70 text-xs">
                     <div class="text-[10px] text-slate-400">
                         <span>رصيد الإجازات: </span>
-                        <span class="text-amber-400 font-bold font-mono">${emp.annual_leave_balance || 30} يوم</span>
+                        <span class="text-amber-400 font-bold font-mono">${vacationBal} يوم</span>
                     </div>
                     <div class="flex items-center gap-1.5">
                         <button type="button" onclick="openEditHrEmployeeModal(${emp.id})" class="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-750 text-indigo-300 hover:text-white border border-slate-700 text-xs font-bold transition flex items-center gap-1">
@@ -12371,16 +12379,16 @@ function openEditHrEmployeeModal(id) {
     document.getElementById('hr-emp-basic').value = emp.basic_salary || 0;
     document.getElementById('hr-emp-housing').value = emp.housing_allowance || 0;
     document.getElementById('hr-emp-transport').value = emp.transport_allowance || 0;
-    document.getElementById('hr-emp-other').value = emp.other_allowance || 0;
+    document.getElementById('hr-emp-other').value = emp.other_allowances ?? emp.other_allowance ?? 0;
 
     document.getElementById('hr-emp-bank').value = emp.bank_name || '';
-    document.getElementById('hr-emp-iban').value = emp.bank_iban || '';
+    document.getElementById('hr-emp-iban').value = emp.iban || emp.bank_iban || '';
 
     document.getElementById('hr-emp-joindate').value = emp.join_date || '';
-    document.getElementById('hr-emp-contract-end').value = emp.contract_end || '';
-    document.getElementById('hr-emp-iqama-end').value = emp.iqama_expiry || '';
-    document.getElementById('hr-emp-insurance-end').value = emp.medical_insurance_expiry || '';
-    document.getElementById('hr-emp-passport-end').value = emp.passport_expiry || '';
+    document.getElementById('hr-emp-contract-end').value = emp.contract_end_date || emp.contract_end || '';
+    document.getElementById('hr-emp-iqama-end').value = emp.iqama_expiry_date || emp.iqama_expiry || '';
+    document.getElementById('hr-emp-insurance-end').value = emp.insurance_expiry_date || emp.medical_insurance_expiry || '';
+    document.getElementById('hr-emp-passport-end').value = emp.passport_expiry_date || emp.passport_expiry || '';
 
     document.getElementById('hr-emp-modal-title').innerText = 'تعديل بيانات الموظف: ' + emp.name;
     openModal('hr-employee-modal');
@@ -12517,7 +12525,7 @@ function renderHrPayrolls() {
                     </div>
                     <div>
                         <div class="flex items-center gap-2">
-                            <h4 class="font-black text-sm text-white">مسير رواتب: <span class="font-mono text-emerald-400">${p.month}</span></h4>
+                            <h4 class="font-black text-sm text-white">مسير رواتب: <span class="font-mono text-emerald-400">${p.month_year || p.month || ''}</span></h4>
                             ${statusBadge}
                         </div>
                         <p class="text-xs text-slate-400 mt-0.5">${p.notes || 'مسير الرواتب الشهرية والبدلات وخصم السلف'}</p>
@@ -12527,7 +12535,7 @@ function renderHrPayrolls() {
                 <div class="flex flex-wrap items-center gap-4 sm:gap-6">
                     <div>
                         <span class="text-[10px] text-slate-400 block font-medium">عدد الموظفين</span>
-                        <span class="font-black text-sm text-white font-mono">${p.total_employees} موظف</span>
+                        <span class="font-black text-sm text-white font-mono">${p.employees_count ?? p.total_employees ?? 0} موظف</span>
                     </div>
                     <div>
                         <span class="text-[10px] text-slate-400 block font-medium">صافي المسير</span>
@@ -12626,10 +12634,10 @@ async function viewHrPayrollDetails(id) {
         }
 
         currentHrPayrollDetail = data;
-        const payroll = data.payroll;
-        const items = data.items || [];
+        const payroll = data.payroll || data;
+        const items = data.items || payroll.items || [];
 
-        document.getElementById('hr-payroll-view-title').innerText = `مسير رواتب شهر: ${payroll.month}`;
+        document.getElementById('hr-payroll-view-title').innerText = `مسير رواتب شهر: ${payroll.month_year || payroll.month || ''}`;
         document.getElementById('hr-payroll-view-date').innerText = `تاريخ الإنشاء: ${payroll.created_at || ''}`;
 
         // Status badge
@@ -12656,23 +12664,29 @@ async function viewHrPayrollDetails(id) {
         if (items.length === 0) {
             tbody.innerHTML = '<tr><td colspan="9" class="p-6 text-center text-slate-400">لا توجد بنود مسجلة في هذا المسير</td></tr>';
         } else {
-            tbody.innerHTML = items.map((it, idx) => `
-                <tr class="hover:bg-slate-800/50 transition">
-                    <td class="p-3 text-slate-400">${idx + 1}</td>
-                    <td class="p-3 font-bold text-white font-sans">${it.employee_name}</td>
-                    <td class="p-3 text-slate-300 font-sans">${it.job_title}</td>
-                    <td class="p-3">${formatCurrency(it.basic_salary)}</td>
-                    <td class="p-3">${formatCurrency(it.housing_allowance + it.transport_allowance + it.other_allowance)}</td>
-                    <td class="p-3 text-rose-400">${formatCurrency(it.advances_deduction + it.other_deductions)}</td>
-                    <td class="p-3 font-black text-emerald-400 text-xs">${formatCurrency(it.net_salary)}</td>
-                    <td class="p-3 text-slate-400 text-[10px]">${it.bank_iban || 'غير مسجل'}</td>
-                    <td class="p-3 text-center">
-                        <span class="px-2 py-0.5 rounded-full text-[9px] font-bold ${payroll.status === 'paid' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-slate-800 text-slate-400'}">
-                            ${payroll.status === 'paid' ? 'تم التحويل' : 'جاهز'}
-                        </span>
-                    </td>
-                </tr>
-            `).join('');
+            tbody.innerHTML = items.map((it, idx) => {
+                const itAllowances = parseFloat(it.allowances ?? (parseFloat(it.housing_allowance || 0) + parseFloat(it.transport_allowance || 0) + parseFloat(it.other_allowances || 0))) || 0;
+                const itDeductions = parseFloat(it.advances_deducted ?? it.advances_deduction ?? it.deductions) || 0;
+                const itIban = it.iban || it.bank_iban || 'غير مسجل';
+
+                return `
+                    <tr class="hover:bg-slate-800/50 transition">
+                        <td class="p-3 text-slate-400">${idx + 1}</td>
+                        <td class="p-3 font-bold text-white font-sans">${it.employee_name}</td>
+                        <td class="p-3 text-slate-300 font-sans">${it.job_title}</td>
+                        <td class="p-3">${formatCurrency(it.basic_salary)}</td>
+                        <td class="p-3">${formatCurrency(itAllowances)}</td>
+                        <td class="p-3 text-rose-400">${formatCurrency(itDeductions)}</td>
+                        <td class="p-3 font-black text-emerald-400 text-xs">${formatCurrency(it.net_salary)}</td>
+                        <td class="p-3 text-slate-400 text-[10px]">${itIban}</td>
+                        <td class="p-3 text-center">
+                            <span class="px-2 py-0.5 rounded-full text-[9px] font-bold ${payroll.status === 'paid' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-slate-800 text-slate-400'}">
+                                ${payroll.status === 'paid' ? 'تم التحويل' : 'جاهز'}
+                            </span>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
         }
 
         // Actions Container
@@ -12903,7 +12917,7 @@ function renderHrAdvances() {
         <tr class="hover:bg-slate-800/40 transition">
             <td class="p-3.5 font-bold text-white font-sans">${a.employee_name}</td>
             <td class="p-3.5 font-black text-white font-mono">${formatCurrency(a.amount)}</td>
-            <td class="p-3.5 font-mono text-slate-300">${a.advance_date}</td>
+            <td class="p-3.5 font-mono text-slate-300">${a.request_date || a.advance_date || ''}</td>
             <td class="p-3.5 font-mono text-amber-400 font-bold">${formatCurrency(a.monthly_deduction)}</td>
             <td class="p-3.5 font-mono text-emerald-400">${formatCurrency(a.paid_amount || 0)}</td>
             <td class="p-3.5 font-mono text-rose-400 font-black">${formatCurrency(a.remaining_amount || 0)}</td>
@@ -13076,7 +13090,7 @@ function onEosEmployeeSelected() {
 
     // Fill salary
     document.getElementById('eos-basic-salary').value = emp.basic_salary || 0;
-    const allowances = (parseFloat(emp.housing_allowance) || 0) + (parseFloat(emp.transport_allowance) || 0) + (parseFloat(emp.other_allowance) || 0);
+    const allowances = (parseFloat(emp.housing_allowance) || 0) + (parseFloat(emp.transport_allowance) || 0) + (parseFloat(emp.other_allowances ?? emp.other_allowance) || 0);
     document.getElementById('eos-allowances').value = allowances;
 
     // Calculate duration from join_date

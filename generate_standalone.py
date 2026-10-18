@@ -26,7 +26,12 @@ def build_standalone():
         'client_payments': get_all('client_payments'),
         'team_members': get_all('team_members'),
         'custody_requests': get_all('custody_requests'),
-        'notifications': get_all('notifications')
+        'notifications': get_all('notifications'),
+        'hr_employees': get_all('hr_employees'),
+        'hr_payrolls': get_all('hr_payrolls'),
+        'hr_payroll_items': get_all('hr_payroll_items'),
+        'hr_leaves': get_all('hr_leaves'),
+        'hr_advances': get_all('hr_advances')
     }
     conn.close()
 

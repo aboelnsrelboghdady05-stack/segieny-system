@@ -525,6 +525,112 @@ def init_db():
     exp_cols = [r[1] for r in cursor.fetchall()]
     if 'custody_id' not in exp_cols:
         cursor.execute('ALTER TABLE expenses ADD COLUMN custody_id INTEGER REFERENCES custody_requests(id) ON DELETE SET NULL')
+    # HR Tables (إدارة الموارد البشرية وشؤون الموظفين)
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS hr_employees (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        team_member_id INTEGER,
+        name TEXT NOT NULL,
+        national_id TEXT,
+        nationality TEXT DEFAULT 'سعودي',
+        job_title TEXT NOT NULL,
+        department TEXT DEFAULT 'المشاريع الهندسية',
+        project_id INTEGER,
+        phone TEXT,
+        email TEXT,
+        join_date TEXT,
+        contract_type TEXT DEFAULT 'محدد المدة',
+        contract_end_date TEXT,
+        iqama_expiry_date TEXT,
+        insurance_expiry_date TEXT,
+        passport_expiry_date TEXT,
+        basic_salary REAL DEFAULT 0,
+        housing_allowance REAL DEFAULT 0,
+        transport_allowance REAL DEFAULT 0,
+        other_allowances REAL DEFAULT 0,
+        bank_name TEXT DEFAULT 'مصرف الراجحي',
+        iban TEXT,
+        status TEXT DEFAULT 'active',
+        vacation_balance INTEGER DEFAULT 30,
+        notes TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL,
+        FOREIGN KEY (team_member_id) REFERENCES team_members(id) ON DELETE SET NULL
+    )
+    ''')
+
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS hr_payrolls (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        month_year TEXT NOT NULL,
+        total_basic REAL DEFAULT 0,
+        total_allowances REAL DEFAULT 0,
+        total_deductions REAL DEFAULT 0,
+        total_advances REAL DEFAULT 0,
+        total_net REAL DEFAULT 0,
+        employees_count INTEGER DEFAULT 0,
+        status TEXT DEFAULT 'draft', -- draft, approved, paid
+        approved_by TEXT,
+        payment_date TEXT,
+        notes TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    ''')
+
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS hr_payroll_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        payroll_id INTEGER NOT NULL,
+        employee_id INTEGER NOT NULL,
+        employee_name TEXT NOT NULL,
+        job_title TEXT,
+        basic_salary REAL DEFAULT 0,
+        allowances REAL DEFAULT 0,
+        overtime_amount REAL DEFAULT 0,
+        bonus_amount REAL DEFAULT 0,
+        deductions REAL DEFAULT 0,
+        advances_deducted REAL DEFAULT 0,
+        net_salary REAL NOT NULL,
+        iban TEXT,
+        status TEXT DEFAULT 'pending',
+        notes TEXT,
+        FOREIGN KEY (payroll_id) REFERENCES hr_payrolls(id) ON DELETE CASCADE,
+        FOREIGN KEY (employee_id) REFERENCES hr_employees(id) ON DELETE CASCADE
+    )
+    ''')
+
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS hr_leaves (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        employee_id INTEGER NOT NULL,
+        employee_name TEXT NOT NULL,
+        leave_type TEXT NOT NULL, -- سنوية, مرضية, اضطرارية, زواج, أخرى
+        start_date TEXT NOT NULL,
+        end_date TEXT NOT NULL,
+        days_count INTEGER NOT NULL DEFAULT 1,
+        status TEXT DEFAULT 'approved', -- pending, approved, rejected
+        notes TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (employee_id) REFERENCES hr_employees(id) ON DELETE CASCADE
+    )
+    ''')
+
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS hr_advances (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        employee_id INTEGER NOT NULL,
+        employee_name TEXT NOT NULL,
+        amount REAL NOT NULL,
+        request_date TEXT NOT NULL,
+        monthly_deduction REAL DEFAULT 0,
+        paid_amount REAL DEFAULT 0,
+        remaining_amount REAL NOT NULL,
+        status TEXT DEFAULT 'active', -- active, settled, pending
+        notes TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (employee_id) REFERENCES hr_employees(id) ON DELETE CASCADE
+    )
+    ''')
 
     conn.commit()
 
@@ -532,6 +638,12 @@ def init_db():
     cursor.execute('SELECT COUNT(*) FROM projects')
     if cursor.fetchone()[0] == 0:
         seed_demo_data(cursor)
+        conn.commit()
+
+    # Seed HR employees if empty
+    cursor.execute('SELECT COUNT(*) FROM hr_employees')
+    if cursor.fetchone()[0] == 0:
+        seed_hr_demo_data(cursor)
         conn.commit()
 
     conn.close()
@@ -659,3 +771,62 @@ def seed_demo_data(cursor):
     INSERT INTO messages (sender_id, sender_name, sender_role, recipient_id, channel_type, project_id, message, attachment_path, attachment_name)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''', messages)
+
+def seed_hr_demo_data(cursor):
+    # Initial Employees for Saudi Contracting HR
+    employees = [
+        (1, 'ابوالنصر البغدادي', '1098765432', 'سعودي', 'المدير المالي', 'الإدارة المالية', None, '0501234567', 'baghdadi@segieny.sa', '2022-01-01', 'غير محدد المدة', '2028-12-31', '2028-12-31', '2027-06-30', '2029-05-15', 18000.0, 4500.0, 1500.0, 1000.0, 'مصرف الراجحي', 'SA0380000000123456789012', 'active', 30, 'المشرف المالي العام على كافة حسابات الشركة والمشاريع'),
+        (2, 'مهندس جهاد', '2233445566', 'أردني', 'مدير المشاريع', 'إدارة المشاريع', 1, '0552345678', 'jihad@segieny.sa', '2022-03-15', 'محدد المدة', '2027-03-14', '2027-04-10', '2027-01-20', '2028-02-18', 16000.0, 4000.0, 1500.0, 1000.0, 'البنك الأهلي السعودي', 'SA4410000000987654321098', 'active', 28, 'إدارة ومتابعة كافة المواقع والمشاريع ونسب الإنجاز'),
+        (3, 'نواف سجيني', '1012345678', 'سعودي', 'المدير العام', 'الإدارة العليا', None, '0503334455', 'nawaf@segieny.sa', '2020-01-01', 'غير محدد المدة', '2030-12-31', '2030-12-31', '2027-12-31', '2029-10-10', 25000.0, 6000.0, 2000.0, 2000.0, 'بنك الرياض', 'SA5520000000554433221100', 'active', 30, 'المدير التنفيذي العام لمجموعة السجيني للمقاولات'),
+        (None, 'م. فادي القحطاني', '1088776655', 'سعودي', 'مهندس موقع أول', 'المشاريع الهندسية', 1, '0569871234', 'fadi@segieny.sa', '2023-06-01', 'محدد المدة', '2027-05-31', '2026-11-20', '2026-11-15', '2028-04-12', 12000.0, 3000.0, 1200.0, 500.0, 'مصرف الإنماء', 'SA1205000000112233445566', 'active', 21, 'مهندس مقيم بمشروع برج العليا السكني'),
+        (None, 'م. طارق الزهراني', '1077665544', 'سعودي', 'مهندس مكتب فني وحصر', 'المشاريع الهندسية', 2, '0543219876', 'tareq@segieny.sa', '2024-01-15', 'محدد المدة', '2027-01-14', '2026-12-05', '2027-02-28', '2028-09-30', 10500.0, 2500.0, 1000.0, 500.0, 'مصرف الراجحي', 'SA9880000000998877665544', 'active', 25, 'إعداد المخططات التنفيذية وحصر الكميات للمشاريع'),
+        (None, 'سليمان عبد الرحيم', '2345678901', 'مصري', 'مشرف عام تنفيذ', 'التشغيل والمواقع', 1, '0508899776', 'soliman@segieny.sa', '2023-02-10', 'محدد المدة', '2027-02-09', '2026-11-05', '2026-11-10', '2027-08-20', 7500.0, 1500.0, 800.0, 400.0, 'البنك العربي الوطني', 'SA3340000000445566778899', 'active', 18, 'الإشراف الميداني اليومي على مقاولي الباطن والعمالة'),
+        (None, 'بابو راجيش كومار', '2456789012', 'هندي', 'مراقب حدادة وخرسانات', 'التشغيل والمواقع', 1, '0551122998', 'rajesh@segieny.sa', '2023-09-01', 'محدد المدة', '2026-11-12', '2026-11-12', '2026-11-12', '2027-05-10', 4500.0, 1000.0, 500.0, 200.0, 'البنك السعودي للاستثمار', 'SA7760000000778899001122', 'active', 15, 'استلام وتدقيق أعمال الحدادة المسلحة ومتابعة الصبات')
+    ]
+
+    cursor.executemany('''
+    INSERT INTO hr_employees (team_member_id, name, national_id, nationality, job_title, department, project_id, phone, email, join_date, contract_type, contract_end_date, iqama_expiry_date, insurance_expiry_date, passport_expiry_date, basic_salary, housing_allowance, transport_allowance, other_allowances, bank_name, iban, status, vacation_balance, notes)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ''', employees)
+
+    # Initial Monthly Payroll (شهر سبتمبر 2026)
+    cursor.execute('''
+    INSERT INTO hr_payrolls (month_year, total_basic, total_allowances, total_deductions, total_advances, total_net, employees_count, status, approved_by, payment_date, notes)
+    VALUES ('2026-09', 93500.0, 31900.0, 1200.0, 2500.0, 121700.0, 7, 'paid', 'ابوالنصر البغدادي', '2026-09-28', 'تم تحويل رواتب شهر سبتمبر 2026 عبر مسير نظام حماية الأجور البنكي')
+    ''')
+    payroll_id = cursor.lastrowid
+
+    # Payroll Items
+    payroll_items = [
+        (payroll_id, 1, 'ابوالنصر البغدادي', 'المدير المالي', 18000.0, 7000.0, 0, 0, 0, 0, 25000.0, 'SA0380000000123456789012', 'paid', 'تم التحويل'),
+        (payroll_id, 2, 'مهندس جهاد', 'مدير المشاريع', 16000.0, 6500.0, 0, 0, 0, 0, 22500.0, 'SA4410000000987654321098', 'paid', 'تم التحويل'),
+        (payroll_id, 3, 'نواف سجيني', 'المدير العام', 25000.0, 10000.0, 0, 0, 0, 0, 35000.0, 'SA5520000000554433221100', 'paid', 'تم التحويل'),
+        (payroll_id, 4, 'م. فادي القحطاني', 'مهندس موقع أول', 12000.0, 4700.0, 0, 0, 0, 0, 16700.0, 'SA1205000000112233445566', 'paid', 'تم التحويل'),
+        (payroll_id, 5, 'م. طارق الزهراني', 'مهندس مكتب فني وحصر', 10500.0, 4000.0, 0, 0, 0, 0, 14500.0, 'SA9880000000998877665544', 'paid', 'تم التحويل'),
+        (payroll_id, 6, 'سليمان عبد الرحيم', 'مشرف عام تنفيذ', 7500.0, 2700.0, 500.0, 0, 400.0, 1500.0, 8800.0, 'SA3340000000445566778899', 'paid', 'تم التحويل - خصم سلفة 1,500 ر.س'),
+        (payroll_id, 7, 'بابو راجيش كومار', 'مراقب حدادة وخرسانات', 4500.0, 1700.0, 300.0, 0, 800.0, 1000.0, 4700.0, 'SA7760000000778899001122', 'paid', 'تم التحويل - خصم سلفة 1,000 ر.س')
+    ]
+    cursor.executemany('''
+    INSERT INTO hr_payroll_items (payroll_id, employee_id, employee_name, job_title, basic_salary, allowances, overtime_amount, bonus_amount, deductions, advances_deducted, net_salary, iban, status, notes)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ''', payroll_items)
+
+    # Sample Leaves
+    leaves = [
+        (4, 'م. فادي القحطاني', 'سنوية', '2026-11-01', '2026-11-15', 14, 'approved', 'إجازة سنوية معتمدة للتجديد والاستجمام'),
+        (6, 'سليمان عبد الرحيم', 'اضطرارية', '2026-10-10', '2026-10-12', 2, 'approved', 'ظرف عائلي طارئ')
+    ]
+    cursor.executemany('''
+    INSERT INTO hr_leaves (employee_id, employee_name, leave_type, start_date, end_date, days_count, status, notes)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ''', leaves)
+
+    # Sample Advances
+    advances = [
+        (6, 'سليمان عبد الرحيم', 6000.0, '2026-08-01', 1500.0, 3000.0, 3000.0, 'active', 'سلفة تجديد رسوم دراسية - تُخصم شهرياً بقيمة 1,500 ر.س'),
+        (7, 'بابو راجيش كومار', 3000.0, '2026-09-01', 1000.0, 1000.0, 2000.0, 'active', 'سلفة مصاريف علاجية - تُخصم شهرياً بقيمة 1,000 ر.س')
+    ]
+    cursor.executemany('''
+    INSERT INTO hr_advances (employee_id, employee_name, amount, request_date, monthly_deduction, paid_amount, remaining_amount, status, notes)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ''', advances)

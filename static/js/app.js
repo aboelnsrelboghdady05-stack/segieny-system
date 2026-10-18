@@ -181,7 +181,7 @@ function switchTab(tabId) {
         btn.classList.add('bg-slate-800', 'text-slate-300');
     });
     const mobileTabs = document.querySelectorAll('.mobile-tab');
-    const tabNames = ['dashboard', 'projects', 'tasks', 'expenses', 'suppliers', 'cashflow', 'subcontractors', 'custody', 'documents', 'reports', 'chat', 'team'];
+    const tabNames = ['dashboard', 'projects', 'tasks', 'expenses', 'suppliers', 'cashflow', 'subcontractors', 'custody', 'documents', 'reports', 'chat', 'team', 'hr'];
     const idx = tabNames.indexOf(tabId);
     if (idx !== -1 && mobileTabs[idx]) {
         mobileTabs[idx].classList.remove('bg-slate-800', 'text-slate-300');
@@ -201,6 +201,7 @@ function switchTab(tabId) {
     else if (tabId === 'reports') loadDetailedReports();
     else if (tabId === 'chat') initChatTab();
     else if (tabId === 'team') loadTeamManagement();
+    else if (tabId === 'hr') loadHrData();
 
     initLucide();
 }
@@ -11680,7 +11681,7 @@ function applyUserPermissions() {
     }
 
     // 2. Filter tabs in navbar
-    const modules = ['dashboard', 'projects', 'tasks', 'expenses', 'suppliers', 'cashflow', 'subcontractors', 'custody', 'documents', 'reports', 'chat'];
+    const modules = ['dashboard', 'projects', 'tasks', 'expenses', 'suppliers', 'cashflow', 'subcontractors', 'custody', 'documents', 'reports', 'chat', 'hr'];
     modules.forEach(mod => {
         const btn = document.getElementById('nav-' + mod);
         if (btn) {
@@ -11755,7 +11756,8 @@ const MODULE_DEFINITIONS = [
     { key: 'custody', label: 'العهد', color: 'amber' },
     { key: 'documents', label: 'المخططات', color: 'purple' },
     { key: 'reports', label: 'التقارير', color: 'emerald' },
-    { key: 'chat', label: 'المحادثات', color: 'teal' }
+    { key: 'chat', label: 'المحادثات', color: 'teal' },
+    { key: 'hr', label: 'الموارد البشرية', color: 'indigo' }
 ];
 
 function renderTeamMembers(members) {
@@ -12053,3 +12055,1102 @@ async function deleteTeamMember(id, name) {
 
 
 
+
+
+// ==========================================
+// HR & WORKFORCE MANAGEMENT SYSTEM (منظومة الموارد البشرية)
+// ==========================================
+
+let hrEmployeesData = [];
+let hrPayrollsData = [];
+let hrLeavesData = [];
+let hrAdvancesData = [];
+let hrExpirationsData = [];
+let currentHrPayrollDetail = null;
+
+function switchHrSubTab(subTabId) {
+    const validTabs = ['employees', 'payroll', 'leaves', 'advances', 'expirations', 'eos'];
+    if (!validTabs.includes(subTabId)) subTabId = 'employees';
+
+    // Update buttons
+    validTabs.forEach(id => {
+        const btn = document.getElementById(`hr-subtab-btn-${id}`);
+        if (btn) {
+            if (id === subTabId) {
+                btn.className = 'hr-subtab-btn active-hr-subtab py-2.5 px-4 text-xs font-bold text-indigo-400 border-b-2 border-indigo-500 flex items-center gap-2 transition';
+            } else {
+                btn.className = 'hr-subtab-btn py-2.5 px-4 text-xs font-bold text-slate-400 hover:text-white border-b-2 border-transparent flex items-center gap-2 transition';
+            }
+        }
+    });
+
+    // Update contents
+    document.querySelectorAll('.hr-subtab-content').forEach(c => c.classList.add('hidden'));
+    const content = document.getElementById(`hr-content-${subTabId}`);
+    if (content) content.classList.remove('hidden');
+
+    initLucide();
+}
+
+async function loadHrData() {
+    try {
+        await Promise.all([
+            loadHrStats(),
+            loadHrEmployees(),
+            loadHrPayrolls(),
+            loadHrLeaves(),
+            loadHrAdvances(),
+            loadHrExpirations(),
+            loadHrProjectsDropdown()
+        ]);
+    } catch (err) {
+        console.error('Error loading HR data:', err);
+    }
+}
+
+async function loadHrStats() {
+    try {
+        const res = await fetch('/api/hr/stats');
+        const data = await res.json();
+        
+        const empEl = document.getElementById('stat-hr-employees');
+        const payEl = document.getElementById('stat-hr-payroll');
+        const leaveEl = document.getElementById('stat-hr-leave');
+        const expEl = document.getElementById('stat-hr-expirations');
+        const advEl = document.getElementById('stat-hr-advances');
+        const badgeCount = document.getElementById('badge-hr-expirations-count');
+        const navAlert = document.getElementById('nav-hr-alert');
+
+        const totalEmployees = data.total_active ?? data.total_employees ?? 0;
+        const totalPayroll = data.monthly_payroll ?? data.total_monthly_payroll ?? 0;
+        const onLeave = data.on_leave ?? data.active_leaves ?? 0;
+        const expiringDocs = data.expiring_docs ?? data.expiring_docs_60d ?? 0;
+        const totalAdvances = data.total_advances ?? data.remaining_advances ?? 0;
+
+        if (empEl) empEl.innerText = totalEmployees;
+        if (payEl) payEl.innerText = formatCurrency(totalPayroll);
+        if (leaveEl) leaveEl.innerText = onLeave;
+        if (expEl) expEl.innerText = expiringDocs;
+        if (advEl) advEl.innerText = formatCurrency(totalAdvances);
+
+        const expCount = expiringDocs;
+        if (badgeCount) {
+            if (expCount > 0) {
+                badgeCount.innerText = expCount;
+                badgeCount.classList.remove('hidden');
+            } else {
+                badgeCount.classList.add('hidden');
+            }
+        }
+
+        if (navAlert) {
+            if (expCount > 0) {
+                navAlert.innerText = expCount;
+                navAlert.classList.remove('hidden');
+            } else {
+                navAlert.classList.add('hidden');
+            }
+        }
+    } catch (err) {
+        console.error('Error loading HR stats:', err);
+    }
+}
+
+async function loadHrProjectsDropdown() {
+    try {
+        const select = document.getElementById('hr-emp-project');
+        if (!select) return;
+        const res = await fetch('/api/projects');
+        const projects = await res.json();
+        
+        let html = '<option value="">-- الإدارة العامة (بدون مشروع محدد) --</option>';
+        if (Array.isArray(projects)) {
+            projects.forEach(p => {
+                html += `<option value="${p.id}">${p.name || ('مشروع #' + p.id)}</option>`;
+            });
+        }
+        select.innerHTML = html;
+    } catch (err) {
+        console.warn('Could not load projects for HR modal:', err);
+    }
+}
+
+async function loadHrEmployees() {
+    try {
+        const res = await fetch('/api/hr/employees');
+        const list = await res.json();
+        hrEmployeesData = Array.isArray(list) ? list : [];
+        renderHrEmployees();
+        populateHrEmployeeSelects();
+    } catch (err) {
+        console.error('Error loading HR employees:', err);
+        showToast('تعذر تحميل بيانات الموظفين', 'error');
+    }
+}
+
+function filterHrEmployees() {
+    renderHrEmployees();
+}
+
+function renderHrEmployees() {
+    const container = document.getElementById('hr-employees-list');
+    if (!container) return;
+
+    const search = (document.getElementById('hr-search-input')?.value || '').trim().toLowerCase();
+    const deptFilter = document.getElementById('hr-department-filter')?.value || '';
+    const statusFilter = document.getElementById('hr-status-filter')?.value || '';
+
+    let filtered = hrEmployeesData.filter(emp => {
+        if (deptFilter && emp.department !== deptFilter) return false;
+        if (statusFilter && emp.status !== statusFilter) return false;
+        if (search) {
+            const matchName = (emp.name || '').toLowerCase().includes(search);
+            const matchTitle = (emp.job_title || '').toLowerCase().includes(search);
+            const matchNid = (emp.national_id || '').toLowerCase().includes(search);
+            if (!matchName && !matchTitle && !matchNid) return false;
+        }
+        return true;
+    });
+
+    if (filtered.length === 0) {
+        container.innerHTML = `
+            <div class="col-span-full p-8 text-center bg-slate-850 rounded-2xl border border-slate-750 text-slate-400">
+                <i data-lucide="users" class="w-10 h-10 mx-auto mb-2 text-slate-500"></i>
+                <p class="font-bold text-sm">لا يوجد موظفون مطابقون لخيارات البحث</p>
+                <button type="button" onclick="openAddHrEmployeeModal()" class="mt-3 px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs inline-flex items-center gap-1.5 transition">
+                    <i data-lucide="plus" class="w-3.5 h-3.5"></i>
+                    <span>إضافة موظف جديد</span>
+                </button>
+            </div>
+        `;
+        initLucide();
+        return;
+    }
+
+    const html = filtered.map(emp => {
+        const cleanName = (emp.name || '').replace(/^(م\.|أ\.|Eng\.)\s*/, '').trim();
+        const initial = cleanName.charAt(0) || 'م';
+        const totalSalary = (parseFloat(emp.basic_salary) || 0) + (parseFloat(emp.housing_allowance) || 0) + (parseFloat(emp.transport_allowance) || 0) + (parseFloat(emp.other_allowance) || 0);
+
+        let statusBadge = '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">● على رأس العمل</span>';
+        if (emp.status === 'on_leave') {
+            statusBadge = '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30">○ في إجازة</span>';
+        } else if (emp.status === 'terminated') {
+            statusBadge = '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-800 text-slate-400 border border-slate-700">✕ منتهي خدماته</span>';
+        }
+
+        return `
+            <div class="bg-slate-850 rounded-2xl border border-slate-750 hover:border-indigo-500/40 p-5 shadow-lg flex flex-col justify-between space-y-4 transition">
+                <div class="space-y-3">
+                    <!-- Top Info Header -->
+                    <div class="flex items-start justify-between gap-3">
+                        <div class="flex items-center gap-3 min-w-0">
+                            <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-indigo-600 to-purple-600 flex items-center justify-center font-black text-lg text-white shadow-md shrink-0">
+                                ${initial}
+                            </div>
+                            <div class="min-w-0">
+                                <h3 class="font-black text-sm text-white truncate">${emp.name}</h3>
+                                <div class="flex items-center gap-2 mt-0.5">
+                                    <span class="text-[11px] text-indigo-400 font-semibold truncate">${emp.job_title}</span>
+                                    <span class="text-[10px] text-slate-400 font-medium">(${emp.nationality || 'سعودي'})</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="shrink-0">
+                            ${statusBadge}
+                        </div>
+                    </div>
+
+                    <!-- Department & ID -->
+                    <div class="flex flex-wrap items-center gap-1.5 text-[10px]">
+                        <span class="px-2 py-0.5 rounded-md bg-slate-800 text-slate-300 border border-slate-700">${emp.department || 'إدارة عامة'}</span>
+                        ${emp.national_id ? `<span class="px-2 py-0.5 rounded-md bg-slate-800 text-slate-400 font-mono">هوية: ${emp.national_id}</span>` : ''}
+                        ${emp.phone ? `<span class="px-2 py-0.5 rounded-md bg-slate-800 text-slate-400 font-mono">${emp.phone}</span>` : ''}
+                    </div>
+
+                    <!-- Salary Breakdown -->
+                    <div class="p-3 rounded-xl bg-slate-900 border border-slate-800 grid grid-cols-2 gap-2 text-xs">
+                        <div>
+                            <span class="text-[10px] text-slate-400 block">الراتب الأساسي</span>
+                            <span class="font-black text-white font-mono">${formatCurrency(emp.basic_salary || 0)}</span>
+                        </div>
+                        <div>
+                            <span class="text-[10px] text-emerald-400 block font-bold">إجمالي الراتب + البدلات</span>
+                            <span class="font-black text-emerald-400 font-mono">${formatCurrency(totalSalary)}</span>
+                        </div>
+                    </div>
+
+                    <!-- Document Expiry Dates -->
+                    <div class="space-y-1 text-[11px] text-slate-400 pt-1 border-t border-slate-800/80">
+                        ${emp.iqama_expiry ? `
+                            <div class="flex items-center justify-between">
+                                <span>انتهاء الإقامة/الهوية:</span>
+                                <span class="font-mono text-slate-300 font-semibold">${emp.iqama_expiry}</span>
+                            </div>
+                        ` : ''}
+                        ${emp.contract_end ? `
+                            <div class="flex items-center justify-between">
+                                <span>انتهاء العقد:</span>
+                                <span class="font-mono text-slate-300 font-semibold">${emp.contract_end}</span>
+                            </div>
+                        ` : ''}
+                        ${emp.join_date ? `
+                            <div class="flex items-center justify-between text-[10px] text-slate-500">
+                                <span>تاريخ المباشرة:</span>
+                                <span class="font-mono">${emp.join_date}</span>
+                            </div>
+                        ` : ''}
+                    </div>
+                </div>
+
+                <!-- Action Footer -->
+                <div class="flex items-center justify-between pt-3 border-t border-slate-750/70 text-xs">
+                    <div class="text-[10px] text-slate-400">
+                        <span>رصيد الإجازات: </span>
+                        <span class="text-amber-400 font-bold font-mono">${emp.annual_leave_balance || 30} يوم</span>
+                    </div>
+                    <div class="flex items-center gap-1.5">
+                        <button type="button" onclick="openEditHrEmployeeModal(${emp.id})" class="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-750 text-indigo-300 hover:text-white border border-slate-700 text-xs font-bold transition flex items-center gap-1">
+                            <i data-lucide="edit-3" class="w-3.5 h-3.5"></i>
+                            <span>تعديل</span>
+                        </button>
+                        <button type="button" onclick="deleteHrEmployee(${emp.id}, '${emp.name.replace(/'/g, "\\'")}')" class="p-1.5 rounded-lg bg-slate-800 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 border border-slate-700 transition" title="حذف الموظف">
+                            <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    container.innerHTML = html;
+    initLucide();
+}
+
+function populateHrEmployeeSelects() {
+    const leaveSelect = document.getElementById('leave-emp-select');
+    const advSelect = document.getElementById('adv-emp-select');
+    const eosSelect = document.getElementById('eos-emp-select');
+
+    let optionsHtml = '<option value="">-- اختر موظفاً --</option>';
+    let eosOptionsHtml = '<option value="">-- اختر موظفاً مسجلاً (تعبئة تلقائية) --</option>';
+
+    hrEmployeesData.forEach(emp => {
+        optionsHtml += `<option value="${emp.id}">${emp.name} - ${emp.job_title} (${emp.department || 'عام'})</option>`;
+        eosOptionsHtml += `<option value="${emp.id}">${emp.name} - ${emp.job_title}</option>`;
+    });
+
+    if (leaveSelect) leaveSelect.innerHTML = optionsHtml;
+    if (advSelect) advSelect.innerHTML = optionsHtml;
+    if (eosSelect) eosSelect.innerHTML = eosOptionsHtml;
+}
+
+function openAddHrEmployeeModal() {
+    const form = document.getElementById('hr-employee-form');
+    if (form) form.reset();
+    document.getElementById('hr-emp-id').value = '';
+    document.getElementById('hr-emp-modal-title').innerText = 'إضافة موظف جديد للموارد البشرية';
+    openModal('hr-employee-modal');
+}
+
+function openEditHrEmployeeModal(id) {
+    const emp = hrEmployeesData.find(e => e.id === id);
+    if (!emp) return;
+
+    document.getElementById('hr-emp-id').value = emp.id;
+    document.getElementById('hr-emp-name').value = emp.name || '';
+    document.getElementById('hr-emp-title').value = emp.job_title || '';
+    document.getElementById('hr-emp-nationality').value = emp.nationality || '';
+    document.getElementById('hr-emp-nid').value = emp.national_id || '';
+    document.getElementById('hr-emp-dept').value = emp.department || 'المشاريع الهندسية';
+    document.getElementById('hr-emp-project').value = emp.project_id || '';
+    document.getElementById('hr-emp-phone').value = emp.phone || '';
+    document.getElementById('hr-emp-email').value = emp.email || '';
+    document.getElementById('hr-emp-status').value = emp.status || 'active';
+
+    document.getElementById('hr-emp-basic').value = emp.basic_salary || 0;
+    document.getElementById('hr-emp-housing').value = emp.housing_allowance || 0;
+    document.getElementById('hr-emp-transport').value = emp.transport_allowance || 0;
+    document.getElementById('hr-emp-other').value = emp.other_allowance || 0;
+
+    document.getElementById('hr-emp-bank').value = emp.bank_name || '';
+    document.getElementById('hr-emp-iban').value = emp.bank_iban || '';
+
+    document.getElementById('hr-emp-joindate').value = emp.join_date || '';
+    document.getElementById('hr-emp-contract-end').value = emp.contract_end || '';
+    document.getElementById('hr-emp-iqama-end').value = emp.iqama_expiry || '';
+    document.getElementById('hr-emp-insurance-end').value = emp.medical_insurance_expiry || '';
+    document.getElementById('hr-emp-passport-end').value = emp.passport_expiry || '';
+
+    document.getElementById('hr-emp-modal-title').innerText = 'تعديل بيانات الموظف: ' + emp.name;
+    openModal('hr-employee-modal');
+}
+
+async function submitHrEmployeeForm(e) {
+    e.preventDefault();
+    const id = document.getElementById('hr-emp-id').value;
+    const submitBtn = document.getElementById('btn-submit-employee');
+    if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.classList.add('opacity-70');
+    }
+
+    const payload = {
+        name: document.getElementById('hr-emp-name').value.trim(),
+        job_title: document.getElementById('hr-emp-title').value.trim(),
+        nationality: document.getElementById('hr-emp-nationality').value.trim() || 'سعودي',
+        national_id: document.getElementById('hr-emp-nid').value.trim(),
+        department: document.getElementById('hr-emp-dept').value,
+        project_id: document.getElementById('hr-emp-project').value || null,
+        phone: document.getElementById('hr-emp-phone').value.trim(),
+        email: document.getElementById('hr-emp-email').value.trim(),
+        status: document.getElementById('hr-emp-status').value,
+
+        basic_salary: parseFloat(document.getElementById('hr-emp-basic').value) || 0,
+        housing_allowance: parseFloat(document.getElementById('hr-emp-housing').value) || 0,
+        transport_allowance: parseFloat(document.getElementById('hr-emp-transport').value) || 0,
+        other_allowance: parseFloat(document.getElementById('hr-emp-other').value) || 0,
+
+        bank_name: document.getElementById('hr-emp-bank').value.trim(),
+        bank_iban: document.getElementById('hr-emp-iban').value.trim(),
+
+        join_date: document.getElementById('hr-emp-joindate').value || null,
+        contract_end: document.getElementById('hr-emp-contract-end').value || null,
+        iqama_expiry: document.getElementById('hr-emp-iqama-end').value || null,
+        medical_insurance_expiry: document.getElementById('hr-emp-insurance-end').value || null,
+        passport_expiry: document.getElementById('hr-emp-passport-end').value || null
+    };
+
+    try {
+        const url = id ? `/api/hr/employees/${id}` : '/api/hr/employees';
+        const method = id ? 'PUT' : 'POST';
+
+        const res = await fetch(url, {
+            method: method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+
+        if (res.ok && (data.success || !data.error)) {
+            showToast(data.message || 'تم حفظ بيانات الموظف بنجاح', 'success');
+            closeModal('hr-employee-modal');
+            await loadHrData();
+        } else {
+            showToast(data.error || 'حدث خطأ في حفظ بيانات الموظف', 'error');
+        }
+    } catch (err) {
+        console.error('Error saving HR employee:', err);
+        showToast('حدث خطأ في الاتصال بالخادم', 'error');
+    } finally {
+        if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.classList.remove('opacity-70');
+        }
+    }
+}
+
+async function deleteHrEmployee(id, name) {
+    if (!confirm(`هل أنت متأكد من حذف سجل الموظف "${name}" نهائياً من الموارد البشرية؟`)) {
+        return;
+    }
+
+    try {
+        const res = await fetch(`/api/hr/employees/${id}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (res.ok && data.success) {
+            showToast(data.message || 'تم حذف الموظف بنجاح', 'success');
+            await loadHrData();
+        } else {
+            showToast(data.error || 'تعذر حذف الموظف', 'error');
+        }
+    } catch (err) {
+        console.error('Error deleting HR employee:', err);
+        showToast('حدث خطأ أثناء حذف الموظف', 'error');
+    }
+}
+
+// ----------------- PAYROLL MANAGEMENT -----------------
+async function loadHrPayrolls() {
+    try {
+        const res = await fetch('/api/hr/payrolls');
+        const list = await res.json();
+        hrPayrollsData = Array.isArray(list) ? list : [];
+        renderHrPayrolls();
+    } catch (err) {
+        console.error('Error loading HR payrolls:', err);
+    }
+}
+
+function renderHrPayrolls() {
+    const container = document.getElementById('hr-payrolls-list');
+    if (!container) return;
+
+    if (hrPayrollsData.length === 0) {
+        container.innerHTML = `
+            <div class="p-8 text-center bg-slate-850 rounded-2xl border border-slate-750 text-slate-400">
+                <i data-lucide="file-spreadsheet" class="w-10 h-10 mx-auto mb-2 text-slate-500"></i>
+                <p class="font-bold text-sm">لم يتم إصدار أي مسيرات رواتب بعد</p>
+                <button type="button" onclick="openGeneratePayrollModal()" class="mt-3 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs inline-flex items-center gap-1.5 transition">
+                    <i data-lucide="sparkles" class="w-4 h-4"></i>
+                    <span>إصدار مسير الرواتب الأول</span>
+                </button>
+            </div>
+        `;
+        initLucide();
+        return;
+    }
+
+    const html = hrPayrollsData.map(p => {
+        let statusBadge = '<span class="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30">مسودة</span>';
+        if (p.status === 'approved') {
+            statusBadge = '<span class="px-2.5 py-1 rounded-full text-xs font-bold bg-blue-500/15 text-blue-400 border border-blue-500/30">معتمد</span>';
+        } else if (p.status === 'paid') {
+            statusBadge = '<span class="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">مصروف بالكامل</span>';
+        }
+
+        return `
+            <div class="bg-slate-850 p-5 rounded-2xl border border-slate-750 hover:border-emerald-500/40 shadow-lg flex flex-col md:flex-row md:items-center justify-between gap-4 transition">
+                <div class="flex items-center gap-4">
+                    <div class="p-3 rounded-2xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shrink-0">
+                        <i data-lucide="calendar" class="w-6 h-6"></i>
+                    </div>
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <h4 class="font-black text-sm text-white">مسير رواتب: <span class="font-mono text-emerald-400">${p.month}</span></h4>
+                            ${statusBadge}
+                        </div>
+                        <p class="text-xs text-slate-400 mt-0.5">${p.notes || 'مسير الرواتب الشهرية والبدلات وخصم السلف'}</p>
+                    </div>
+                </div>
+
+                <div class="flex flex-wrap items-center gap-4 sm:gap-6">
+                    <div>
+                        <span class="text-[10px] text-slate-400 block font-medium">عدد الموظفين</span>
+                        <span class="font-black text-sm text-white font-mono">${p.total_employees} موظف</span>
+                    </div>
+                    <div>
+                        <span class="text-[10px] text-slate-400 block font-medium">صافي المسير</span>
+                        <span class="font-black text-base text-emerald-400 font-mono">${formatCurrency(p.total_net)}</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <button type="button" onclick="viewHrPayrollDetails(${p.id})" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-750 text-white font-bold text-xs flex items-center gap-1.5 border border-slate-700 transition">
+                            <i data-lucide="eye" class="w-4 h-4 text-emerald-400"></i>
+                            <span>عرض المسير</span>
+                        </button>
+                        ${p.status === 'draft' ? `
+                            <button type="button" onclick="updateHrPayrollStatus(${p.id}, 'approved')" class="px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs flex items-center gap-1 transition">
+                                <i data-lucide="check" class="w-3.5 h-3.5"></i>
+                                <span>اعتماد</span>
+                            </button>
+                            <button type="button" onclick="deleteHrPayroll(${p.id})" class="p-2 rounded-xl bg-slate-800 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 border border-slate-700 transition" title="حذف المسير">
+                                <i data-lucide="trash-2" class="w-4 h-4"></i>
+                            </button>
+                        ` : ''}
+                        ${p.status === 'approved' ? `
+                            <button type="button" onclick="updateHrPayrollStatus(${p.id}, 'paid')" class="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1 transition">
+                                <i data-lucide="banknote" class="w-3.5 h-3.5"></i>
+                                <span>تأكيد الصرف</span>
+                            </button>
+                        ` : ''}
+                    </div>
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    container.innerHTML = html;
+    initLucide();
+}
+
+function openGeneratePayrollModal() {
+    const today = new Date();
+    const currentMonth = today.toISOString().slice(0, 7); // YYYY-MM
+    const monthInput = document.getElementById('hr-payroll-month');
+    if (monthInput) monthInput.value = currentMonth;
+    openModal('hr-generate-payroll-modal');
+}
+
+async function submitGeneratePayroll(e) {
+    e.preventDefault();
+    const month = document.getElementById('hr-payroll-month').value;
+    const notes = document.getElementById('hr-payroll-notes').value.trim();
+    const btn = document.getElementById('btn-submit-payroll-gen');
+
+    if (!month) {
+        showToast('يرجى تحديد الشهر والسنة', 'warning');
+        return;
+    }
+
+    if (btn) {
+        btn.disabled = true;
+        btn.classList.add('opacity-70');
+    }
+
+    try {
+        const res = await fetch('/api/hr/payrolls', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ month, notes })
+        });
+        const data = await res.json();
+
+        if (res.ok && (data.success || !data.error)) {
+            showToast(data.message || 'تم إصدار مسير الرواتب بنجاح', 'success');
+            closeModal('hr-generate-payroll-modal');
+            await loadHrData();
+            if (data.id) {
+                await viewHrPayrollDetails(data.id);
+            }
+        } else {
+            showToast(data.error || 'حدث خطأ في إصدار المسير', 'error');
+        }
+    } catch (err) {
+        console.error('Error generating payroll:', err);
+        showToast('حدث خطأ في الاتصال بالخادم', 'error');
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.classList.remove('opacity-70');
+        }
+    }
+}
+
+async function viewHrPayrollDetails(id) {
+    try {
+        const res = await fetch(`/api/hr/payrolls/${id}`);
+        const data = await res.json();
+        if (!res.ok || data.error) {
+            showToast(data.error || 'تعذر تحميل تفاصيل المسير', 'error');
+            return;
+        }
+
+        currentHrPayrollDetail = data;
+        const payroll = data.payroll;
+        const items = data.items || [];
+
+        document.getElementById('hr-payroll-view-title').innerText = `مسير رواتب شهر: ${payroll.month}`;
+        document.getElementById('hr-payroll-view-date').innerText = `تاريخ الإنشاء: ${payroll.created_at || ''}`;
+
+        // Status badge
+        const statusEl = document.getElementById('hr-payroll-view-status');
+        if (payroll.status === 'draft') {
+            statusEl.className = 'px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30';
+            statusEl.innerText = 'مسودة قابلة للتعديل';
+        } else if (payroll.status === 'approved') {
+            statusEl.className = 'px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/15 text-blue-400 border border-blue-500/30';
+            statusEl.innerText = 'معتمد للصرف';
+        } else {
+            statusEl.className = 'px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30';
+            statusEl.innerText = 'تم الصرف والتحويل';
+        }
+
+        // Totals
+        document.getElementById('payroll-sum-basic').innerText = formatCurrency(payroll.total_basic || 0);
+        document.getElementById('payroll-sum-allowances').innerText = formatCurrency(payroll.total_allowances || 0);
+        document.getElementById('payroll-sum-advances').innerText = formatCurrency(payroll.total_deductions || 0);
+        document.getElementById('payroll-sum-net').innerText = formatCurrency(payroll.total_net || 0);
+
+        // Render table items
+        const tbody = document.getElementById('hr-payroll-items-body');
+        if (items.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="9" class="p-6 text-center text-slate-400">لا توجد بنود مسجلة في هذا المسير</td></tr>';
+        } else {
+            tbody.innerHTML = items.map((it, idx) => `
+                <tr class="hover:bg-slate-800/50 transition">
+                    <td class="p-3 text-slate-400">${idx + 1}</td>
+                    <td class="p-3 font-bold text-white font-sans">${it.employee_name}</td>
+                    <td class="p-3 text-slate-300 font-sans">${it.job_title}</td>
+                    <td class="p-3">${formatCurrency(it.basic_salary)}</td>
+                    <td class="p-3">${formatCurrency(it.housing_allowance + it.transport_allowance + it.other_allowance)}</td>
+                    <td class="p-3 text-rose-400">${formatCurrency(it.advances_deduction + it.other_deductions)}</td>
+                    <td class="p-3 font-black text-emerald-400 text-xs">${formatCurrency(it.net_salary)}</td>
+                    <td class="p-3 text-slate-400 text-[10px]">${it.bank_iban || 'غير مسجل'}</td>
+                    <td class="p-3 text-center">
+                        <span class="px-2 py-0.5 rounded-full text-[9px] font-bold ${payroll.status === 'paid' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-slate-800 text-slate-400'}">
+                            ${payroll.status === 'paid' ? 'تم التحويل' : 'جاهز'}
+                        </span>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        // Actions Container
+        const actContainer = document.getElementById('payroll-action-container');
+        if (payroll.status === 'draft') {
+            actContainer.innerHTML = `
+                <button type="button" onclick="updateHrPayrollStatus(${payroll.id}, 'approved')" class="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold flex items-center gap-1.5 transition">
+                    <i data-lucide="check" class="w-4 h-4"></i>
+                    <span>اعتماد المسير</span>
+                </button>
+            `;
+        } else if (payroll.status === 'approved') {
+            actContainer.innerHTML = `
+                <button type="button" onclick="updateHrPayrollStatus(${payroll.id}, 'paid')" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold flex items-center gap-1.5 transition">
+                    <i data-lucide="banknote" class="w-4 h-4"></i>
+                    <span>تأكيد صرف الرواتب وخصم السلف</span>
+                </button>
+            `;
+        } else {
+            actContainer.innerHTML = `
+                <span class="text-xs font-bold text-emerald-400 flex items-center gap-1">
+                    <i data-lucide="check-circle" class="w-4 h-4"></i>
+                    <span>تم صرف وتحويل هذا المسير لجميع الموظفين بنجاح</span>
+                </span>
+            `;
+        }
+
+        openModal('hr-payroll-detail-modal');
+        initLucide();
+    } catch (err) {
+        console.error('Error viewing payroll details:', err);
+        showToast('تعذر عرض تفاصيل المسير', 'error');
+    }
+}
+
+async function updateHrPayrollStatus(id, newStatus) {
+    const label = newStatus === 'approved' ? 'اعتماد المسير' : 'تأكيد صرف الرواتب';
+    if (!confirm(`هل أنت متأكد من ${label}؟`)) return;
+
+    try {
+        const res = await fetch(`/api/hr/payrolls/${id}/status`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: newStatus })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+            showToast(data.message || 'تم تحديث حالة المسير بنجاح', 'success');
+            await loadHrData();
+            if (document.getElementById('hr-payroll-detail-modal')?.classList.contains('hidden') === false) {
+                await viewHrPayrollDetails(id);
+            }
+        } else {
+            showToast(data.error || 'تعذر تحديث حالة المسير', 'error');
+        }
+    } catch (err) {
+        console.error('Error updating payroll status:', err);
+        showToast('حدث خطأ في الاتصال بالخادم', 'error');
+    }
+}
+
+async function deleteHrPayroll(id) {
+    if (!confirm('هل أنت متأكد من حذف هذا المسير؟')) return;
+
+    try {
+        const res = await fetch(`/api/hr/payrolls/${id}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (res.ok && data.success) {
+            showToast(data.message || 'تم حذف المسير بنجاح', 'success');
+            await loadHrData();
+        } else {
+            showToast(data.error || 'تعذر حذف المسير', 'error');
+        }
+    } catch (err) {
+        console.error('Error deleting payroll:', err);
+        showToast('حدث خطأ في الاتصال بالخادم', 'error');
+    }
+}
+
+// ----------------- LEAVES & TIME OFF -----------------
+async function loadHrLeaves() {
+    try {
+        const res = await fetch('/api/hr/leaves');
+        const list = await res.json();
+        hrLeavesData = Array.isArray(list) ? list : [];
+        renderHrLeaves();
+    } catch (err) {
+        console.error('Error loading leaves:', err);
+    }
+}
+
+function renderHrLeaves() {
+    const tbody = document.getElementById('hr-leaves-table-body');
+    if (!tbody) return;
+
+    if (hrLeavesData.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="8" class="p-8 text-center text-slate-400">لا توجد إجازات مسجلة حالياً</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = hrLeavesData.map(l => `
+        <tr class="hover:bg-slate-800/40 transition">
+            <td class="p-3.5 font-bold text-white font-sans">${l.employee_name}</td>
+            <td class="p-3.5"><span class="px-2 py-0.5 rounded-md bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 font-bold">${l.leave_type}</span></td>
+            <td class="p-3.5 font-mono">${l.start_date}</td>
+            <td class="p-3.5 font-mono">${l.end_date}</td>
+            <td class="p-3.5 text-center font-mono font-bold text-amber-400">${l.days_count} يوم</td>
+            <td class="p-3.5">
+                <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${l.status === 'approved' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' : 'bg-amber-500/10 text-amber-400 border border-amber-500/30'}">
+                    ${l.status === 'approved' ? 'معتمدة' : l.status}
+                </span>
+            </td>
+            <td class="p-3.5 text-slate-400 font-sans">${l.notes || '-'}</td>
+            <td class="p-3.5 text-center">
+                <button type="button" onclick="deleteHrLeave(${l.id})" class="p-1.5 rounded-lg bg-slate-800 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 transition" title="حذف طلب الإجازة">
+                    <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                </button>
+            </td>
+        </tr>
+    `).join('');
+
+    initLucide();
+}
+
+function openAddLeaveModal() {
+    const today = new Date().toISOString().slice(0, 10);
+    document.getElementById('leave-start-date').value = today;
+    document.getElementById('leave-end-date').value = today;
+    document.getElementById('leave-days-count').value = '1';
+    document.getElementById('leave-notes').value = '';
+    openModal('hr-leave-modal');
+}
+
+function calculateLeaveDays() {
+    const startVal = document.getElementById('leave-start-date').value;
+    const endVal = document.getElementById('leave-end-date').value;
+    if (startVal && endVal) {
+        const d1 = new Date(startVal);
+        const d2 = new Date(endVal);
+        const diffMs = d2 - d1;
+        const diffDays = Math.max(1, Math.round(diffMs / (1000 * 60 * 60 * 24)) + 1);
+        document.getElementById('leave-days-count').value = diffDays;
+    }
+}
+
+async function submitHrLeaveForm(e) {
+    e.preventDefault();
+    const btn = document.getElementById('btn-submit-leave');
+    if (btn) {
+        btn.disabled = true;
+        btn.classList.add('opacity-70');
+    }
+
+    const payload = {
+        employee_id: parseInt(document.getElementById('leave-emp-select').value),
+        leave_type: document.getElementById('leave-type').value,
+        start_date: document.getElementById('leave-start-date').value,
+        end_date: document.getElementById('leave-end-date').value,
+        days_count: parseInt(document.getElementById('leave-days-count').value) || 1,
+        notes: document.getElementById('leave-notes').value.trim()
+    };
+
+    try {
+        const res = await fetch('/api/hr/leaves', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+            showToast(data.message || 'تم تسجيل الإجازة واعتمادها بنجاح', 'success');
+            closeModal('hr-leave-modal');
+            await loadHrData();
+        } else {
+            showToast(data.error || 'حدث خطأ في تسجيل الإجازة', 'error');
+        }
+    } catch (err) {
+        console.error('Error adding leave:', err);
+        showToast('حدث خطأ في الاتصال بالخادم', 'error');
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.classList.remove('opacity-70');
+        }
+    }
+}
+
+async function deleteHrLeave(id) {
+    if (!confirm('هل أنت متأكد من حذف سجل هذه الإجازة واستعادة رصيد الأيام للموظف؟')) return;
+
+    try {
+        const res = await fetch(`/api/hr/leaves/${id}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (res.ok && data.success) {
+            showToast(data.message || 'تم حذف الإجازة بنجاح', 'success');
+            await loadHrData();
+        } else {
+            showToast(data.error || 'تعذر حذف الإجازة', 'error');
+        }
+    } catch (err) {
+        console.error('Error deleting leave:', err);
+        showToast('حدث خطأ في الاتصال بالخادم', 'error');
+    }
+}
+
+// ----------------- ADVANCES & LOANS -----------------
+async function loadHrAdvances() {
+    try {
+        const res = await fetch('/api/hr/advances');
+        const list = await res.json();
+        hrAdvancesData = Array.isArray(list) ? list : [];
+        renderHrAdvances();
+    } catch (err) {
+        console.error('Error loading advances:', err);
+    }
+}
+
+function renderHrAdvances() {
+    const tbody = document.getElementById('hr-advances-table-body');
+    if (!tbody) return;
+
+    if (hrAdvancesData.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="8" class="p-8 text-center text-slate-400">لا توجد سلف نشطة حالياً</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = hrAdvancesData.map(a => `
+        <tr class="hover:bg-slate-800/40 transition">
+            <td class="p-3.5 font-bold text-white font-sans">${a.employee_name}</td>
+            <td class="p-3.5 font-black text-white font-mono">${formatCurrency(a.amount)}</td>
+            <td class="p-3.5 font-mono text-slate-300">${a.advance_date}</td>
+            <td class="p-3.5 font-mono text-amber-400 font-bold">${formatCurrency(a.monthly_deduction)}</td>
+            <td class="p-3.5 font-mono text-emerald-400">${formatCurrency(a.paid_amount || 0)}</td>
+            <td class="p-3.5 font-mono text-rose-400 font-black">${formatCurrency(a.remaining_amount || 0)}</td>
+            <td class="p-3.5">
+                <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${a.status === 'active' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30' : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'}">
+                    ${a.status === 'active' ? 'قيد السداد' : 'تم السداد'}
+                </span>
+            </td>
+            <td class="p-3.5 text-center">
+                <button type="button" onclick="deleteHrAdvance(${a.id})" class="p-1.5 rounded-lg bg-slate-800 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 transition" title="حذف السلفة">
+                    <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                </button>
+            </td>
+        </tr>
+    `).join('');
+
+    initLucide();
+}
+
+function openAddAdvanceModal() {
+    const today = new Date().toISOString().slice(0, 10);
+    document.getElementById('adv-date').value = today;
+    document.getElementById('adv-amount').value = '';
+    document.getElementById('adv-monthly-deduction').value = '';
+    document.getElementById('adv-notes').value = '';
+    openModal('hr-advance-modal');
+}
+
+async function submitHrAdvanceForm(e) {
+    e.preventDefault();
+    const btn = document.getElementById('btn-submit-advance');
+    if (btn) {
+        btn.disabled = true;
+        btn.classList.add('opacity-70');
+    }
+
+    const payload = {
+        employee_id: parseInt(document.getElementById('adv-emp-select').value),
+        amount: parseFloat(document.getElementById('adv-amount').value) || 0,
+        monthly_deduction: parseFloat(document.getElementById('adv-monthly-deduction').value) || 0,
+        advance_date: document.getElementById('adv-date').value || null,
+        notes: document.getElementById('adv-notes').value.trim()
+    };
+
+    try {
+        const res = await fetch('/api/hr/advances', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+            showToast(data.message || 'تم صرف السلفة وجدولتها بنجاح', 'success');
+            closeModal('hr-advance-modal');
+            await loadHrData();
+        } else {
+            showToast(data.error || 'حدث خطأ في صرف السلفة', 'error');
+        }
+    } catch (err) {
+        console.error('Error adding advance:', err);
+        showToast('حدث خطأ في الاتصال بالخادم', 'error');
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.classList.remove('opacity-70');
+        }
+    }
+}
+
+async function deleteHrAdvance(id) {
+    if (!confirm('هل أنت متأكد من حذف هذه السلفة نهائياً؟')) return;
+
+    try {
+        const res = await fetch(`/api/hr/advances/${id}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (res.ok && data.success) {
+            showToast(data.message || 'تم حذف السلفة بنجاح', 'success');
+            await loadHrData();
+        } else {
+            showToast(data.error || 'تعذر حذف السلفة', 'error');
+        }
+    } catch (err) {
+        console.error('Error deleting advance:', err);
+        showToast('حدث خطأ في الاتصال بالخادم', 'error');
+    }
+}
+
+// ----------------- EXPIRATIONS & COMPLIANCE -----------------
+async function loadHrExpirations() {
+    try {
+        const res = await fetch('/api/hr/expirations');
+        const list = await res.json();
+        hrExpirationsData = Array.isArray(list) ? list : [];
+        renderHrExpirations();
+    } catch (err) {
+        console.error('Error loading expirations:', err);
+    }
+}
+
+function renderHrExpirations() {
+    const container = document.getElementById('hr-expirations-list');
+    if (!container) return;
+
+    if (hrExpirationsData.length === 0) {
+        container.innerHTML = `
+            <div class="col-span-full p-8 text-center bg-slate-850 rounded-2xl border border-slate-750 text-slate-400">
+                <i data-lucide="check-circle" class="w-10 h-10 mx-auto mb-2 text-emerald-400"></i>
+                <p class="font-bold text-sm text-emerald-300">جميع الوثائق والإقامات سارية المفعول لأكثر من 60 يوماً</p>
+                <p class="text-xs text-slate-400 mt-1">لا توجد أي وثيقة تحتاج إلى تجديد عاجل حالياً.</p>
+            </div>
+        `;
+        initLucide();
+        return;
+    }
+
+    const html = hrExpirationsData.map(doc => {
+        let urgencyBadge = '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/10 text-blue-300 border border-blue-500/30">متبقي ' + doc.days_left + ' يوم</span>';
+        let cardBorder = 'border-slate-750 hover:border-slate-650';
+
+        if (doc.urgency === 'critical') {
+            urgencyBadge = '<span class="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-rose-500/20 text-rose-300 border border-rose-500/40 animate-pulse">حرجة: متبقي ' + doc.days_left + ' يوم</span>';
+            cardBorder = 'border-rose-900/40 bg-gradient-to-br from-rose-950/20 via-slate-850 to-slate-850 hover:border-rose-500/50';
+        } else if (doc.urgency === 'warning') {
+            urgencyBadge = '<span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30">تحذير: متبقي ' + doc.days_left + ' يوم</span>';
+            cardBorder = 'border-amber-900/30 bg-gradient-to-br from-amber-950/15 via-slate-850 to-slate-850 hover:border-amber-500/50';
+        }
+
+        return `
+            <div class="rounded-2xl border ${cardBorder} p-4 shadow-lg space-y-3 transition">
+                <div class="flex items-start justify-between gap-2">
+                    <div class="flex items-center gap-2.5 min-w-0">
+                        <div class="p-2 rounded-xl bg-slate-800 text-slate-300 shrink-0">
+                            <i data-lucide="clock" class="w-4 h-4"></i>
+                        </div>
+                        <div class="min-w-0">
+                            <h4 class="font-bold text-xs text-white truncate">${doc.employee_name}</h4>
+                            <span class="text-[10px] text-slate-400 block">${doc.job_title} (${doc.department || 'عام'})</span>
+                        </div>
+                    </div>
+                    ${urgencyBadge}
+                </div>
+
+                <div class="p-2.5 rounded-xl bg-slate-900/80 border border-slate-800 text-xs flex items-center justify-between">
+                    <span class="text-slate-400 font-medium">${doc.doc_type}</span>
+                    <span class="font-bold font-mono text-white">${doc.expiry_date}</span>
+                </div>
+
+                <div class="flex items-center justify-between text-[11px] pt-1">
+                    <span class="text-slate-400">${doc.phone ? 'جوال: ' + doc.phone : ''}</span>
+                    <button type="button" onclick="openEditHrEmployeeModal(${doc.employee_id})" class="text-indigo-400 hover:text-indigo-300 font-bold flex items-center gap-1 transition">
+                        <span>تحديث التاريخ</span>
+                        <i data-lucide="external-link" class="w-3 h-3"></i>
+                    </button>
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    container.innerHTML = html;
+    initLucide();
+}
+
+// ----------------- END OF SERVICE CALCULATOR -----------------
+function onEosEmployeeSelected() {
+    const empId = document.getElementById('eos-emp-select').value;
+    if (!empId) return;
+
+    const emp = hrEmployeesData.find(e => e.id == empId);
+    if (!emp) return;
+
+    // Fill salary
+    document.getElementById('eos-basic-salary').value = emp.basic_salary || 0;
+    const allowances = (parseFloat(emp.housing_allowance) || 0) + (parseFloat(emp.transport_allowance) || 0) + (parseFloat(emp.other_allowance) || 0);
+    document.getElementById('eos-allowances').value = allowances;
+
+    // Calculate duration from join_date
+    if (emp.join_date) {
+        const join = new Date(emp.join_date);
+        const today = new Date();
+        if (today > join) {
+            let years = today.getFullYear() - join.getFullYear();
+            let months = today.getMonth() - join.getMonth();
+            let days = today.getDate() - join.getDate();
+
+            if (days < 0) {
+                months -= 1;
+                days += 30;
+            }
+            if (months < 0) {
+                years -= 1;
+                months += 12;
+            }
+
+            document.getElementById('eos-years').value = Math.max(0, years);
+            document.getElementById('eos-months').value = Math.max(0, months);
+            document.getElementById('eos-days').value = Math.max(0, days);
+        }
+    }
+
+    calculateEosDirectly();
+}
+
+async function calculateEosDirectly() {
+    const basicSalary = parseFloat(document.getElementById('eos-basic-salary').value) || 0;
+    const allowances = parseFloat(document.getElementById('eos-allowances').value) || 0;
+    const years = parseFloat(document.getElementById('eos-years').value) || 0;
+    const months = parseFloat(document.getElementById('eos-months').value) || 0;
+    const days = parseFloat(document.getElementById('eos-days').value) || 0;
+    const contractType = document.getElementById('eos-contract-type').value;
+    const reason = document.getElementById('eos-reason').value;
+
+    if (basicSalary <= 0 && allowances <= 0) {
+        showToast('يرجى إدخال الراتب الأساسي لحساب نهاية الخدمة', 'warning');
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/hr/eos-calculate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                basic_salary: basicSalary,
+                allowances: allowances,
+                years: years,
+                months: months,
+                days: days,
+                contract_type: contractType,
+                reason: reason
+            })
+        });
+        const data = await res.json();
+
+        if (res.ok && data.success) {
+            document.getElementById('eos-result-amount').innerText = Number(data.final_eos_amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            document.getElementById('eos-multiplier-badge').innerText = `${Math.round(data.multiplier * 100)}% استحقاق (${data.reduction_note})`;
+            document.getElementById('eos-reduction-note').innerText = `تم احتساب المستحقات بناءً على راتب أساسي وبدلات قدرها ${formatCurrency(data.total_salary)} ومدة خدمة ${data.total_years_fraction} سنة وفق المادتين 84 و 85 من نظام العمل السعودي.`;
+
+            document.getElementById('eos-base-salary-display').innerText = formatCurrency(data.total_salary);
+            document.getElementById('eos-years-display').innerText = `${data.total_years_fraction} سنة`;
+            document.getElementById('eos-step1-amount').innerText = formatCurrency(data.first_5_years_amount);
+            document.getElementById('eos-step2-amount').innerText = formatCurrency(data.after_5_years_amount);
+            document.getElementById('eos-unadjusted-amount').innerText = formatCurrency(data.unadjusted_eos_amount);
+        } else {
+            showToast(data.error || 'تعذر حساب مكافأة نهاية الخدمة', 'error');
+        }
+    } catch (err) {
+        console.error('Error calculating EOS:', err);
+        showToast('حدث خطأ في الاتصال بالخادم', 'error');
+    }
+}

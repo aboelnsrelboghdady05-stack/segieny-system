@@ -1,7 +1,7 @@
 import os
 import json
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from flask import Flask, request, jsonify, render_template, send_from_directory, url_for, send_file
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
@@ -4027,6 +4027,576 @@ def delete_team_member(member_id):
     conn.commit()
     conn.close()
     return jsonify({'success': True, 'message': f'تم إزالة الموظف {member["name"]} بنجاح'})
+
+# ----------------- HR & PERSONNEL API (إدارة الموارد البشرية وشؤون الموظفين) -----------------
+@app.route('/api/hr/stats', methods=['GET'])
+def get_hr_stats():
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+
+    # Total employees
+    cursor.execute('SELECT COUNT(*) FROM hr_employees WHERE status = "active"')
+    total_active = cursor.fetchone()[0]
+
+    # Total payroll sum
+    cursor.execute('SELECT COALESCE(SUM(basic_salary + housing_allowance + transport_allowance + other_allowances), 0) FROM hr_employees WHERE status = "active"')
+    monthly_payroll = cursor.fetchone()[0]
+
+    # Employees on leave today
+    today = datetime.now().strftime('%Y-%m-%d')
+    cursor.execute('SELECT COUNT(DISTINCT employee_id) FROM hr_leaves WHERE ? BETWEEN start_date AND end_date AND status = "approved"', (today,))
+    on_leave = cursor.fetchone()[0]
+
+    # Expiring documents within 60 days
+    in_60_days = (datetime.now() + timedelta(days=60)).strftime('%Y-%m-%d')
+    cursor.execute('''
+        SELECT COUNT(*) FROM hr_employees 
+        WHERE status = "active" AND (
+            (iqama_expiry_date IS NOT NULL AND iqama_expiry_date != '' AND iqama_expiry_date <= ?) OR
+            (insurance_expiry_date IS NOT NULL AND insurance_expiry_date != '' AND insurance_expiry_date <= ?) OR
+            (contract_end_date IS NOT NULL AND contract_end_date != '' AND contract_end_date <= ?)
+        )
+    ''', (in_60_days, in_60_days, in_60_days))
+    expiring_docs = cursor.fetchone()[0]
+
+    # Active advances remaining
+    cursor.execute('SELECT COALESCE(SUM(remaining_amount), 0), COUNT(*) FROM hr_advances WHERE status = "active" AND remaining_amount > 0')
+    adv_row = cursor.fetchone()
+    total_advances = adv_row[0]
+    active_advances_count = adv_row[1]
+
+    conn.close()
+    return jsonify({
+        'total_active': total_active,
+        'monthly_payroll': monthly_payroll,
+        'on_leave': on_leave,
+        'expiring_docs': expiring_docs,
+        'total_advances': total_advances,
+        'active_advances_count': active_advances_count
+    })
+
+@app.route('/api/hr/employees', methods=['GET'])
+def get_hr_employees():
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT e.*, p.name AS project_name
+        FROM hr_employees e
+        LEFT JOIN projects p ON e.project_id = p.id
+        ORDER BY e.id ASC
+    ''')
+    employees = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+    return jsonify(employees)
+
+@app.route('/api/hr/employees', methods=['POST'])
+def add_hr_employee():
+    data = request.json or {}
+    name = (data.get('name') or '').strip()
+    job_title = (data.get('job_title') or '').strip()
+    if not name or not job_title:
+        return jsonify({'error': 'اسم الموظف والمسمى الوظيفي مطلوبان'}), 400
+
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        INSERT INTO hr_employees (
+            name, national_id, nationality, job_title, department, project_id,
+            phone, email, join_date, contract_type, contract_end_date,
+            iqama_expiry_date, insurance_expiry_date, passport_expiry_date,
+            basic_salary, housing_allowance, transport_allowance, other_allowances,
+            bank_name, iban, status, vacation_balance, notes
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (
+        name,
+        data.get('national_id', ''),
+        data.get('nationality', 'سعودي'),
+        job_title,
+        data.get('department', 'المشاريع الهندسية'),
+        data.get('project_id') or None,
+        data.get('phone', ''),
+        data.get('email', ''),
+        data.get('join_date', ''),
+        data.get('contract_type', 'محدد المدة'),
+        data.get('contract_end_date', ''),
+        data.get('iqama_expiry_date', ''),
+        data.get('insurance_expiry_date', ''),
+        data.get('passport_expiry_date', ''),
+        float(data.get('basic_salary') or 0),
+        float(data.get('housing_allowance') or 0),
+        float(data.get('transport_allowance') or 0),
+        float(data.get('other_allowances') or 0),
+        data.get('bank_name', 'مصرف الراجحي'),
+        data.get('iban', ''),
+        data.get('status', 'active'),
+        int(data.get('vacation_balance') or 30),
+        data.get('notes', '')
+    ))
+    new_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True, 'id': new_id, 'message': f'تمت إضافة الموظف {name} بنجاح'})
+
+@app.route('/api/hr/employees/<int:id>', methods=['GET'])
+def get_hr_employee(id):
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT e.*, p.name AS project_name
+        FROM hr_employees e
+        LEFT JOIN projects p ON e.project_id = p.id
+        WHERE e.id = ?
+    ''', (id,))
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        return jsonify({'error': 'الموظف غير موجود'}), 404
+    emp = dict(row)
+
+    cursor.execute('SELECT * FROM hr_leaves WHERE employee_id = ? ORDER BY id DESC LIMIT 5', (id,))
+    emp['leaves'] = [dict(r) for r in cursor.fetchall()]
+
+    cursor.execute('SELECT * FROM hr_advances WHERE employee_id = ? ORDER BY id DESC LIMIT 5', (id,))
+    emp['advances'] = [dict(r) for r in cursor.fetchall()]
+
+    conn.close()
+    return jsonify(emp)
+
+@app.route('/api/hr/employees/<int:id>', methods=['PUT'])
+def update_hr_employee(id):
+    data = request.json or {}
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        UPDATE hr_employees
+        SET name = COALESCE(NULLIF(?, ''), name),
+            national_id = ?,
+            nationality = ?,
+            job_title = COALESCE(NULLIF(?, ''), job_title),
+            department = ?,
+            project_id = ?,
+            phone = ?,
+            email = ?,
+            join_date = ?,
+            contract_type = ?,
+            contract_end_date = ?,
+            iqama_expiry_date = ?,
+            insurance_expiry_date = ?,
+            passport_expiry_date = ?,
+            basic_salary = ?,
+            housing_allowance = ?,
+            transport_allowance = ?,
+            other_allowances = ?,
+            bank_name = ?,
+            iban = ?,
+            status = ?,
+            vacation_balance = ?,
+            notes = ?
+        WHERE id = ?
+    ''', (
+        data.get('name'),
+        data.get('national_id', ''),
+        data.get('nationality', 'سعودي'),
+        data.get('job_title'),
+        data.get('department', 'المشاريع الهندسية'),
+        data.get('project_id') or None,
+        data.get('phone', ''),
+        data.get('email', ''),
+        data.get('join_date', ''),
+        data.get('contract_type', 'محدد المدة'),
+        data.get('contract_end_date', ''),
+        data.get('iqama_expiry_date', ''),
+        data.get('insurance_expiry_date', ''),
+        data.get('passport_expiry_date', ''),
+        float(data.get('basic_salary') or 0),
+        float(data.get('housing_allowance') or 0),
+        float(data.get('transport_allowance') or 0),
+        float(data.get('other_allowances') or 0),
+        data.get('bank_name', 'مصرف الراجحي'),
+        data.get('iban', ''),
+        data.get('status', 'active'),
+        int(data.get('vacation_balance') or 30),
+        data.get('notes', ''),
+        id
+    ))
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True, 'message': 'تم تحديث بيانات الموظف بنجاح'})
+
+@app.route('/api/hr/employees/<int:id>', methods=['DELETE'])
+def delete_hr_employee(id):
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('DELETE FROM hr_employees WHERE id = ?', (id,))
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True, 'message': 'تم حذف سجل الموظف بنجاح'})
+
+# ----------------- PAYROLLS -----------------
+@app.route('/api/hr/payrolls', methods=['GET'])
+def get_hr_payrolls():
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM hr_payrolls ORDER BY month_year DESC, id DESC')
+    payrolls = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+    return jsonify(payrolls)
+
+@app.route('/api/hr/payrolls', methods=['POST'])
+def generate_hr_payroll():
+    data = request.json or {}
+    month_year = data.get('month_year') or datetime.now().strftime('%Y-%m')
+    notes = data.get('notes', '')
+
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute('SELECT id FROM hr_payrolls WHERE month_year = ?', (month_year,))
+    if cursor.fetchone():
+        conn.close()
+        return jsonify({'error': f'مسير رواتب شهر {month_year} تم إنشاؤه مسبقاً'}), 400
+
+    cursor.execute('''
+        SELECT id, name, job_title, basic_salary, (housing_allowance + transport_allowance + other_allowances) AS allowances, iban
+        FROM hr_employees
+        WHERE status = 'active'
+    ''')
+    employees = cursor.fetchall()
+    if not employees:
+        conn.close()
+        return jsonify({'error': 'لا يوجد موظفون نشطون لإصدار مسير الرواتب'}), 400
+
+    total_basic = 0.0
+    total_allowances = 0.0
+    total_advances = 0.0
+    total_deductions = 0.0
+    total_net = 0.0
+    items_to_insert = []
+
+    for emp in employees:
+        emp_id = emp['id']
+        basic = float(emp['basic_salary'] or 0)
+        allowances = float(emp['allowances'] or 0)
+
+        cursor.execute('''
+            SELECT id, monthly_deduction, remaining_amount
+            FROM hr_advances
+            WHERE employee_id = ? AND status = 'active' AND remaining_amount > 0
+            LIMIT 1
+        ''', (emp_id,))
+        adv = cursor.fetchone()
+        adv_deduct = 0.0
+        if adv:
+            adv_deduct = min(float(adv['monthly_deduction'] or 0), float(adv['remaining_amount'] or 0))
+
+        net = max(0.0, basic + allowances - adv_deduct)
+
+        total_basic += basic
+        total_allowances += allowances
+        total_advances += adv_deduct
+        total_net += net
+
+        items_to_insert.append((
+            emp_id, emp['name'], emp['job_title'], basic, allowances,
+            0.0, 0.0, 0.0, adv_deduct, net, emp['iban'] or '', 'pending'
+        ))
+
+    cursor.execute('''
+        INSERT INTO hr_payrolls (month_year, total_basic, total_allowances, total_deductions, total_advances, total_net, employees_count, status, notes)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'draft', ?)
+    ''', (month_year, total_basic, total_allowances, total_deductions, total_advances, total_net, len(items_to_insert), notes))
+    payroll_id = cursor.lastrowid
+
+    for itm in items_to_insert:
+        cursor.execute('''
+            INSERT INTO hr_payroll_items (payroll_id, employee_id, employee_name, job_title, basic_salary, allowances, overtime_amount, bonus_amount, deductions, advances_deducted, net_salary, iban, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (payroll_id, *itm))
+
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True, 'id': payroll_id, 'message': f'تم توليد مسير رواتب شهر {month_year} بنجاح لـ ({len(items_to_insert)}) موظفاً'})
+
+@app.route('/api/hr/payrolls/<int:id>', methods=['GET'])
+def get_hr_payroll_details(id):
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM hr_payrolls WHERE id = ?', (id,))
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        return jsonify({'error': 'مسير الرواتب غير موجود'}), 404
+    payroll = dict(row)
+
+    cursor.execute('SELECT * FROM hr_payroll_items WHERE payroll_id = ? ORDER BY id ASC', (id,))
+    payroll['items'] = [dict(r) for r in cursor.fetchall()]
+    conn.close()
+    return jsonify(payroll)
+
+@app.route('/api/hr/payrolls/<int:id>/status', methods=['PUT'])
+def update_hr_payroll_status(id):
+    data = request.json or {}
+    new_status = data.get('status', 'approved')
+    approved_by = data.get('approved_by', 'ابوالنصر البغدادي')
+    payment_date = data.get('payment_date') or datetime.now().strftime('%Y-%m-%d')
+
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        UPDATE hr_payrolls
+        SET status = ?, approved_by = ?, payment_date = ?
+        WHERE id = ?
+    ''', (new_status, approved_by, payment_date, id))
+
+    if new_status == 'paid':
+        cursor.execute('UPDATE hr_payroll_items SET status = "paid" WHERE payroll_id = ?', (id,))
+
+        cursor.execute('SELECT employee_id, advances_deducted FROM hr_payroll_items WHERE payroll_id = ? AND advances_deducted > 0', (id,))
+        deducted_advances = cursor.fetchall()
+        for d in deducted_advances:
+            emp_id = d['employee_id']
+            ded_amt = float(d['advances_deducted'] or 0)
+            cursor.execute('''
+                UPDATE hr_advances
+                SET paid_amount = paid_amount + ?,
+                    remaining_amount = MAX(0, remaining_amount - ?),
+                    status = CASE WHEN remaining_amount - ? <= 0 THEN 'settled' ELSE 'active' END
+                WHERE employee_id = ? AND status = 'active'
+            ''', (ded_amt, ded_amt, ded_amt, emp_id))
+
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True, 'message': f'تم تحديث حالة المسير إلى: {new_status}'})
+
+@app.route('/api/hr/payrolls/<int:id>', methods=['DELETE'])
+def delete_hr_payroll(id):
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('DELETE FROM hr_payrolls WHERE id = ?', (id,))
+    cursor.execute('DELETE FROM hr_payroll_items WHERE payroll_id = ?', (id,))
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True, 'message': 'تم حذف مسير الرواتب'})
+
+# ----------------- LEAVES -----------------
+@app.route('/api/hr/leaves', methods=['GET'])
+def get_hr_leaves():
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT l.*, e.job_title, e.department
+        FROM hr_leaves l
+        LEFT JOIN hr_employees e ON l.employee_id = e.id
+        ORDER BY l.id DESC
+    ''')
+    leaves = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+    return jsonify(leaves)
+
+@app.route('/api/hr/leaves', methods=['POST'])
+def add_hr_leave():
+    data = request.json or {}
+    employee_id = data.get('employee_id')
+    leave_type = data.get('leave_type', 'سنوية')
+    start_date = data.get('start_date')
+    end_date = data.get('end_date')
+    days_count = int(data.get('days_count') or 1)
+    notes = data.get('notes', '')
+
+    if not employee_id or not start_date or not end_date:
+        return jsonify({'error': 'الموظف وتاريخ البدء والانتهاء مطلوبان'}), 400
+
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT name, vacation_balance FROM hr_employees WHERE id = ?', (employee_id,))
+    emp = cursor.fetchone()
+    if not emp:
+        conn.close()
+        return jsonify({'error': 'الموظف غير موجود'}), 404
+
+    emp_name = emp['name']
+
+    cursor.execute('''
+        INSERT INTO hr_leaves (employee_id, employee_name, leave_type, start_date, end_date, days_count, status, notes)
+        VALUES (?, ?, ?, ?, ?, ?, 'approved', ?)
+    ''', (employee_id, emp_name, leave_type, start_date, end_date, days_count, notes))
+
+    if leave_type == 'سنوية':
+        cursor.execute('UPDATE hr_employees SET vacation_balance = MAX(0, vacation_balance - ?) WHERE id = ?', (days_count, employee_id))
+
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True, 'message': f'تم تسجيل واعتماد الإجازة للموظف {emp_name}'})
+
+@app.route('/api/hr/leaves/<int:id>', methods=['DELETE'])
+def delete_hr_leave(id):
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('DELETE FROM hr_leaves WHERE id = ?', (id,))
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True, 'message': 'تم حذف الإجازة'})
+
+# ----------------- ADVANCES & LOANS -----------------
+@app.route('/api/hr/advances', methods=['GET'])
+def get_hr_advances():
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT a.*, e.job_title, e.basic_salary
+        FROM hr_advances a
+        LEFT JOIN hr_employees e ON a.employee_id = e.id
+        ORDER BY a.id DESC
+    ''')
+    advances = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+    return jsonify(advances)
+
+@app.route('/api/hr/advances', methods=['POST'])
+def add_hr_advance():
+    data = request.json or {}
+    employee_id = data.get('employee_id')
+    amount = float(data.get('amount') or 0)
+    monthly_deduction = float(data.get('monthly_deduction') or 0)
+    request_date = data.get('request_date') or datetime.now().strftime('%Y-%m-%d')
+    notes = data.get('notes', '')
+
+    if not employee_id or amount <= 0:
+        return jsonify({'error': 'الموظف ومبلغ السلفة مطلوبان'}), 400
+
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT name FROM hr_employees WHERE id = ?', (employee_id,))
+    emp = cursor.fetchone()
+    if not emp:
+        conn.close()
+        return jsonify({'error': 'الموظف غير موجود'}), 404
+
+    emp_name = emp['name']
+
+    cursor.execute('''
+        INSERT INTO hr_advances (employee_id, employee_name, amount, request_date, monthly_deduction, paid_amount, remaining_amount, status, notes)
+        VALUES (?, ?, ?, ?, ?, 0.0, ?, 'active', ?)
+    ''', (employee_id, emp_name, amount, request_date, monthly_deduction, amount, notes))
+
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True, 'message': f'تم صرف وتسجيل السلفة للموظف {emp_name} بمبلغ {amount:,.2f} ر.س'})
+
+@app.route('/api/hr/advances/<int:id>', methods=['DELETE'])
+def delete_hr_advance(id):
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('DELETE FROM hr_advances WHERE id = ?', (id,))
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True, 'message': 'تم حذف السلفة'})
+
+# ----------------- DOCUMENT EXPIRATIONS & COMPLIANCE -----------------
+@app.route('/api/hr/expirations', methods=['GET'])
+def get_hr_expirations():
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT id, name, nationality, job_title, phone, iqama_expiry_date, insurance_expiry_date, contract_end_date, passport_expiry_date
+        FROM hr_employees
+        WHERE status = 'active'
+    ''')
+    rows = cursor.fetchall()
+    conn.close()
+
+    today = datetime.now().date()
+    expirations = []
+
+    for r in rows:
+        docs = [
+            ('الإقامة / الهوية', r['iqama_expiry_date'], 'file-badge'),
+            ('التأمين الطبي', r['insurance_expiry_date'], 'shield-plus'),
+            ('عقد العمل', r['contract_end_date'], 'file-text'),
+            ('جواز السفر', r['passport_expiry_date'], 'plane')
+        ]
+        for doc_name, exp_str, icon in docs:
+            if exp_str and exp_str.strip():
+                try:
+                    exp_date = datetime.strptime(exp_str.strip(), '%Y-%m-%d').date()
+                    days_left = (exp_date - today).days
+
+                    if days_left <= 60:
+                        urgency = 'critical' if days_left <= 15 else ('warning' if days_left <= 30 else 'notice')
+                        expirations.append({
+                            'employee_id': r['id'],
+                            'employee_name': r['name'],
+                            'nationality': r['nationality'],
+                            'job_title': r['job_title'],
+                            'phone': r['phone'],
+                            'doc_type': doc_name,
+                            'expiry_date': exp_str,
+                            'days_left': days_left,
+                            'urgency': urgency,
+                            'icon': icon
+                        })
+                except Exception:
+                    pass
+
+    expirations.sort(key=lambda x: x['days_left'])
+    return jsonify(expirations)
+
+# ----------------- END OF SERVICE CALCULATOR (حاسبة نهاية الخدمة السعودية) -----------------
+@app.route('/api/hr/eos-calculate', methods=['POST'])
+def calculate_eos():
+    data = request.json or {}
+    basic_salary = float(data.get('basic_salary') or 0)
+    allowances = float(data.get('allowances') or 0)
+    full_wage = basic_salary + allowances
+
+    years = float(data.get('years') or 0)
+    months = float(data.get('months') or 0)
+    days = float(data.get('days') or 0)
+    total_years = years + (months / 12.0) + (days / 365.0)
+
+    contract_type = data.get('contract_type', 'specified')
+    reason = data.get('reason', 'termination')
+
+    if full_wage <= 0 or total_years <= 0:
+        return jsonify({'error': 'يرجى إدخال الراتب ومدة الخدمة'}), 400
+
+    if total_years <= 5:
+        base_award = (full_wage / 2.0) * total_years
+    else:
+        base_award = ((full_wage / 2.0) * 5) + (full_wage * (total_years - 5))
+
+    multiplier = 1.0
+    reduction_note = 'مستحق بالكامل (100%) وفقاً للمادة 84 من نظام العمل السعودي'
+
+    if reason == 'resignation':
+        if total_years < 2:
+            multiplier = 0.0
+            reduction_note = 'لا يستحق مكافأة (مدة الخدمة أقل من سنتين - مادة 85)'
+        elif 2 <= total_years < 5:
+            multiplier = 1.0 / 3.0
+            reduction_note = 'يستحق ثلث المكافأة (33.3%) لأن الخدمة بين 2 و 5 سنوات - مادة 85'
+        elif 5 <= total_years < 10:
+            multiplier = 2.0 / 3.0
+            reduction_note = 'يستحق ثلثي المكافأة (66.7%) لأن الخدمة بين 5 و 10 سنوات - مادة 85'
+        else:
+            multiplier = 1.0
+            reduction_note = 'يستحق المكافأة كاملة (100%) لأن مدة الخدمة تجاوزت 10 سنوات - مادة 85'
+
+    final_award = round(base_award * multiplier, 2)
+
+    return jsonify({
+        'success': True,
+        'full_wage': full_wage,
+        'total_years': round(total_years, 2),
+        'base_award': round(base_award, 2),
+        'multiplier': multiplier,
+        'final_award': final_award,
+        'reduction_note': reduction_note,
+        'breakdown': {
+            'first_5_years_award': round(min(total_years, 5) * (full_wage / 2.0), 2),
+            'subsequent_years_award': round(max(0.0, total_years - 5) * full_wage, 2)
+        }
+    })
 
 # ----------------- NOTIFICATIONS API -----------------
 @app.route('/api/notifications', methods=['GET'])

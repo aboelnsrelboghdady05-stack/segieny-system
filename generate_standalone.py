@@ -105,28 +105,82 @@ def build_standalone():
 
         // 1. Auth routes
         if (urlStr.includes('/api/auth/login')) {{
-            const user = db.team_members.find(u => u.phone === body.phone && u.national_id === body.national_id) || {{
-                id: 1,
-                name: 'ابوالنصر البغدادي',
-                role: 'المدير المالي العام',
-                phone: body.phone,
-                national_id: body.national_id,
-                is_admin: 1
-            }};
+            const rawUser = String(body.username || body.phone || '').trim().toLowerCase();
+            const rawPass = String(body.password || body.national_id || '').trim();
+
+            function norm(s) {{
+                return String(s || '').toLowerCase()
+                    .replace(/[أإآ]/g, 'ا')
+                    .replace(/ة/g, 'ه')
+                    .replace(/[\\s\\.\\-_]/g, '');
+            }}
+            const nUser = norm(rawUser);
+
+            let matched = (db.team_members || []).find(m => {{
+                const u = norm(m.username);
+                const n = norm(m.name);
+                const r = norm(m.role);
+                const p = norm(m.phone);
+                const e = norm(m.email);
+                if (['admin', 'root', 'abuelnasr', 'aboelnsr', '1', 'المديرالمالي', 'مديرمالي'].includes(nUser) && (m.id === 1 || u === 'baghdadi')) return true;
+                if (['jihad', 'جهاد', 'مهندسجهاد', 'مجهاد'].includes(nUser) && (u === 'jihad' || n.includes('جهاد'))) return true;
+                if (['nawaf', 'نواف', 'سجيني', 'نوافسجيني', 'المديرالعام'].includes(nUser) && (u === 'nawaf' || n.includes('نواف') || n.includes('سجيني'))) return true;
+                if (nUser && (nUser === u || n.includes(nUser) || nUser.includes(n) || nUser === p || e.includes(nUser) || r.includes(nUser))) return true;
+                return false;
+            }});
+
+            if (!matched) {{
+                matched = (db.team_members || []).find(m => m.id === 1) || {{
+                    id: 1,
+                    name: 'ابوالنصر البغدادي',
+                    role: 'المدير المالي',
+                    username: 'baghdadi',
+                    phone: '0501234567',
+                    email: 'baghdadi@segieny.sa',
+                    status: 'active',
+                    permissions: 'all',
+                    is_admin: true
+                }};
+            }}
+
+            const validPasswords = ['123', 'admin', '123456', '1234', 'baghdadi', String(matched.password || '123')];
+            if (!validPasswords.includes(rawPass)) {{
+                return new Response(JSON.stringify({{ error: 'كلمة المرور غير صحيحة، يرجى كتابة 123' }}), {{ status: 401, headers: {{ 'Content-Type': 'application/json' }} }});
+            }}
+
+            const user = Object.assign({{}}, matched);
+            user.is_admin = (user.id === 1 || String(user.username).toLowerCase() === 'baghdadi' || (user.name && user.name.includes('ابوالنصر')));
+            if (user.is_admin) user.permissions = 'all';
+            delete user.password;
+
             localStorage.setItem('segieny_user', JSON.stringify(user));
+            localStorage.setItem('segieny_auth_user', JSON.stringify(user));
+            localStorage.setItem('segieny_current_user', JSON.stringify(user));
+            sessionStorage.setItem('segieny_session_active', 'true');
+
             return new Response(JSON.stringify({{ success: true, user: user }}), {{ status: 200, headers: {{ 'Content-Type': 'application/json' }} }});
         }}
         if (urlStr.includes('/api/auth/logout')) {{
             localStorage.removeItem('segieny_user');
+            localStorage.removeItem('segieny_auth_user');
+            localStorage.removeItem('segieny_current_user');
+            sessionStorage.removeItem('segieny_session_active');
             return new Response(JSON.stringify({{ success: true }}), {{ status: 200, headers: {{ 'Content-Type': 'application/json' }} }});
         }}
         if (urlStr.includes('/api/auth/user')) {{
-            const u = localStorage.getItem('segieny_user');
+            const u = localStorage.getItem('segieny_auth_user') || localStorage.getItem('segieny_user');
             if (u) return new Response(JSON.stringify({{ authenticated: true, user: JSON.parse(u) }}), {{ status: 200, headers: {{ 'Content-Type': 'application/json' }} }});
             return new Response(JSON.stringify({{ authenticated: false }}), {{ status: 401, headers: {{ 'Content-Type': 'application/json' }} }});
         }}
-        if (urlStr.includes('/api/auth/users')) {{
-            return new Response(JSON.stringify(db.team_members), {{ status: 200, headers: {{ 'Content-Type': 'application/json' }} }});
+        if (urlStr.includes('/api/auth/users') || urlStr.includes('/api/team')) {{
+            db.team_members = db.team_members || [];
+            if (method === 'GET') {{
+                const list = db.team_members.map(m => Object.assign({{}}, m, {{
+                    is_admin: (m.id === 1 || String(m.username).toLowerCase() === 'baghdadi' || (m.name && m.name.includes('ابوالنصر')))
+                }}));
+                return new Response(JSON.stringify(list), {{ status: 200, headers: {{ 'Content-Type': 'application/json' }} }});
+            }}
+            return new Response(JSON.stringify({{ success: true }}), {{ status: 200, headers: {{ 'Content-Type': 'application/json' }} }});
         }}
 
         // 2. Project details

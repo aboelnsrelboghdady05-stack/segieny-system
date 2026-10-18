@@ -6744,8 +6744,9 @@ function prefillLogin(username, password) {
     const p = document.getElementById('login-password');
     if (u) u.value = username;
     if (p) p.value = password;
-    const btn = document.getElementById('btn-login-submit');
-    if (btn) btn.focus();
+    setTimeout(() => {
+        handleLoginSubmit(new Event('submit'));
+    }, 50);
 }
 
 function toggleLoginPasswordVisibility() {

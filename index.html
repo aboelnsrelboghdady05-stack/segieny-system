@@ -576,7 +576,7 @@ body, header, nav, div, button, input, select, textarea, table {
                         <div class="absolute inset-y-0 right-0 pr-3.5 flex items-center pointer-events-none text-slate-500">
                             <i data-lucide="user" class="w-4 h-4"></i>
                         </div>
-                        <input type="text" id="login-username" required placeholder="اسم المستخدم (مثال: baghdadi أو jihad أو nawaf)" class="w-full bg-slate-950/80 border border-slate-750 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 rounded-xl pr-10 pl-3 py-2.5 text-sm text-white placeholder-slate-500 outline-none transition">
+                        <input type="text" id="login-username" required placeholder="اسم المستخدم (مثال: baghdadi أو admin أو ابو النصر)" class="w-full bg-slate-950/80 border border-slate-750 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 rounded-xl pr-10 pl-3 py-2.5 text-sm text-white placeholder-slate-500 outline-none transition">
                     </div>
                 </div>
 
@@ -587,7 +587,7 @@ body, header, nav, div, button, input, select, textarea, table {
                         <div class="absolute inset-y-0 right-0 pr-3.5 flex items-center pointer-events-none text-slate-500">
                             <i data-lucide="lock" class="w-4 h-4"></i>
                         </div>
-                        <input type="password" id="login-password" required placeholder="••••••••" class="w-full bg-slate-950/80 border border-slate-750 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 rounded-xl pr-10 pl-10 py-2.5 text-sm text-white placeholder-slate-500 outline-none transition">
+                        <input type="password" id="login-password" required placeholder="123" value="123" class="w-full bg-slate-950/80 border border-slate-750 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 rounded-xl pr-10 pl-10 py-2.5 text-sm text-white placeholder-slate-500 outline-none transition font-mono">
                         <button type="button" onclick="toggleLoginPasswordVisibility()" class="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-500 hover:text-slate-300 transition" title="إظهار/إخفاء كلمة المرور">
                             <i data-lucide="eye" id="login-eye-icon" class="w-4 h-4"></i>
                         </button>
@@ -603,23 +603,26 @@ body, header, nav, div, button, input, select, textarea, table {
 
             <!-- Quick accounts guide for team members -->
             <div class="p-3.5 bg-slate-950/60 rounded-2xl border border-slate-800/80 space-y-2">
-                <span class="text-[11px] font-bold text-slate-400 block">حسابات فريق العمل المسجلة:</span>
+                <span class="text-[11px] font-bold text-emerald-400 block flex items-center gap-1.5">
+                    <i data-lucide="zap" class="w-3.5 h-3.5"></i>
+                    <span>اضغط على حسابك للدخول السريع والمباشر بنقرة واحدة:</span>
+                </span>
                 <div class="grid grid-cols-3 gap-1.5 text-center text-[10px]">
-                    <button type="button" onclick="prefillLogin('baghdadi', '123')" class="p-2 rounded-xl bg-slate-800/60 hover:bg-slate-800 text-slate-300 border border-slate-750/60 transition truncate">
-                        <strong class="text-white block truncate">ابوالنصر</strong>
-                        <span class="text-emerald-400 font-mono text-[9px]">baghdadi</span>
+                    <button type="button" onclick="prefillLogin('baghdadi', '123')" class="p-2.5 rounded-xl bg-slate-800 hover:bg-emerald-600/30 hover:border-emerald-500/50 text-slate-200 border border-slate-750 transition truncate group">
+                        <strong class="text-white block truncate group-hover:text-emerald-300">ابوالنصر</strong>
+                        <span class="text-emerald-400 font-mono text-[9px] block">دخول كمدير مالي</span>
                     </button>
-                    <button type="button" onclick="prefillLogin('jihad', '123')" class="p-2 rounded-xl bg-slate-800/60 hover:bg-slate-800 text-slate-300 border border-slate-750/60 transition truncate">
-                        <strong class="text-white block truncate">م. جهاد</strong>
-                        <span class="text-amber-400 font-mono text-[9px]">jihad</span>
+                    <button type="button" onclick="prefillLogin('jihad', '123')" class="p-2.5 rounded-xl bg-slate-800 hover:bg-amber-600/30 hover:border-amber-500/50 text-slate-200 border border-slate-750 transition truncate group">
+                        <strong class="text-white block truncate group-hover:text-amber-300">م. جهاد</strong>
+                        <span class="text-amber-400 font-mono text-[9px] block">مدير مشاريع</span>
                     </button>
-                    <button type="button" onclick="prefillLogin('nawaf', '123')" class="p-2 rounded-xl bg-slate-800/60 hover:bg-slate-800 text-slate-300 border border-slate-750/60 transition truncate">
-                        <strong class="text-white block truncate">نواف سجيني</strong>
-                        <span class="text-purple-400 font-mono text-[9px]">nawaf</span>
+                    <button type="button" onclick="prefillLogin('nawaf', '123')" class="p-2.5 rounded-xl bg-slate-800 hover:bg-purple-600/30 hover:border-purple-500/50 text-slate-200 border border-slate-750 transition truncate group">
+                        <strong class="text-white block truncate group-hover:text-purple-300">نواف سجيني</strong>
+                        <span class="text-purple-400 font-mono text-[9px] block">المدير العام</span>
                     </button>
                 </div>
-                <div class="text-[10px] text-slate-500 text-center pt-1.5 border-t border-slate-800/50">
-                    كلمة المرور الافتراضية للجميع: <span class="font-mono text-emerald-400 font-bold">123</span>
+                <div class="text-[10px] text-slate-400 text-center pt-1.5 border-t border-slate-800/50">
+                    كلمة المرور الافتراضية للجميع هي: <span class="font-mono text-emerald-400 font-bold">123</span> (كما يمكنك استخدام admin)
                 </div>
             </div>
 
@@ -6405,28 +6408,82 @@ body, header, nav, div, button, input, select, textarea, table {
 
         // 1. Auth routes
         if (urlStr.includes('/api/auth/login')) {
-            const user = db.team_members.find(u => u.phone === body.phone && u.national_id === body.national_id) || {
-                id: 1,
-                name: 'ابوالنصر البغدادي',
-                role: 'المدير المالي العام',
-                phone: body.phone,
-                national_id: body.national_id,
-                is_admin: 1
-            };
+            const rawUser = String(body.username || body.phone || '').trim().toLowerCase();
+            const rawPass = String(body.password || body.national_id || '').trim();
+
+            function norm(s) {
+                return String(s || '').toLowerCase()
+                    .replace(/[أإآ]/g, 'ا')
+                    .replace(/ة/g, 'ه')
+                    .replace(/[\s\.\-_]/g, '');
+            }
+            const nUser = norm(rawUser);
+
+            let matched = (db.team_members || []).find(m => {
+                const u = norm(m.username);
+                const n = norm(m.name);
+                const r = norm(m.role);
+                const p = norm(m.phone);
+                const e = norm(m.email);
+                if (['admin', 'root', 'abuelnasr', 'aboelnsr', '1', 'المديرالمالي', 'مديرمالي'].includes(nUser) && (m.id === 1 || u === 'baghdadi')) return true;
+                if (['jihad', 'جهاد', 'مهندسجهاد', 'مجهاد'].includes(nUser) && (u === 'jihad' || n.includes('جهاد'))) return true;
+                if (['nawaf', 'نواف', 'سجيني', 'نوافسجيني', 'المديرالعام'].includes(nUser) && (u === 'nawaf' || n.includes('نواف') || n.includes('سجيني'))) return true;
+                if (nUser && (nUser === u || n.includes(nUser) || nUser.includes(n) || nUser === p || e.includes(nUser) || r.includes(nUser))) return true;
+                return false;
+            });
+
+            if (!matched) {
+                matched = (db.team_members || []).find(m => m.id === 1) || {
+                    id: 1,
+                    name: 'ابوالنصر البغدادي',
+                    role: 'المدير المالي',
+                    username: 'baghdadi',
+                    phone: '0501234567',
+                    email: 'baghdadi@segieny.sa',
+                    status: 'active',
+                    permissions: 'all',
+                    is_admin: true
+                };
+            }
+
+            const validPasswords = ['123', 'admin', '123456', '1234', 'baghdadi', String(matched.password || '123')];
+            if (!validPasswords.includes(rawPass)) {
+                return new Response(JSON.stringify({ error: 'كلمة المرور غير صحيحة، يرجى كتابة 123' }), { status: 401, headers: { 'Content-Type': 'application/json' } });
+            }
+
+            const user = Object.assign({}, matched);
+            user.is_admin = (user.id === 1 || String(user.username).toLowerCase() === 'baghdadi' || (user.name && user.name.includes('ابوالنصر')));
+            if (user.is_admin) user.permissions = 'all';
+            delete user.password;
+
             localStorage.setItem('segieny_user', JSON.stringify(user));
+            localStorage.setItem('segieny_auth_user', JSON.stringify(user));
+            localStorage.setItem('segieny_current_user', JSON.stringify(user));
+            sessionStorage.setItem('segieny_session_active', 'true');
+
             return new Response(JSON.stringify({ success: true, user: user }), { status: 200, headers: { 'Content-Type': 'application/json' } });
         }
         if (urlStr.includes('/api/auth/logout')) {
             localStorage.removeItem('segieny_user');
+            localStorage.removeItem('segieny_auth_user');
+            localStorage.removeItem('segieny_current_user');
+            sessionStorage.removeItem('segieny_session_active');
             return new Response(JSON.stringify({ success: true }), { status: 200, headers: { 'Content-Type': 'application/json' } });
         }
         if (urlStr.includes('/api/auth/user')) {
-            const u = localStorage.getItem('segieny_user');
+            const u = localStorage.getItem('segieny_auth_user') || localStorage.getItem('segieny_user');
             if (u) return new Response(JSON.stringify({ authenticated: true, user: JSON.parse(u) }), { status: 200, headers: { 'Content-Type': 'application/json' } });
             return new Response(JSON.stringify({ authenticated: false }), { status: 401, headers: { 'Content-Type': 'application/json' } });
         }
-        if (urlStr.includes('/api/auth/users')) {
-            return new Response(JSON.stringify(db.team_members), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        if (urlStr.includes('/api/auth/users') || urlStr.includes('/api/team')) {
+            db.team_members = db.team_members || [];
+            if (method === 'GET') {
+                const list = db.team_members.map(m => Object.assign({}, m, {
+                    is_admin: (m.id === 1 || String(m.username).toLowerCase() === 'baghdadi' || (m.name && m.name.includes('ابوالنصر')))
+                }));
+                return new Response(JSON.stringify(list), { status: 200, headers: { 'Content-Type': 'application/json' } });
+            }
+            return new Response(JSON.stringify({ success: true }), { status: 200, headers: { 'Content-Type': 'application/json' } });
         }
 
         // 2. Project details
@@ -14436,8 +14493,9 @@ function prefillLogin(username, password) {
     const p = document.getElementById('login-password');
     if (u) u.value = username;
     if (p) p.value = password;
-    const btn = document.getElementById('btn-login-submit');
-    if (btn) btn.focus();
+    setTimeout(() => {
+        handleLoginSubmit(new Event('submit'));
+    }, 50);
 }
 
 function toggleLoginPasswordVisibility() {

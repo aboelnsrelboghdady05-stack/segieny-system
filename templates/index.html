@@ -5635,10 +5635,12 @@
                                 <th class="p-3">الوظيفة</th>
                                 <th class="p-3">الأساسي</th>
                                 <th class="p-3">البدلات</th>
+                                <th class="p-3">مكافآت / إضافي</th>
+                                <th class="p-3">خصومات / غياب</th>
                                 <th class="p-3">سلف مخصومة</th>
                                 <th class="p-3 font-black text-emerald-400">صافي الراتب</th>
                                 <th class="p-3">الآيبان البنكي</th>
-                                <th class="p-3 text-center">الحالة</th>
+                                <th class="p-3 text-center">إجراءات</th>
                             </tr>
                         </thead>
                         <tbody id="hr-payroll-items-body" class="divide-y divide-slate-800 text-slate-200 font-mono text-[11px]">
@@ -5654,6 +5656,86 @@
                 </div>
                 <button type="button" onclick="closeModal('hr-payroll-detail-modal')" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-300 font-bold">إغلاق</button>
             </div>
+        </div>
+    </div>
+
+    <!-- 10.3.1 HR EDIT PAYROLL ITEM MODAL -->
+    <div id="hr-edit-payroll-item-modal" class="modal-overlay hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+        <div class="bg-slate-850 rounded-2xl border border-slate-750 w-full max-w-lg shadow-2xl p-6 space-y-4 animate-scaleUp text-xs">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-750">
+                <div class="flex items-center gap-2.5">
+                    <div class="p-2.5 rounded-xl bg-amber-500/20 text-amber-400">
+                        <i data-lucide="edit-3" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-black text-base text-white">تعديل مستحقات الموظف بالمسير</h3>
+                        <p id="edit-payroll-emp-title" class="text-slate-400 text-[11px]">الموظف: ...</p>
+                    </div>
+                </div>
+                <button type="button" onclick="closeModal('hr-edit-payroll-item-modal')" class="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <form id="hr-edit-payroll-item-form" onsubmit="submitEditPayrollItem(event)" class="space-y-4">
+                <input type="hidden" id="edit-payroll-item-id">
+
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-slate-400 font-bold mb-1">الراتب الأساسي (ر.س) *</label>
+                        <input type="number" step="0.01" min="0" id="edit-item-basic" required oninput="recalcEditItemNet()" class="w-full bg-slate-900 border border-slate-750 rounded-xl px-3 py-2 text-white font-mono focus:border-amber-500">
+                    </div>
+                    <div>
+                        <label class="block text-slate-400 font-bold mb-1">إجمالي البدلات (ر.س)</label>
+                        <input type="number" step="0.01" min="0" id="edit-item-allowances" oninput="recalcEditItemNet()" class="w-full bg-slate-900 border border-slate-750 rounded-xl px-3 py-2 text-white font-mono focus:border-amber-500">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-emerald-400 font-bold mb-1">إضافي / مكافآت (+) (ر.س)</label>
+                        <input type="number" step="0.01" min="0" id="edit-item-bonus" oninput="recalcEditItemNet()" class="w-full bg-slate-900 border border-slate-750 rounded-xl px-3 py-2 text-emerald-400 font-mono focus:border-emerald-500" placeholder="0">
+                    </div>
+                    <div>
+                        <label class="block text-rose-400 font-bold mb-1">خصومات أو غياب (-) (ر.س)</label>
+                        <input type="number" step="0.01" min="0" id="edit-item-deductions" oninput="recalcEditItemNet()" class="w-full bg-slate-900 border border-slate-750 rounded-xl px-3 py-2 text-rose-400 font-mono focus:border-rose-500" placeholder="0">
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-amber-400 font-bold mb-1">قسط السلفة المخصوم لهذا الشهر (-) (ر.س)</label>
+                    <input type="number" step="0.01" min="0" id="edit-item-advances" oninput="recalcEditItemNet()" class="w-full bg-slate-900 border border-slate-750 rounded-xl px-3 py-2 text-amber-300 font-mono focus:border-amber-500" placeholder="0">
+                </div>
+
+                <div>
+                    <label class="block text-slate-400 font-bold mb-1">سبب أو ملاحظات التعديل</label>
+                    <input type="text" id="edit-item-notes" class="w-full bg-slate-900 border border-slate-750 rounded-xl px-3 py-2 text-white focus:border-amber-500" placeholder="مثال: خصم غياب 3 أيام / مكافأة إنجاز مشروع / تخفيض دوام">
+                </div>
+
+                <!-- Live calculation preview card -->
+                <div class="p-3.5 rounded-xl bg-slate-900 border border-slate-800 space-y-2">
+                    <div class="flex items-center justify-between text-[11px] text-slate-400">
+                        <span>إجمالي الاستحقاقات (أساسي + بدلات + إضافي):</span>
+                        <span id="edit-preview-earnings" class="font-mono text-white font-bold">0.00 ر.س</span>
+                    </div>
+                    <div class="flex items-center justify-between text-[11px] text-slate-400">
+                        <span>إجمالي الاستقطاعات (خصومات + سلف):</span>
+                        <span id="edit-preview-deductions" class="font-mono text-rose-400 font-bold">0.00 ر.س</span>
+                    </div>
+                    <div class="pt-2 border-t border-slate-800 flex items-center justify-between">
+                        <span class="font-bold text-slate-200">الصافي النهائي المستحق للصرف:</span>
+                        <span id="edit-preview-net" class="font-mono font-black text-base text-emerald-400">0.00 ر.س</span>
+                    </div>
+                </div>
+
+                <div class="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-750">
+                    <button type="button" onclick="closeModal('hr-edit-payroll-item-modal')" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-300 font-bold transition">إلغاء</button>
+                    <button type="submit" id="btn-submit-payroll-item-edit" class="px-5 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold flex items-center gap-2 shadow-lg shadow-amber-950/40 transition">
+                        <i data-lucide="check" class="w-4 h-4"></i>
+                        <span>حفظ التعديل وإعادة الاحتساب</span>
+                    </button>
+                </div>
+            </form>
         </div>
     </div>
 
@@ -5793,7 +5875,7 @@
 
     <!-- Scripts -->
     <script src="/static/js/i18n.js?v=20261018_v2"></script>
-    <script src="/static/js/app.js?v=20261018_hr_v4"></script>
+    <script src="/static/js/app.js?v=20261018_hr_v5"></script>
     <script>
     (function() {
         try {

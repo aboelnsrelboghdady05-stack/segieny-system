@@ -4378,6 +4378,84 @@ def delete_hr_payroll(id):
     conn.close()
     return jsonify({'success': True, 'message': 'تم حذف مسير الرواتب'})
 
+@app.route('/api/hr/payroll-items/<int:id>', methods=['PUT'])
+def update_hr_payroll_item(id):
+    data = request.json or {}
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM hr_payroll_items WHERE id = ?', (id,))
+    item = cursor.fetchone()
+    if not item:
+        conn.close()
+        return jsonify({'error': 'بند الراتب غير موجود'}), 404
+
+    payroll_id = item['payroll_id']
+
+    # Read updated values or fallback to current
+    basic_salary = float(data.get('basic_salary', item['basic_salary']) or 0)
+    allowances = float(data.get('allowances', item['allowances']) or 0)
+    overtime_amount = float(data.get('overtime_amount', item['overtime_amount']) or 0)
+    bonus_amount = float(data.get('bonus_amount', item['bonus_amount']) or 0)
+    deductions = float(data.get('deductions', item['deductions']) or 0)
+    advances_deducted = float(data.get('advances_deducted', item['advances_deducted']) or 0)
+    notes = data.get('notes', item['notes'] or '')
+
+    net_salary = round((basic_salary + allowances + overtime_amount + bonus_amount) - (deductions + advances_deducted), 2)
+
+    cursor.execute('''
+        UPDATE hr_payroll_items
+        SET basic_salary = ?,
+            allowances = ?,
+            overtime_amount = ?,
+            bonus_amount = ?,
+            deductions = ?,
+            advances_deducted = ?,
+            net_salary = ?,
+            notes = ?
+        WHERE id = ?
+    ''', (basic_salary, allowances, overtime_amount, bonus_amount, deductions, advances_deducted, net_salary, notes, id))
+
+    # Recalculate parent payroll totals
+    cursor.execute('''
+        SELECT 
+            COALESCE(SUM(basic_salary), 0),
+            COALESCE(SUM(allowances + overtime_amount + bonus_amount), 0),
+            COALESCE(SUM(deductions), 0),
+            COALESCE(SUM(advances_deducted), 0),
+            COALESCE(SUM(net_salary), 0),
+            COUNT(id)
+        FROM hr_payroll_items
+        WHERE payroll_id = ?
+    ''', (payroll_id,))
+    tot_basic, tot_allowances, tot_deductions, tot_advances, tot_net, emp_count = cursor.fetchone()
+
+    cursor.execute('''
+        UPDATE hr_payrolls
+        SET total_basic = ?,
+            total_allowances = ?,
+            total_deductions = ?,
+            total_advances = ?,
+            total_net = ?,
+            employees_count = ?
+        WHERE id = ?
+    ''', (round(tot_basic, 2), round(tot_allowances, 2), round(tot_deductions, 2), round(tot_advances, 2), round(tot_net, 2), emp_count, payroll_id))
+
+    conn.commit()
+
+    cursor.execute('SELECT * FROM hr_payroll_items WHERE id = ?', (id,))
+    updated_item = dict(cursor.fetchone())
+
+    cursor.execute('SELECT * FROM hr_payrolls WHERE id = ?', (payroll_id,))
+    updated_payroll = dict(cursor.fetchone())
+
+    conn.close()
+    return jsonify({
+        'success': True,
+        'message': 'تم تعديل راتب الموظف في المسير بنجاح وتحديث الإجماليات',
+        'item': updated_item,
+        'payroll': updated_payroll
+    })
+
 # ----------------- LEAVES -----------------
 @app.route('/api/hr/leaves', methods=['GET'])
 def get_hr_leaves():

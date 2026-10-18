@@ -6112,10 +6112,12 @@ body, header, nav, div, button, input, select, textarea, table {
                                 <th class="p-3">الوظيفة</th>
                                 <th class="p-3">الأساسي</th>
                                 <th class="p-3">البدلات</th>
+                                <th class="p-3">مكافآت / إضافي</th>
+                                <th class="p-3">خصومات / غياب</th>
                                 <th class="p-3">سلف مخصومة</th>
                                 <th class="p-3 font-black text-emerald-400">صافي الراتب</th>
                                 <th class="p-3">الآيبان البنكي</th>
-                                <th class="p-3 text-center">الحالة</th>
+                                <th class="p-3 text-center">إجراءات</th>
                             </tr>
                         </thead>
                         <tbody id="hr-payroll-items-body" class="divide-y divide-slate-800 text-slate-200 font-mono text-[11px]">
@@ -6131,6 +6133,86 @@ body, header, nav, div, button, input, select, textarea, table {
                 </div>
                 <button type="button" onclick="closeModal('hr-payroll-detail-modal')" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-300 font-bold">إغلاق</button>
             </div>
+        </div>
+    </div>
+
+    <!-- 10.3.1 HR EDIT PAYROLL ITEM MODAL -->
+    <div id="hr-edit-payroll-item-modal" class="modal-overlay hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+        <div class="bg-slate-850 rounded-2xl border border-slate-750 w-full max-w-lg shadow-2xl p-6 space-y-4 animate-scaleUp text-xs">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-750">
+                <div class="flex items-center gap-2.5">
+                    <div class="p-2.5 rounded-xl bg-amber-500/20 text-amber-400">
+                        <i data-lucide="edit-3" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-black text-base text-white">تعديل مستحقات الموظف بالمسير</h3>
+                        <p id="edit-payroll-emp-title" class="text-slate-400 text-[11px]">الموظف: ...</p>
+                    </div>
+                </div>
+                <button type="button" onclick="closeModal('hr-edit-payroll-item-modal')" class="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <form id="hr-edit-payroll-item-form" onsubmit="submitEditPayrollItem(event)" class="space-y-4">
+                <input type="hidden" id="edit-payroll-item-id">
+
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-slate-400 font-bold mb-1">الراتب الأساسي (ر.س) *</label>
+                        <input type="number" step="0.01" min="0" id="edit-item-basic" required oninput="recalcEditItemNet()" class="w-full bg-slate-900 border border-slate-750 rounded-xl px-3 py-2 text-white font-mono focus:border-amber-500">
+                    </div>
+                    <div>
+                        <label class="block text-slate-400 font-bold mb-1">إجمالي البدلات (ر.س)</label>
+                        <input type="number" step="0.01" min="0" id="edit-item-allowances" oninput="recalcEditItemNet()" class="w-full bg-slate-900 border border-slate-750 rounded-xl px-3 py-2 text-white font-mono focus:border-amber-500">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-emerald-400 font-bold mb-1">إضافي / مكافآت (+) (ر.س)</label>
+                        <input type="number" step="0.01" min="0" id="edit-item-bonus" oninput="recalcEditItemNet()" class="w-full bg-slate-900 border border-slate-750 rounded-xl px-3 py-2 text-emerald-400 font-mono focus:border-emerald-500" placeholder="0">
+                    </div>
+                    <div>
+                        <label class="block text-rose-400 font-bold mb-1">خصومات أو غياب (-) (ر.س)</label>
+                        <input type="number" step="0.01" min="0" id="edit-item-deductions" oninput="recalcEditItemNet()" class="w-full bg-slate-900 border border-slate-750 rounded-xl px-3 py-2 text-rose-400 font-mono focus:border-rose-500" placeholder="0">
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-amber-400 font-bold mb-1">قسط السلفة المخصوم لهذا الشهر (-) (ر.س)</label>
+                    <input type="number" step="0.01" min="0" id="edit-item-advances" oninput="recalcEditItemNet()" class="w-full bg-slate-900 border border-slate-750 rounded-xl px-3 py-2 text-amber-300 font-mono focus:border-amber-500" placeholder="0">
+                </div>
+
+                <div>
+                    <label class="block text-slate-400 font-bold mb-1">سبب أو ملاحظات التعديل</label>
+                    <input type="text" id="edit-item-notes" class="w-full bg-slate-900 border border-slate-750 rounded-xl px-3 py-2 text-white focus:border-amber-500" placeholder="مثال: خصم غياب 3 أيام / مكافأة إنجاز مشروع / تخفيض دوام">
+                </div>
+
+                <!-- Live calculation preview card -->
+                <div class="p-3.5 rounded-xl bg-slate-900 border border-slate-800 space-y-2">
+                    <div class="flex items-center justify-between text-[11px] text-slate-400">
+                        <span>إجمالي الاستحقاقات (أساسي + بدلات + إضافي):</span>
+                        <span id="edit-preview-earnings" class="font-mono text-white font-bold">0.00 ر.س</span>
+                    </div>
+                    <div class="flex items-center justify-between text-[11px] text-slate-400">
+                        <span>إجمالي الاستقطاعات (خصومات + سلف):</span>
+                        <span id="edit-preview-deductions" class="font-mono text-rose-400 font-bold">0.00 ر.س</span>
+                    </div>
+                    <div class="pt-2 border-t border-slate-800 flex items-center justify-between">
+                        <span class="font-bold text-slate-200">الصافي النهائي المستحق للصرف:</span>
+                        <span id="edit-preview-net" class="font-mono font-black text-base text-emerald-400">0.00 ر.س</span>
+                    </div>
+                </div>
+
+                <div class="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-750">
+                    <button type="button" onclick="closeModal('hr-edit-payroll-item-modal')" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-300 font-bold transition">إلغاء</button>
+                    <button type="submit" id="btn-submit-payroll-item-edit" class="px-5 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold flex items-center gap-2 shadow-lg shadow-amber-950/40 transition">
+                        <i data-lucide="check" class="w-4 h-4"></i>
+                        <span>حفظ التعديل وإعادة الاحتساب</span>
+                    </button>
+                </div>
+            </form>
         </div>
     </div>
 
@@ -6759,6 +6841,39 @@ body, header, nav, div, button, input, select, textarea, table {
                 db.hr_employees = db.hr_employees.filter(e => e.id !== id);
                 saveDB(db);
                 return new Response(JSON.stringify({ success: true, message: 'تم حذف الموظف بنجاح' }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+            }
+        }
+
+        if (urlStr.includes('/api/hr/payroll-items')) {
+            db.hr_payroll_items = db.hr_payroll_items || [];
+            db.hr_payrolls = db.hr_payrolls || [];
+            if (method === 'PUT') {
+                const id = parseFloat(urlStr.split('/').pop());
+                const item = db.hr_payroll_items.find(it => it.id === id || String(it.id) === String(id));
+                if (item) {
+                    item.basic_salary = parseFloat(body.basic_salary !== undefined ? body.basic_salary : item.basic_salary) || 0;
+                    item.allowances = parseFloat(body.allowances !== undefined ? body.allowances : item.allowances) || 0;
+                    item.overtime_amount = parseFloat(body.overtime_amount !== undefined ? body.overtime_amount : (item.overtime_amount || 0)) || 0;
+                    item.bonus_amount = parseFloat(body.bonus_amount !== undefined ? body.bonus_amount : (item.bonus_amount || 0)) || 0;
+                    item.deductions = parseFloat(body.deductions !== undefined ? body.deductions : item.deductions) || 0;
+                    item.advances_deducted = parseFloat(body.advances_deducted !== undefined ? body.advances_deducted : item.advances_deducted) || 0;
+                    item.notes = body.notes !== undefined ? body.notes : (item.notes || '');
+                    item.net_salary = Math.round(((item.basic_salary + item.allowances + item.overtime_amount + item.bonus_amount) - (item.deductions + item.advances_deducted)) * 100) / 100;
+
+                    // Recalculate parent payroll
+                    const p = db.hr_payrolls.find(pay => pay.id === item.payroll_id || String(pay.id) === String(item.payroll_id));
+                    if (p) {
+                        const items = db.hr_payroll_items.filter(it => it.payroll_id === item.payroll_id || String(it.payroll_id) === String(item.payroll_id));
+                        p.total_basic = Math.round(items.reduce((s, it) => s + (parseFloat(it.basic_salary) || 0), 0) * 100) / 100;
+                        p.total_allowances = Math.round(items.reduce((s, it) => s + (parseFloat(it.allowances) || 0) + (parseFloat(it.overtime_amount) || 0) + (parseFloat(it.bonus_amount) || 0), 0) * 100) / 100;
+                        p.total_deductions = Math.round(items.reduce((s, it) => s + (parseFloat(it.deductions) || 0), 0) * 100) / 100;
+                        p.total_advances = Math.round(items.reduce((s, it) => s + (parseFloat(it.advances_deducted) || 0), 0) * 100) / 100;
+                        p.total_net = Math.round(items.reduce((s, it) => s + (parseFloat(it.net_salary) || 0), 0) * 100) / 100;
+                    }
+                    saveDB(db);
+                    return new Response(JSON.stringify({ success: true, message: 'تم تعديل راتب الموظف في المسير بنجاح', item: item, payroll: p }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+                }
+                return new Response(JSON.stringify({ error: 'بند الراتب غير موجود' }), { status: 404, headers: { 'Content-Type': 'application/json' } });
             }
         }
 
@@ -20233,33 +20348,47 @@ async function viewHrPayrollDetails(id) {
         // Totals
         document.getElementById('payroll-sum-basic').innerText = formatCurrency(payroll.total_basic || 0);
         document.getElementById('payroll-sum-allowances').innerText = formatCurrency(payroll.total_allowances || 0);
-        document.getElementById('payroll-sum-advances').innerText = formatCurrency(payroll.total_deductions || 0);
+        document.getElementById('payroll-sum-advances').innerText = formatCurrency(payroll.total_advances || payroll.total_deductions || 0);
         document.getElementById('payroll-sum-net').innerText = formatCurrency(payroll.total_net || 0);
 
         // Render table items
         const tbody = document.getElementById('hr-payroll-items-body');
         if (items.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="9" class="p-6 text-center text-slate-400">لا توجد بنود مسجلة في هذا المسير</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="11" class="p-6 text-center text-slate-400">لا توجد بنود مسجلة في هذا المسير</td></tr>';
         } else {
             tbody.innerHTML = items.map((it, idx) => {
                 const itAllowances = parseFloat(it.allowances ?? (parseFloat(it.housing_allowance || 0) + parseFloat(it.transport_allowance || 0) + parseFloat(it.other_allowances || 0))) || 0;
-                const itDeductions = parseFloat(it.advances_deducted ?? it.advances_deduction ?? it.deductions) || 0;
+                const itBonus = (parseFloat(it.bonus_amount || 0) + parseFloat(it.overtime_amount || 0));
+                const itDeductions = parseFloat(it.deductions || 0);
+                const itAdvances = parseFloat(it.advances_deducted ?? it.advances_deduction || 0);
                 const itIban = it.iban || it.bank_iban || 'غير مسجل';
 
                 return `
                     <tr class="hover:bg-slate-800/50 transition">
-                        <td class="p-3 text-slate-400">${idx + 1}</td>
-                        <td class="p-3 font-bold text-white font-sans">${it.employee_name}</td>
-                        <td class="p-3 text-slate-300 font-sans">${it.job_title}</td>
-                        <td class="p-3">${formatCurrency(it.basic_salary)}</td>
-                        <td class="p-3">${formatCurrency(itAllowances)}</td>
-                        <td class="p-3 text-rose-400">${formatCurrency(itDeductions)}</td>
-                        <td class="p-3 font-black text-emerald-400 text-xs">${formatCurrency(it.net_salary)}</td>
-                        <td class="p-3 text-slate-400 text-[10px]">${itIban}</td>
+                        <td class="p-3 text-slate-400 font-mono">${idx + 1}</td>
+                        <td class="p-3 font-bold text-white font-sans">
+                            <div>${it.employee_name}</div>
+                            ${it.notes ? `<div class="text-[10px] text-amber-400 font-sans mt-0.5 flex items-center gap-1"><i data-lucide="info" class="w-3 h-3 flex-shrink-0"></i><span>${it.notes}</span></div>` : ''}
+                        </td>
+                        <td class="p-3 text-slate-300 font-sans">${it.job_title || '-'}</td>
+                        <td class="p-3 font-mono">${formatCurrency(it.basic_salary)}</td>
+                        <td class="p-3 font-mono">${formatCurrency(itAllowances)}</td>
+                        <td class="p-3 font-mono">${itBonus > 0 ? `<span class="text-emerald-400 font-bold">+${formatCurrency(itBonus)}</span>` : '<span class="text-slate-500">-</span>'}</td>
+                        <td class="p-3 font-mono">${itDeductions > 0 ? `<span class="text-rose-400 font-bold">-${formatCurrency(itDeductions)}</span>` : '<span class="text-slate-500">-</span>'}</td>
+                        <td class="p-3 font-mono">${itAdvances > 0 ? `<span class="text-amber-400 font-bold">-${formatCurrency(itAdvances)}</span>` : '<span class="text-slate-500">-</span>'}</td>
+                        <td class="p-3 font-black text-emerald-400 text-xs font-mono">${formatCurrency(it.net_salary)}</td>
+                        <td class="p-3 text-slate-400 text-[10px] font-mono">${itIban}</td>
                         <td class="p-3 text-center">
-                            <span class="px-2 py-0.5 rounded-full text-[9px] font-bold ${payroll.status === 'paid' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-slate-800 text-slate-400'}">
-                                ${payroll.status === 'paid' ? 'تم التحويل' : 'جاهز'}
-                            </span>
+                            ${payroll.status !== 'paid' ? `
+                                <button type="button" onclick="openEditPayrollItemModal(${it.id})" class="px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-400 border border-amber-500/30 font-bold text-[11px] flex items-center gap-1 mx-auto transition" title="تعديل الراتب والبدلات والخصومات لهذا الموظف">
+                                    <i data-lucide="edit-3" class="w-3 h-3"></i>
+                                    <span>تعديل</span>
+                                </button>
+                            ` : `
+                                <span class="px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500/10 text-emerald-400">
+                                    تم الصرف
+                                </span>
+                            `}
                         </td>
                     </tr>
                 `;
@@ -20341,6 +20470,125 @@ async function deleteHrPayroll(id) {
     } catch (err) {
         console.error('Error deleting payroll:', err);
         showToast('حدث خطأ في الاتصال بالخادم', 'error');
+    }
+}
+
+// ----------------- EDIT PAYROLL ITEM -----------------
+function openEditPayrollItemModal(itemId) {
+    if (!currentHrPayrollDetail) return;
+    const items = currentHrPayrollDetail.items || currentHrPayrollDetail.payroll?.items || [];
+    const item = items.find(it => it.id === itemId || String(it.id) === String(itemId));
+    if (!item) {
+        showToast('تعذر العثور على بيانات الموظف في هذا المسير', 'error');
+        return;
+    }
+
+    document.getElementById('edit-payroll-item-id').value = item.id;
+    document.getElementById('edit-payroll-emp-title').innerText = `الموظف: ${item.employee_name} (${item.job_title || 'موظف'})`;
+    document.getElementById('edit-item-basic').value = item.basic_salary ?? 0;
+    
+    // Total allowances
+    const allowances = item.allowances ?? (parseFloat(item.housing_allowance || 0) + parseFloat(item.transport_allowance || 0) + parseFloat(item.other_allowances || 0));
+    document.getElementById('edit-item-allowances').value = allowances;
+    
+    // Overtime / Bonus
+    const bonus = parseFloat(item.bonus_amount || 0) + parseFloat(item.overtime_amount || 0);
+    document.getElementById('edit-item-bonus').value = bonus || 0;
+
+    // Deductions
+    document.getElementById('edit-item-deductions').value = item.deductions ?? 0;
+
+    // Advances deducted
+    document.getElementById('edit-item-advances').value = item.advances_deducted ?? 0;
+
+    // Notes
+    document.getElementById('edit-item-notes').value = item.notes || '';
+
+    recalcEditItemNet();
+    openModal('hr-edit-payroll-item-modal');
+    initLucide();
+}
+
+function recalcEditItemNet() {
+    const basic = parseFloat(document.getElementById('edit-item-basic')?.value || 0);
+    const allowances = parseFloat(document.getElementById('edit-item-allowances')?.value || 0);
+    const bonus = parseFloat(document.getElementById('edit-item-bonus')?.value || 0);
+    const deductions = parseFloat(document.getElementById('edit-item-deductions')?.value || 0);
+    const advances = parseFloat(document.getElementById('edit-item-advances')?.value || 0);
+
+    const earnings = basic + allowances + bonus;
+    const totalDeductions = deductions + advances;
+    const net = Math.round((earnings - totalDeductions) * 100) / 100;
+
+    const earnEl = document.getElementById('edit-preview-earnings');
+    const dedEl = document.getElementById('edit-preview-deductions');
+    const netEl = document.getElementById('edit-preview-net');
+
+    if (earnEl) earnEl.innerText = formatCurrency(earnings);
+    if (dedEl) dedEl.innerText = formatCurrency(totalDeductions);
+    if (netEl) {
+        netEl.innerText = formatCurrency(net);
+        if (net < 0) {
+            netEl.className = 'font-mono font-black text-base text-rose-500';
+        } else {
+            netEl.className = 'font-mono font-black text-base text-emerald-400';
+        }
+    }
+}
+
+async function submitEditPayrollItem(event) {
+    if (event) event.preventDefault();
+
+    const itemId = document.getElementById('edit-payroll-item-id')?.value;
+    if (!itemId) return;
+
+    const btn = document.getElementById('btn-submit-payroll-item-edit');
+    if (btn) {
+        btn.disabled = true;
+        btn.classList.add('opacity-70');
+    }
+
+    const payload = {
+        basic_salary: parseFloat(document.getElementById('edit-item-basic')?.value || 0),
+        allowances: parseFloat(document.getElementById('edit-item-allowances')?.value || 0),
+        bonus_amount: parseFloat(document.getElementById('edit-item-bonus')?.value || 0),
+        overtime_amount: 0,
+        deductions: parseFloat(document.getElementById('edit-item-deductions')?.value || 0),
+        advances_deducted: parseFloat(document.getElementById('edit-item-advances')?.value || 0),
+        notes: document.getElementById('edit-item-notes')?.value?.trim() || ''
+    };
+
+    try {
+        const res = await fetch(`/api/hr/payroll-items/${itemId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+
+        if (res.ok && data.success) {
+            showToast(data.message || 'تم تحديث راتب الموظف وإعادة احتساب المسير بنجاح', 'success');
+            closeModal('hr-edit-payroll-item-modal');
+            
+            // Reload payroll modal details
+            const pId = currentHrPayrollDetail?.id || currentHrPayrollDetail?.payroll?.id;
+            if (pId) {
+                await viewHrPayrollDetails(pId);
+            }
+            // Also refresh overall payrolls list and HR dashboard
+            await loadHrPayrolls();
+            await loadHrStats();
+        } else {
+            showToast(data.error || 'حدث خطأ أثناء حفظ التعديل', 'error');
+        }
+    } catch (err) {
+        console.error('Error updating payroll item:', err);
+        showToast('حدث خطأ في الاتصال بالخادم', 'error');
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.classList.remove('opacity-70');
+        }
     }
 }
 

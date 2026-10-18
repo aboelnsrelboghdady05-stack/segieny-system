@@ -12656,33 +12656,47 @@ async function viewHrPayrollDetails(id) {
         // Totals
         document.getElementById('payroll-sum-basic').innerText = formatCurrency(payroll.total_basic || 0);
         document.getElementById('payroll-sum-allowances').innerText = formatCurrency(payroll.total_allowances || 0);
-        document.getElementById('payroll-sum-advances').innerText = formatCurrency(payroll.total_deductions || 0);
+        document.getElementById('payroll-sum-advances').innerText = formatCurrency(payroll.total_advances || payroll.total_deductions || 0);
         document.getElementById('payroll-sum-net').innerText = formatCurrency(payroll.total_net || 0);
 
         // Render table items
         const tbody = document.getElementById('hr-payroll-items-body');
         if (items.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="9" class="p-6 text-center text-slate-400">لا توجد بنود مسجلة في هذا المسير</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="11" class="p-6 text-center text-slate-400">لا توجد بنود مسجلة في هذا المسير</td></tr>';
         } else {
             tbody.innerHTML = items.map((it, idx) => {
                 const itAllowances = parseFloat(it.allowances ?? (parseFloat(it.housing_allowance || 0) + parseFloat(it.transport_allowance || 0) + parseFloat(it.other_allowances || 0))) || 0;
-                const itDeductions = parseFloat(it.advances_deducted ?? it.advances_deduction ?? it.deductions) || 0;
+                const itBonus = (parseFloat(it.bonus_amount || 0) + parseFloat(it.overtime_amount || 0));
+                const itDeductions = parseFloat(it.deductions || 0);
+                const itAdvances = parseFloat(it.advances_deducted ?? it.advances_deduction || 0);
                 const itIban = it.iban || it.bank_iban || 'غير مسجل';
 
                 return `
                     <tr class="hover:bg-slate-800/50 transition">
-                        <td class="p-3 text-slate-400">${idx + 1}</td>
-                        <td class="p-3 font-bold text-white font-sans">${it.employee_name}</td>
-                        <td class="p-3 text-slate-300 font-sans">${it.job_title}</td>
-                        <td class="p-3">${formatCurrency(it.basic_salary)}</td>
-                        <td class="p-3">${formatCurrency(itAllowances)}</td>
-                        <td class="p-3 text-rose-400">${formatCurrency(itDeductions)}</td>
-                        <td class="p-3 font-black text-emerald-400 text-xs">${formatCurrency(it.net_salary)}</td>
-                        <td class="p-3 text-slate-400 text-[10px]">${itIban}</td>
+                        <td class="p-3 text-slate-400 font-mono">${idx + 1}</td>
+                        <td class="p-3 font-bold text-white font-sans">
+                            <div>${it.employee_name}</div>
+                            ${it.notes ? `<div class="text-[10px] text-amber-400 font-sans mt-0.5 flex items-center gap-1"><i data-lucide="info" class="w-3 h-3 flex-shrink-0"></i><span>${it.notes}</span></div>` : ''}
+                        </td>
+                        <td class="p-3 text-slate-300 font-sans">${it.job_title || '-'}</td>
+                        <td class="p-3 font-mono">${formatCurrency(it.basic_salary)}</td>
+                        <td class="p-3 font-mono">${formatCurrency(itAllowances)}</td>
+                        <td class="p-3 font-mono">${itBonus > 0 ? `<span class="text-emerald-400 font-bold">+${formatCurrency(itBonus)}</span>` : '<span class="text-slate-500">-</span>'}</td>
+                        <td class="p-3 font-mono">${itDeductions > 0 ? `<span class="text-rose-400 font-bold">-${formatCurrency(itDeductions)}</span>` : '<span class="text-slate-500">-</span>'}</td>
+                        <td class="p-3 font-mono">${itAdvances > 0 ? `<span class="text-amber-400 font-bold">-${formatCurrency(itAdvances)}</span>` : '<span class="text-slate-500">-</span>'}</td>
+                        <td class="p-3 font-black text-emerald-400 text-xs font-mono">${formatCurrency(it.net_salary)}</td>
+                        <td class="p-3 text-slate-400 text-[10px] font-mono">${itIban}</td>
                         <td class="p-3 text-center">
-                            <span class="px-2 py-0.5 rounded-full text-[9px] font-bold ${payroll.status === 'paid' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-slate-800 text-slate-400'}">
-                                ${payroll.status === 'paid' ? 'تم التحويل' : 'جاهز'}
-                            </span>
+                            ${payroll.status !== 'paid' ? `
+                                <button type="button" onclick="openEditPayrollItemModal(${it.id})" class="px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-400 border border-amber-500/30 font-bold text-[11px] flex items-center gap-1 mx-auto transition" title="تعديل الراتب والبدلات والخصومات لهذا الموظف">
+                                    <i data-lucide="edit-3" class="w-3 h-3"></i>
+                                    <span>تعديل</span>
+                                </button>
+                            ` : `
+                                <span class="px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500/10 text-emerald-400">
+                                    تم الصرف
+                                </span>
+                            `}
                         </td>
                     </tr>
                 `;
@@ -12764,6 +12778,125 @@ async function deleteHrPayroll(id) {
     } catch (err) {
         console.error('Error deleting payroll:', err);
         showToast('حدث خطأ في الاتصال بالخادم', 'error');
+    }
+}
+
+// ----------------- EDIT PAYROLL ITEM -----------------
+function openEditPayrollItemModal(itemId) {
+    if (!currentHrPayrollDetail) return;
+    const items = currentHrPayrollDetail.items || currentHrPayrollDetail.payroll?.items || [];
+    const item = items.find(it => it.id === itemId || String(it.id) === String(itemId));
+    if (!item) {
+        showToast('تعذر العثور على بيانات الموظف في هذا المسير', 'error');
+        return;
+    }
+
+    document.getElementById('edit-payroll-item-id').value = item.id;
+    document.getElementById('edit-payroll-emp-title').innerText = `الموظف: ${item.employee_name} (${item.job_title || 'موظف'})`;
+    document.getElementById('edit-item-basic').value = item.basic_salary ?? 0;
+    
+    // Total allowances
+    const allowances = item.allowances ?? (parseFloat(item.housing_allowance || 0) + parseFloat(item.transport_allowance || 0) + parseFloat(item.other_allowances || 0));
+    document.getElementById('edit-item-allowances').value = allowances;
+    
+    // Overtime / Bonus
+    const bonus = parseFloat(item.bonus_amount || 0) + parseFloat(item.overtime_amount || 0);
+    document.getElementById('edit-item-bonus').value = bonus || 0;
+
+    // Deductions
+    document.getElementById('edit-item-deductions').value = item.deductions ?? 0;
+
+    // Advances deducted
+    document.getElementById('edit-item-advances').value = item.advances_deducted ?? 0;
+
+    // Notes
+    document.getElementById('edit-item-notes').value = item.notes || '';
+
+    recalcEditItemNet();
+    openModal('hr-edit-payroll-item-modal');
+    initLucide();
+}
+
+function recalcEditItemNet() {
+    const basic = parseFloat(document.getElementById('edit-item-basic')?.value || 0);
+    const allowances = parseFloat(document.getElementById('edit-item-allowances')?.value || 0);
+    const bonus = parseFloat(document.getElementById('edit-item-bonus')?.value || 0);
+    const deductions = parseFloat(document.getElementById('edit-item-deductions')?.value || 0);
+    const advances = parseFloat(document.getElementById('edit-item-advances')?.value || 0);
+
+    const earnings = basic + allowances + bonus;
+    const totalDeductions = deductions + advances;
+    const net = Math.round((earnings - totalDeductions) * 100) / 100;
+
+    const earnEl = document.getElementById('edit-preview-earnings');
+    const dedEl = document.getElementById('edit-preview-deductions');
+    const netEl = document.getElementById('edit-preview-net');
+
+    if (earnEl) earnEl.innerText = formatCurrency(earnings);
+    if (dedEl) dedEl.innerText = formatCurrency(totalDeductions);
+    if (netEl) {
+        netEl.innerText = formatCurrency(net);
+        if (net < 0) {
+            netEl.className = 'font-mono font-black text-base text-rose-500';
+        } else {
+            netEl.className = 'font-mono font-black text-base text-emerald-400';
+        }
+    }
+}
+
+async function submitEditPayrollItem(event) {
+    if (event) event.preventDefault();
+
+    const itemId = document.getElementById('edit-payroll-item-id')?.value;
+    if (!itemId) return;
+
+    const btn = document.getElementById('btn-submit-payroll-item-edit');
+    if (btn) {
+        btn.disabled = true;
+        btn.classList.add('opacity-70');
+    }
+
+    const payload = {
+        basic_salary: parseFloat(document.getElementById('edit-item-basic')?.value || 0),
+        allowances: parseFloat(document.getElementById('edit-item-allowances')?.value || 0),
+        bonus_amount: parseFloat(document.getElementById('edit-item-bonus')?.value || 0),
+        overtime_amount: 0,
+        deductions: parseFloat(document.getElementById('edit-item-deductions')?.value || 0),
+        advances_deducted: parseFloat(document.getElementById('edit-item-advances')?.value || 0),
+        notes: document.getElementById('edit-item-notes')?.value?.trim() || ''
+    };
+
+    try {
+        const res = await fetch(`/api/hr/payroll-items/${itemId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+
+        if (res.ok && data.success) {
+            showToast(data.message || 'تم تحديث راتب الموظف وإعادة احتساب المسير بنجاح', 'success');
+            closeModal('hr-edit-payroll-item-modal');
+            
+            // Reload payroll modal details
+            const pId = currentHrPayrollDetail?.id || currentHrPayrollDetail?.payroll?.id;
+            if (pId) {
+                await viewHrPayrollDetails(pId);
+            }
+            // Also refresh overall payrolls list and HR dashboard
+            await loadHrPayrolls();
+            await loadHrStats();
+        } else {
+            showToast(data.error || 'حدث خطأ أثناء حفظ التعديل', 'error');
+        }
+    } catch (err) {
+        console.error('Error updating payroll item:', err);
+        showToast('حدث خطأ في الاتصال بالخادم', 'error');
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.classList.remove('opacity-70');
+        }
     }
 }
 

@@ -544,6 +544,39 @@ def build_standalone():
             }}
         }}
 
+        if (urlStr.includes('/api/hr/payroll-items')) {{
+            db.hr_payroll_items = db.hr_payroll_items || [];
+            db.hr_payrolls = db.hr_payrolls || [];
+            if (method === 'PUT') {{
+                const id = parseFloat(urlStr.split('/').pop());
+                const item = db.hr_payroll_items.find(it => it.id === id || String(it.id) === String(id));
+                if (item) {{
+                    item.basic_salary = parseFloat(body.basic_salary !== undefined ? body.basic_salary : item.basic_salary) || 0;
+                    item.allowances = parseFloat(body.allowances !== undefined ? body.allowances : item.allowances) || 0;
+                    item.overtime_amount = parseFloat(body.overtime_amount !== undefined ? body.overtime_amount : (item.overtime_amount || 0)) || 0;
+                    item.bonus_amount = parseFloat(body.bonus_amount !== undefined ? body.bonus_amount : (item.bonus_amount || 0)) || 0;
+                    item.deductions = parseFloat(body.deductions !== undefined ? body.deductions : item.deductions) || 0;
+                    item.advances_deducted = parseFloat(body.advances_deducted !== undefined ? body.advances_deducted : item.advances_deducted) || 0;
+                    item.notes = body.notes !== undefined ? body.notes : (item.notes || '');
+                    item.net_salary = Math.round(((item.basic_salary + item.allowances + item.overtime_amount + item.bonus_amount) - (item.deductions + item.advances_deducted)) * 100) / 100;
+
+                    // Recalculate parent payroll
+                    const p = db.hr_payrolls.find(pay => pay.id === item.payroll_id || String(pay.id) === String(item.payroll_id));
+                    if (p) {{
+                        const items = db.hr_payroll_items.filter(it => it.payroll_id === item.payroll_id || String(it.payroll_id) === String(item.payroll_id));
+                        p.total_basic = Math.round(items.reduce((s, it) => s + (parseFloat(it.basic_salary) || 0), 0) * 100) / 100;
+                        p.total_allowances = Math.round(items.reduce((s, it) => s + (parseFloat(it.allowances) || 0) + (parseFloat(it.overtime_amount) || 0) + (parseFloat(it.bonus_amount) || 0), 0) * 100) / 100;
+                        p.total_deductions = Math.round(items.reduce((s, it) => s + (parseFloat(it.deductions) || 0), 0) * 100) / 100;
+                        p.total_advances = Math.round(items.reduce((s, it) => s + (parseFloat(it.advances_deducted) || 0), 0) * 100) / 100;
+                        p.total_net = Math.round(items.reduce((s, it) => s + (parseFloat(it.net_salary) || 0), 0) * 100) / 100;
+                    }}
+                    saveDB(db);
+                    return new Response(JSON.stringify({{ success: true, message: 'تم تعديل راتب الموظف في المسير بنجاح', item: item, payroll: p }}), {{ status: 200, headers: {{ 'Content-Type': 'application/json' }} }});
+                }}
+                return new Response(JSON.stringify({{ error: 'بند الراتب غير موجود' }}), {{ status: 404, headers: {{ 'Content-Type': 'application/json' }} }});
+            }}
+        }}
+
         if (urlStr.includes('/api/hr/payrolls')) {{
             db.hr_payrolls = db.hr_payrolls || [];
             db.hr_payroll_items = db.hr_payroll_items || [];

@@ -316,10 +316,15 @@ def get_project_details(project_id):
     total_spent_without_tax = exp_p_row[1]
     total_tax_refundable = exp_p_row[2]
 
+    contract_val = float(project_data.get('contract_value') or 0.0)
+    effective_selling = contract_val if contract_val > 0 else total_phases_selling
+
     project_data['phases'] = phases
+    project_data['boq_phases_cost'] = total_phases_cost
+    project_data['boq_phases_selling'] = total_phases_selling
     project_data['total_phases_cost'] = total_phases_cost
-    project_data['total_phases_selling'] = total_phases_selling
-    project_data['total_phases_profit'] = total_phases_selling - total_phases_cost
+    project_data['total_phases_selling'] = effective_selling
+    project_data['total_phases_profit'] = effective_selling - total_phases_cost
     project_data['total_estimated_budget'] = total_phases_cost
     project_data['total_spent'] = total_spent
     project_data['total_spent_without_tax'] = total_spent_without_tax
@@ -330,26 +335,27 @@ def get_project_details(project_id):
 
     if budget_mode == 'manual' and manual_remaining is not None:
         rem_budget = max(0.0, float(manual_remaining))
+        total_est = total_spent + rem_budget
         project_data['remaining_budget'] = rem_budget
-        project_data['total_estimated_budget'] = total_spent + rem_budget
-        project_data['total_phases_cost'] = total_spent + rem_budget
-        project_data['total_phases_profit'] = total_phases_selling - (total_spent + rem_budget)
+        project_data['total_estimated_budget'] = total_est
+        project_data['total_phases_cost'] = total_est
+        project_data['total_phases_profit'] = effective_selling - total_est
         project_data['budget_variance'] = rem_budget
         project_data['is_over_budget'] = False
         project_data['over_amount'] = 0.0
         project_data['savings_amount'] = rem_budget
     else:
-        rem_budget = max(0.0, total_phases_cost - total_spent) if total_phases_cost > 0 else max(0.0, float(project_data['contract_value'] or 0.0) - total_spent)
+        rem_budget = max(0.0, total_phases_cost - total_spent) if total_phases_cost > 0 else max(0.0, contract_val - total_spent)
         project_data['remaining_budget'] = rem_budget
         project_data['budget_variance'] = total_phases_cost - total_spent
         project_data['is_over_budget'] = total_spent > total_phases_cost and total_phases_cost > 0
         project_data['over_amount'] = max(0.0, total_spent - total_phases_cost) if total_phases_cost > 0 else 0
         project_data['savings_amount'] = max(0.0, total_phases_cost - total_spent) if total_phases_cost > 0 else 0
 
-    project_data['remaining_contract_value'] = max(0.0, float(project_data['contract_value'] or 0.0) - total_spent)
-    project_data['actual_profit'] = total_phases_selling - total_spent
+    project_data['remaining_contract_value'] = max(0.0, contract_val - total_spent)
+    project_data['actual_profit'] = effective_selling - total_spent
     project_data['is_loss'] = project_data['actual_profit'] < 0
-    project_data['actual_profit_margin_pct'] = round(((total_phases_selling - total_spent) / total_phases_selling * 100), 1) if total_phases_selling > 0 else 0
+    project_data['actual_profit_margin_pct'] = round(((effective_selling - total_spent) / effective_selling * 100), 1) if effective_selling > 0 else 0
 
     # Project Tasks (with phase name)
     cursor.execute('''

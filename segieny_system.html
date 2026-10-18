@@ -6690,16 +6690,19 @@ body, header, nav, div, button, input, select, textarea, table {
             });
             const totPhasesCost = phases.reduce((s, ph) => s + (ph.effective_cost || 0), 0);
             const totPhasesSelling = phases.reduce((s, ph) => s + (ph.effective_selling || 0), 0);
+            const contractVal = parseFloat(proj.contract_value) || 0;
+            const effectiveSelling = contractVal > 0 ? contractVal : totPhasesSelling;
 
             const isManualBudget = proj.budget_mode === 'manual' && proj.manual_remaining_budget !== null && proj.manual_remaining_budget !== undefined;
-            const remainingBudget = isManualBudget ? parseFloat(proj.manual_remaining_budget) : Math.max(0, totPhasesCost > 0 ? totPhasesCost - spent : (parseFloat(proj.contract_value) || 0) - spent);
+            const remainingBudget = isManualBudget ? parseFloat(proj.manual_remaining_budget) : Math.max(0, totPhasesCost > 0 ? totPhasesCost - spent : contractVal - spent);
+            const totalEstBudget = isManualBudget ? (spent + parseFloat(proj.manual_remaining_budget)) : totPhasesCost;
 
             const detailed = Object.assign({}, proj, {
                 phases: phases,
                 total_spent: spent,
-                total_phases_cost: totPhasesCost,
-                total_phases_selling: totPhasesSelling,
-                total_phases_profit: totPhasesSelling - totPhasesCost,
+                total_phases_cost: totalEstBudget,
+                total_phases_selling: effectiveSelling,
+                total_phases_profit: effectiveSelling - totalEstBudget,
                 remaining_budget: remainingBudget,
                 budget_mode: proj.budget_mode || 'boq',
                 manual_remaining_budget: proj.manual_remaining_budget,
@@ -11971,15 +11974,19 @@ function renderProjectPhasesTab(p) {
     const isEn = typeof currentLang !== 'undefined' && currentLang === 'en';
 
     // Summary Cards
-    const totalSelling = p.total_phases_selling || 0;
-    const totalCost = p.total_phases_cost || 0;
+    const totalSelling = (p.contract_value && parseFloat(p.contract_value) > 0) ? parseFloat(p.contract_value) : (parseFloat(p.total_phases_selling) || 0);
+    const totalCost = parseFloat(p.total_phases_cost) || parseFloat(p.total_estimated_budget) || 0;
     const totalProfit = totalSelling - totalCost;
     const profitMargin = totalSelling > 0 ? ((totalProfit / totalSelling) * 100).toFixed(1) : 0;
     const sumWeights = (p.phases || []).reduce((acc, ph) => acc + (parseFloat(ph.weight_percent) || 0), 0);
 
     document.getElementById('detail-phases-selling').innerText = formatCurrency(totalSelling);
     document.getElementById('detail-phases-cost').innerText = formatCurrency(totalCost);
-    document.getElementById('detail-phases-profit').innerText = `${formatCurrency(totalProfit)} (${profitMargin}%)`;
+    const profitEl = document.getElementById('detail-phases-profit');
+    if (profitEl) {
+        profitEl.innerText = `${formatCurrency(totalProfit)} (${profitMargin}%)`;
+        profitEl.className = totalProfit >= 0 ? 'text-sm font-black text-emerald-400' : 'text-sm font-black text-rose-400';
+    }
     document.getElementById('detail-phases-weights').innerText = `${sumWeights.toFixed(1)}%`;
 
     if ((p.phases || []).length === 0) {

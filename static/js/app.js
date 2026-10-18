@@ -3750,15 +3750,19 @@ function renderProjectPhasesTab(p) {
     const isEn = typeof currentLang !== 'undefined' && currentLang === 'en';
 
     // Summary Cards
-    const totalSelling = p.total_phases_selling || 0;
-    const totalCost = p.total_phases_cost || 0;
+    const totalSelling = (p.contract_value && parseFloat(p.contract_value) > 0) ? parseFloat(p.contract_value) : (parseFloat(p.total_phases_selling) || 0);
+    const totalCost = parseFloat(p.total_phases_cost) || parseFloat(p.total_estimated_budget) || 0;
     const totalProfit = totalSelling - totalCost;
     const profitMargin = totalSelling > 0 ? ((totalProfit / totalSelling) * 100).toFixed(1) : 0;
     const sumWeights = (p.phases || []).reduce((acc, ph) => acc + (parseFloat(ph.weight_percent) || 0), 0);
 
     document.getElementById('detail-phases-selling').innerText = formatCurrency(totalSelling);
     document.getElementById('detail-phases-cost').innerText = formatCurrency(totalCost);
-    document.getElementById('detail-phases-profit').innerText = `${formatCurrency(totalProfit)} (${profitMargin}%)`;
+    const profitEl = document.getElementById('detail-phases-profit');
+    if (profitEl) {
+        profitEl.innerText = `${formatCurrency(totalProfit)} (${profitMargin}%)`;
+        profitEl.className = totalProfit >= 0 ? 'text-sm font-black text-emerald-400' : 'text-sm font-black text-rose-400';
+    }
     document.getElementById('detail-phases-weights').innerText = `${sumWeights.toFixed(1)}%`;
 
     if ((p.phases || []).length === 0) {

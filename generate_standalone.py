@@ -205,16 +205,19 @@ def build_standalone():
             }});
             const totPhasesCost = phases.reduce((s, ph) => s + (ph.effective_cost || 0), 0);
             const totPhasesSelling = phases.reduce((s, ph) => s + (ph.effective_selling || 0), 0);
+            const contractVal = parseFloat(proj.contract_value) || 0;
+            const effectiveSelling = contractVal > 0 ? contractVal : totPhasesSelling;
 
             const isManualBudget = proj.budget_mode === 'manual' && proj.manual_remaining_budget !== null && proj.manual_remaining_budget !== undefined;
-            const remainingBudget = isManualBudget ? parseFloat(proj.manual_remaining_budget) : Math.max(0, totPhasesCost > 0 ? totPhasesCost - spent : (parseFloat(proj.contract_value) || 0) - spent);
+            const remainingBudget = isManualBudget ? parseFloat(proj.manual_remaining_budget) : Math.max(0, totPhasesCost > 0 ? totPhasesCost - spent : contractVal - spent);
+            const totalEstBudget = isManualBudget ? (spent + parseFloat(proj.manual_remaining_budget)) : totPhasesCost;
 
             const detailed = Object.assign({{}}, proj, {{
                 phases: phases,
                 total_spent: spent,
-                total_phases_cost: totPhasesCost,
-                total_phases_selling: totPhasesSelling,
-                total_phases_profit: totPhasesSelling - totPhasesCost,
+                total_phases_cost: totalEstBudget,
+                total_phases_selling: effectiveSelling,
+                total_phases_profit: effectiveSelling - totalEstBudget,
                 remaining_budget: remainingBudget,
                 budget_mode: proj.budget_mode || 'boq',
                 manual_remaining_budget: proj.manual_remaining_budget,

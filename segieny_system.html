@@ -582,7 +582,7 @@ body, header, nav, div, button, input, select, textarea, table {
             </div>
 
             <!-- Login Form -->
-            <form id="login-form" onsubmit="handleLoginSubmit(event)" class="space-y-4">
+            <form id="login-form" onsubmit="event.preventDefault(); handleLoginSubmit(event); return false;" class="space-y-4">
                 <!-- Username -->
                 <div class="space-y-1.5">
                     <label class="block text-xs font-bold text-slate-300">اسم المستخدم:</label>
@@ -609,7 +609,7 @@ body, header, nav, div, button, input, select, textarea, table {
                 </div>
 
                 <!-- Submit Button -->
-                <button type="submit" id="btn-login-submit" class="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-sm flex items-center justify-center gap-2 shadow-lg shadow-emerald-950/50 transition">
+                <button type="button" onclick="handleLoginSubmit(event)" id="btn-login-submit" class="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-sm flex items-center justify-center gap-2 shadow-lg shadow-emerald-950/50 transition">
                     <i data-lucide="log-in" class="w-4 h-4"></i>
                     <span id="login-btn-text">تسجيل الدخول للمنظومة</span>
                 </button>
@@ -20041,7 +20041,7 @@ function renderHrEmployees() {
         const basicSalary = parseFloat(emp.basic_salary) || 0;
         const housing = parseFloat(emp.housing_allowance) || 0;
         const transport = parseFloat(emp.transport_allowance) || 0;
-        const other = parseFloat(emp.other_allowances ?? emp.other_allowance) || 0;
+        const other = parseFloat(emp.other_allowances !== undefined && emp.other_allowances !== null ? emp.other_allowances : (emp.other_allowance || 0)) || 0;
         const totalSalary = basicSalary + housing + transport + other;
 
         const iqamaEnd = emp.iqama_expiry_date || emp.iqama_expiry || '';
@@ -20473,10 +20473,11 @@ async function viewHrPayrollDetails(id) {
             tbody.innerHTML = '<tr><td colspan="11" class="p-6 text-center text-slate-400">لا توجد بنود مسجلة في هذا المسير</td></tr>';
         } else {
             tbody.innerHTML = items.map((it, idx) => {
-                const itAllowances = parseFloat(it.allowances ?? (parseFloat(it.housing_allowance || 0) + parseFloat(it.transport_allowance || 0) + parseFloat(it.other_allowances || 0))) || 0;
+                const totalExtraAllow = (parseFloat(it.housing_allowance) || 0) + (parseFloat(it.transport_allowance) || 0) + (parseFloat(it.other_allowances) || 0);
+                const itAllowances = parseFloat(it.allowances !== undefined && it.allowances !== null ? it.allowances : totalExtraAllow) || 0;
                 const itBonus = (parseFloat(it.bonus_amount || 0) + parseFloat(it.overtime_amount || 0));
                 const itDeductions = parseFloat(it.deductions || 0);
-                const itAdvances = parseFloat(it.advances_deducted ?? it.advances_deduction || 0);
+                const itAdvances = parseFloat(it.advances_deducted !== undefined && it.advances_deducted !== null ? it.advances_deducted : (it.advances_deduction || 0)) || 0;
                 const itIban = it.iban || it.bank_iban || 'غير مسجل';
 
                 return `
@@ -21032,7 +21033,7 @@ function onEosEmployeeSelected() {
 
     // Fill salary
     document.getElementById('eos-basic-salary').value = emp.basic_salary || 0;
-    const allowances = (parseFloat(emp.housing_allowance) || 0) + (parseFloat(emp.transport_allowance) || 0) + (parseFloat(emp.other_allowances ?? emp.other_allowance) || 0);
+    const allowances = (parseFloat(emp.housing_allowance) || 0) + (parseFloat(emp.transport_allowance) || 0) + (parseFloat(emp.other_allowances || emp.other_allowance || 0));
     document.getElementById('eos-allowances').value = allowances;
 
     // Calculate duration from join_date

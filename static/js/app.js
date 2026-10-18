@@ -12278,7 +12278,7 @@ function renderHrEmployees() {
         const basicSalary = parseFloat(emp.basic_salary) || 0;
         const housing = parseFloat(emp.housing_allowance) || 0;
         const transport = parseFloat(emp.transport_allowance) || 0;
-        const other = parseFloat(emp.other_allowances ?? emp.other_allowance) || 0;
+        const other = parseFloat(emp.other_allowances !== undefined && emp.other_allowances !== null ? emp.other_allowances : (emp.other_allowance || 0)) || 0;
         const totalSalary = basicSalary + housing + transport + other;
 
         const iqamaEnd = emp.iqama_expiry_date || emp.iqama_expiry || '';
@@ -12710,10 +12710,11 @@ async function viewHrPayrollDetails(id) {
             tbody.innerHTML = '<tr><td colspan="11" class="p-6 text-center text-slate-400">لا توجد بنود مسجلة في هذا المسير</td></tr>';
         } else {
             tbody.innerHTML = items.map((it, idx) => {
-                const itAllowances = parseFloat(it.allowances ?? (parseFloat(it.housing_allowance || 0) + parseFloat(it.transport_allowance || 0) + parseFloat(it.other_allowances || 0))) || 0;
+                const totalExtraAllow = (parseFloat(it.housing_allowance) || 0) + (parseFloat(it.transport_allowance) || 0) + (parseFloat(it.other_allowances) || 0);
+                const itAllowances = parseFloat(it.allowances !== undefined && it.allowances !== null ? it.allowances : totalExtraAllow) || 0;
                 const itBonus = (parseFloat(it.bonus_amount || 0) + parseFloat(it.overtime_amount || 0));
                 const itDeductions = parseFloat(it.deductions || 0);
-                const itAdvances = parseFloat(it.advances_deducted ?? it.advances_deduction || 0);
+                const itAdvances = parseFloat(it.advances_deducted !== undefined && it.advances_deducted !== null ? it.advances_deducted : (it.advances_deduction || 0)) || 0;
                 const itIban = it.iban || it.bank_iban || 'غير مسجل';
 
                 return `
@@ -13269,7 +13270,7 @@ function onEosEmployeeSelected() {
 
     // Fill salary
     document.getElementById('eos-basic-salary').value = emp.basic_salary || 0;
-    const allowances = (parseFloat(emp.housing_allowance) || 0) + (parseFloat(emp.transport_allowance) || 0) + (parseFloat(emp.other_allowances ?? emp.other_allowance) || 0);
+    const allowances = (parseFloat(emp.housing_allowance) || 0) + (parseFloat(emp.transport_allowance) || 0) + (parseFloat(emp.other_allowances || emp.other_allowance || 0));
     document.getElementById('eos-allowances').value = allowances;
 
     // Calculate duration from join_date

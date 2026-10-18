@@ -109,7 +109,7 @@
             </div>
 
             <!-- Login Form -->
-            <form id="login-form" onsubmit="handleLoginSubmit(event)" class="space-y-4">
+            <form id="login-form" onsubmit="event.preventDefault(); handleLoginSubmit(event); return false;" class="space-y-4">
                 <!-- Username -->
                 <div class="space-y-1.5">
                     <label class="block text-xs font-bold text-slate-300">اسم المستخدم:</label>
@@ -136,7 +136,7 @@
                 </div>
 
                 <!-- Submit Button -->
-                <button type="submit" id="btn-login-submit" class="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-sm flex items-center justify-center gap-2 shadow-lg shadow-emerald-950/50 transition">
+                <button type="button" onclick="handleLoginSubmit(event)" id="btn-login-submit" class="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-sm flex items-center justify-center gap-2 shadow-lg shadow-emerald-950/50 transition">
                     <i data-lucide="log-in" class="w-4 h-4"></i>
                     <span id="login-btn-text">تسجيل الدخول للمنظومة</span>
                 </button>
@@ -5892,7 +5892,7 @@
 
     <!-- Scripts -->
     <script src="/static/js/i18n.js?v=20261018_v2"></script>
-    <script src="/static/js/app.js?v=20261018_hr_v7"></script>
+    <script src="/static/js/app.js?v=20261018_hr_v8"></script>
     <script>
     (function() {
         try {

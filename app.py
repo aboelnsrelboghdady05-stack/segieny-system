@@ -324,7 +324,9 @@ def get_project_details(project_id):
     project_data['total_spent'] = total_spent
     project_data['total_spent_without_tax'] = total_spent_without_tax
     project_data['total_tax_refundable'] = total_tax_refundable
-    project_data['remaining_budget'] = project_data['contract_value'] - total_spent
+    rem_budget = max(0.0, total_phases_cost - total_spent) if total_phases_cost > 0 else max(0.0, float(project_data['contract_value'] or 0.0) - total_spent)
+    project_data['remaining_budget'] = rem_budget
+    project_data['remaining_contract_value'] = max(0.0, float(project_data['contract_value'] or 0.0) - total_spent)
     project_data['budget_variance'] = total_phases_cost - total_spent
     project_data['is_over_budget'] = total_spent > total_phases_cost and total_phases_cost > 0
     project_data['over_amount'] = max(0.0, total_spent - total_phases_cost) if total_phases_cost > 0 else 0
@@ -4993,7 +4995,10 @@ def get_detailed_reports():
         cursor.execute("SELECT COUNT(*) FROM expenses WHERE project_id = ? AND invoice_file_path IS NOT NULL", (pid,))
         inv_count = cursor.fetchone()[0]
 
-        remaining = p['contract_value'] - p_spent
+        cursor.execute("SELECT COALESCE(SUM(cost_price), 0) FROM project_phases WHERE project_id = ?", (pid,))
+        p_phases_cost = cursor.fetchone()[0] or 0.0
+        budget_base = p_phases_cost if p_phases_cost > 0 else (p['contract_value'] or 0.0)
+        remaining = max(0.0, budget_base - p_spent)
         burn_rate = round((p_spent / p['contract_value'] * 100), 1) if p['contract_value'] > 0 else 0
 
         # Variance between financial expenditure and site execution

@@ -191,12 +191,30 @@ def build_standalone():
             const proj = db.projects.find(p => p.id === id);
             if (!proj) return new Response(JSON.stringify({{ error: 'Not found' }}), {{ status: 404, headers: {{ 'Content-Type': 'application/json' }} }});
             
+            const pExps = (db.expenses || []).filter(e => e.project_id === id);
+            const spent = pExps.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0);
+            const phases = (db.project_phases || []).filter(ph => ph.project_id === id).map(ph => {{
+                const items = (db.phase_items || []).filter(it => it.phase_id === ph.id);
+                const itCost = items.reduce((s, it) => s + (parseFloat(it.cost_price) || 0), 0);
+                return Object.assign({{}}, ph, {{
+                    items: items,
+                    effective_cost: itCost > 0 ? itCost : (parseFloat(ph.cost_price) || 0),
+                    effective_selling: parseFloat(ph.selling_price) || 0,
+                    actual_spent: (db.expenses || []).filter(e => e.phase_id === ph.id).reduce((s, e) => s + (parseFloat(e.amount) || 0), 0)
+                }});
+            }});
+            const totPhasesCost = phases.reduce((s, ph) => s + (ph.effective_cost || 0), 0);
+            const totPhasesSelling = phases.reduce((s, ph) => s + (ph.effective_selling || 0), 0);
+
             const detailed = Object.assign({{}}, proj, {{
-                phases: db.project_phases.filter(ph => ph.project_id === id).map(ph => Object.assign({{}}, ph, {{
-                    items: db.phase_items.filter(it => it.phase_id === ph.id)
-                }})),
-                expenses: db.expenses.filter(e => e.project_id === id),
-                client_payments: db.client_payments.filter(cp => cp.project_id === id)
+                phases: phases,
+                total_spent: spent,
+                total_phases_cost: totPhasesCost,
+                total_phases_selling: totPhasesSelling,
+                total_phases_profit: totPhasesSelling - totPhasesCost,
+                remaining_budget: Math.max(0, totPhasesCost > 0 ? totPhasesCost - spent : (parseFloat(proj.contract_value) || 0) - spent),
+                expenses: pExps,
+                client_payments: (db.client_payments || []).filter(cp => cp.project_id === id)
             }});
             return new Response(JSON.stringify(detailed), {{ status: 200, headers: {{ 'Content-Type': 'application/json' }} }});
         }}
@@ -204,11 +222,15 @@ def build_standalone():
         // 3. Projects list
         if (urlStr.includes('/api/projects') && method === 'GET') {{
             const projsWithStats = db.projects.map(p => {{
-                const pExps = db.expenses.filter(e => e.project_id === p.id);
+                const pExps = (db.expenses || []).filter(e => e.project_id === p.id);
                 const spent = pExps.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0);
+                const pPhases = (db.project_phases || []).filter(ph => ph.project_id === p.id);
+                const pPhasesCost = pPhases.reduce((s, ph) => s + (parseFloat(ph.cost_price) || 0), 0);
+                const bBase = pPhasesCost > 0 ? pPhasesCost : (parseFloat(p.contract_value) || 0);
                 return Object.assign({{}}, p, {{
                     total_spent: spent,
-                    remaining_budget: Math.max(0, (p.contract_value || 0) - spent),
+                    total_phases_cost: pPhasesCost,
+                    remaining_budget: Math.max(0, bBase - spent),
                     expenses_count: pExps.length
                 }});
             }});

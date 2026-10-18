@@ -3341,6 +3341,25 @@
                     <textarea id="project-notes" rows="2" placeholder="عدد الأدوار، مساحة الأرض، متطلبات خاصة..." class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white"></textarea>
                 </div>
 
+                <!-- Budget Mode Selection -->
+                <div class="p-3.5 rounded-xl bg-slate-900/80 border border-slate-750 space-y-2.5">
+                    <label class="block font-bold text-slate-300 text-xs">طريقة احتساب المتبقي للمصروفات:</label>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                        <label class="flex items-center gap-2 p-2.5 rounded-lg border border-slate-700 bg-slate-800 cursor-pointer">
+                            <input type="radio" name="project_modal_budget_mode" id="pmode-boq" value="boq" checked onchange="toggleProjectModalManualInput()">
+                            <span class="text-white font-bold">حساب تلقائي من الـ BOQ</span>
+                        </label>
+                        <label class="flex items-center gap-2 p-2.5 rounded-lg border border-slate-700 bg-slate-800 cursor-pointer">
+                            <input type="radio" name="project_modal_budget_mode" id="pmode-manual" value="manual" onchange="toggleProjectModalManualInput()">
+                            <span class="text-white font-bold">تحديد يدوي للمتبقي</span>
+                        </label>
+                    </div>
+                    <div id="project-modal-manual-group" class="hidden pt-1">
+                        <label class="block font-bold text-teal-300 text-[11px] mb-1">المبلغ المتبقي للصرف (ر.س)</label>
+                        <input type="number" id="project-manual-remaining" step="0.01" min="0" placeholder="مثال: 940000" class="w-full bg-slate-800 border border-teal-500/50 rounded-xl px-3 py-2 text-white font-mono text-sm">
+                    </div>
+                </div>
+
                 <div class="flex items-center justify-end gap-3 pt-3 border-t border-slate-750">
                     <button type="button" onclick="closeModal('project-modal')" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold">إلغاء</button>
                     <button type="submit" class="px-6 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold flex items-center gap-2 shadow-lg shadow-blue-950/40">
@@ -3659,9 +3678,19 @@
                     </span>
                     <h4 id="detail-tax-refundable-val" class="text-base font-black text-emerald-400 mt-0.5">0 ر.س</h4>
                 </div>
-                <div class="bg-slate-800/80 p-3.5 rounded-xl border border-slate-700">
-                    <span class="text-[11px] text-slate-400">المتبقي للمصروفات:</span>
-                    <h4 id="detail-remaining-val" class="text-base font-black text-teal-400 mt-0.5"></h4>
+                <div class="bg-slate-800/80 p-3.5 rounded-xl border border-slate-700 relative">
+                    <div class="flex items-center justify-between">
+                        <span class="text-[11px] text-slate-400">المتبقي للمصروفات:</span>
+                        <button type="button" onclick="openSetBudgetModeModal()" class="text-[10px] text-emerald-400 hover:text-emerald-300 font-bold flex items-center gap-1 bg-emerald-500/10 px-2 py-0.5 rounded-lg border border-emerald-500/20 transition hover:bg-emerald-500/20" title="تغيير طريقة احتساب المتبقي (BOQ أو يدوي)">
+                            <i data-lucide="sliders-horizontal" class="w-3 h-3"></i>
+                            <span id="detail-budget-mode-badge">تلقائي BOQ</span>
+                        </button>
+                    </div>
+                    <h4 id="detail-remaining-val" class="text-base font-black text-teal-400 mt-0.5">0 ر.س</h4>
+                    <div class="text-[10px] text-slate-400 mt-1 flex items-center justify-between border-t border-slate-750/70 pt-1">
+                        <span id="detail-budget-mode-subtext" class="truncate text-[9.5px]">حساب تلقائي من الـ BOQ</span>
+                        <button type="button" onclick="openSetBudgetModeModal()" class="text-emerald-400 hover:underline shrink-0 text-[10px] font-bold">تغيير</button>
+                    </div>
                 </div>
                 <div class="bg-slate-800/80 p-3.5 rounded-xl border border-slate-700">
                     <span class="text-[11px] text-slate-400">نسبة الإنجاز الفعلي:</span>
@@ -5942,6 +5971,82 @@
                     <button type="submit" id="btn-save-opening-cash" class="px-5 py-2 rounded-xl bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-white text-xs font-bold flex items-center gap-2 shadow-lg shadow-amber-950/40 transition">
                         <i data-lucide="check" class="w-4 h-4"></i>
                         <span>حفظ واعتماد الرصيد</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal: Set Project Budget Mode (BOQ vs Manual) -->
+    <div id="set-budget-mode-modal" class="modal-overlay hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+        <div class="bg-slate-850 w-full max-w-lg rounded-2xl border border-slate-750 shadow-2xl p-6 space-y-5 animate-scaleUp">
+            <div class="flex items-center justify-between border-b border-slate-750 pb-4">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-xl bg-teal-500/10 border border-teal-500/30 flex items-center justify-center text-teal-400">
+                        <i data-lucide="calculator" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-lg font-black text-white">طريقة احتساب المتبقي لمصروفات المشروع</h3>
+                        <p class="text-xs text-slate-400" id="set-budget-mode-proj-title">مشروع</p>
+                    </div>
+                </div>
+                <button type="button" onclick="closeModal('set-budget-mode-modal')" class="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <form onsubmit="saveProjectBudgetMode(event)" class="space-y-4">
+                <input type="hidden" id="set-budget-mode-proj-id" value="">
+
+                <div class="space-y-3">
+                    <!-- Option 1: Automatic BOQ -->
+                    <label class="flex items-start gap-3 p-3.5 rounded-xl border border-slate-750 bg-slate-900/60 hover:bg-slate-800/60 cursor-pointer transition">
+                        <input type="radio" name="proj_budget_mode_choice" id="choice-mode-boq" value="boq" class="mt-1 text-emerald-500 focus:ring-emerald-500" onchange="toggleManualBudgetInput()">
+                        <div>
+                            <span class="block text-xs font-bold text-white flex items-center gap-2">
+                                <i data-lucide="layers" class="w-4 h-4 text-emerald-400"></i>
+                                <span>حساب تلقائي من جدول الكميات (BOQ والمراحل)</span>
+                            </span>
+                            <p class="text-[11px] text-slate-400 mt-1 leading-relaxed">
+                                يقوم النظام بجمع تكاليف بنود الـ BOQ والمراحل التنفيذية المتبقية وطرح المصروف الفعلي منها آلياً.
+                            </p>
+                        </div>
+                    </label>
+
+                    <!-- Option 2: Manual Setting -->
+                    <label class="flex items-start gap-3 p-3.5 rounded-xl border border-slate-750 bg-slate-900/60 hover:bg-slate-800/60 cursor-pointer transition">
+                        <input type="radio" name="proj_budget_mode_choice" id="choice-mode-manual" value="manual" class="mt-1 text-teal-500 focus:ring-teal-500" onchange="toggleManualBudgetInput()">
+                        <div>
+                            <span class="block text-xs font-bold text-white flex items-center gap-2">
+                                <i data-lucide="edit-3" class="w-4 h-4 text-teal-400"></i>
+                                <span>تحديد يدوي للمبلغ المتبقي للصرف (مبلغ ثابت)</span>
+                            </span>
+                            <p class="text-[11px] text-slate-400 mt-1 leading-relaxed">
+                                مفيد إذا كان الـ BOQ السابق به أخطاء أو تم الاتفاق على مبلغ محدد متبقي للصرف حتى تسليم المشروع (مثلاً: 940,000 ر.س).
+                            </p>
+                        </div>
+                    </label>
+                </div>
+
+                <!-- Manual Input (Shown only when manual is selected) -->
+                <div id="manual-budget-input-group" class="space-y-1.5 p-4 rounded-xl bg-slate-900 border border-teal-500/30">
+                    <label class="block text-xs font-bold text-teal-300">المبلغ المتبقي للمصروفات (ر.س) <span class="text-rose-400">*</span></label>
+                    <div class="relative">
+                        <input type="number" id="manual-budget-input-val" step="0.01" min="0" placeholder="940000" class="w-full bg-slate-850 border border-slate-700 focus:border-teal-500 rounded-xl px-4 py-2.5 text-white font-mono text-base font-bold pr-12 focus:outline-none transition">
+                        <span class="absolute left-3 top-2.5 text-xs font-bold text-teal-400">ر.س</span>
+                    </div>
+                    <p class="text-[10px] text-slate-400 mt-1">
+                        💡 سيتم اعتماد هذا المبلغ كـ "المتبقي للمصروفات" في بطاقات المشروع وفي حسابات وتوقعات الكاش فلو المستقبلية.
+                    </p>
+                </div>
+
+                <div class="flex items-center justify-end gap-3 pt-3 border-t border-slate-750">
+                    <button type="button" onclick="closeModal('set-budget-mode-modal')" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-300 text-xs font-bold transition">
+                        إلغاء
+                    </button>
+                    <button type="submit" id="btn-save-proj-budget-mode" class="px-5 py-2 rounded-xl bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-500 hover:to-emerald-500 text-white text-xs font-bold flex items-center gap-2 shadow-lg shadow-teal-950/40 transition">
+                        <i data-lucide="check" class="w-4 h-4"></i>
+                        <span>حفظ واعتماد الطريقة</span>
                     </button>
                 </div>
             </form>

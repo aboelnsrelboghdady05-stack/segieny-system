@@ -206,17 +206,58 @@ def build_standalone():
             const totPhasesCost = phases.reduce((s, ph) => s + (ph.effective_cost || 0), 0);
             const totPhasesSelling = phases.reduce((s, ph) => s + (ph.effective_selling || 0), 0);
 
+            const isManualBudget = proj.budget_mode === 'manual' && proj.manual_remaining_budget !== null && proj.manual_remaining_budget !== undefined;
+            const remainingBudget = isManualBudget ? parseFloat(proj.manual_remaining_budget) : Math.max(0, totPhasesCost > 0 ? totPhasesCost - spent : (parseFloat(proj.contract_value) || 0) - spent);
+
             const detailed = Object.assign({{}}, proj, {{
                 phases: phases,
                 total_spent: spent,
                 total_phases_cost: totPhasesCost,
                 total_phases_selling: totPhasesSelling,
                 total_phases_profit: totPhasesSelling - totPhasesCost,
-                remaining_budget: Math.max(0, totPhasesCost > 0 ? totPhasesCost - spent : (parseFloat(proj.contract_value) || 0) - spent),
+                remaining_budget: remainingBudget,
+                budget_mode: proj.budget_mode || 'boq',
+                manual_remaining_budget: proj.manual_remaining_budget,
                 expenses: pExps,
                 client_payments: (db.client_payments || []).filter(cp => cp.project_id === id)
             }});
             return new Response(JSON.stringify(detailed), {{ status: 200, headers: {{ 'Content-Type': 'application/json' }} }});
+        }}
+
+        // Quick update for budget mode
+        if (urlStr.match(/\\/api\\/projects\\/\\d+\\/budget-mode$/) && method === 'POST') {{
+            const parts = urlStr.split('/');
+            const id = parseInt(parts[parts.length - 2]);
+            const proj = (db.projects || []).find(p => p.id === id);
+            if (proj) {{
+                proj.budget_mode = body.budget_mode || 'boq';
+                proj.manual_remaining_budget = (body.budget_mode === 'manual' && body.manual_remaining_budget !== null && body.manual_remaining_budget !== undefined && body.manual_remaining_budget !== '') ? parseFloat(body.manual_remaining_budget) : null;
+                saveDB(db);
+                return new Response(JSON.stringify({{ success: true, message: 'تم تحديث ميزانية المشروع بنجاح' }}), {{ status: 200, headers: {{ 'Content-Type': 'application/json' }} }});
+            }}
+            return new Response(JSON.stringify({{ error: 'المشروع غير موجود' }}), {{ status: 404, headers: {{ 'Content-Type': 'application/json' }} }});
+        }}
+
+        if (urlStr.match(/\\/api\\/projects\\/\\d+$/) && method === 'PUT') {{
+            const parts = urlStr.split('/');
+            const id = parseInt(parts[parts.length - 1]);
+            const existing = (db.projects || []).find(p => p.id === id);
+            if (existing) {{
+                Object.assign(existing, body);
+                saveDB(db);
+                return new Response(JSON.stringify({{ success: true, message: 'تم تحديث بيانات المشروع بنجاح' }}), {{ status: 200, headers: {{ 'Content-Type': 'application/json' }} }});
+            }}
+            return new Response(JSON.stringify({{ error: 'المشروع غير موجود' }}), {{ status: 404, headers: {{ 'Content-Type': 'application/json' }} }});
+        }}
+
+        if (urlStr.includes('/api/projects') && method === 'POST') {{
+            const newProj = Object.assign({{
+                id: (db.projects.length ? Math.max(...db.projects.map(p => p.id)) : 0) + 1,
+                created_at: new Date().toISOString()
+            }}, body);
+            db.projects.unshift(newProj);
+            saveDB(db);
+            return new Response(JSON.stringify({{ success: true, message: 'تم إنشاء المشروع بنجاح', id: newProj.id }}), {{ status: 201, headers: {{ 'Content-Type': 'application/json' }} }});
         }}
 
         // 3. Projects list
@@ -226,11 +267,13 @@ def build_standalone():
                 const spent = pExps.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0);
                 const pPhases = (db.project_phases || []).filter(ph => ph.project_id === p.id);
                 const pPhasesCost = pPhases.reduce((s, ph) => s + (parseFloat(ph.cost_price) || 0), 0);
-                const bBase = pPhasesCost > 0 ? pPhasesCost : (parseFloat(p.contract_value) || 0);
+                const isManualBudget = p.budget_mode === 'manual' && p.manual_remaining_budget !== null && p.manual_remaining_budget !== undefined;
+                const bBase = isManualBudget ? (spent + parseFloat(p.manual_remaining_budget)) : (pPhasesCost > 0 ? pPhasesCost : (parseFloat(p.contract_value) || 0));
+                const remaining = isManualBudget ? parseFloat(p.manual_remaining_budget) : Math.max(0, bBase - spent);
                 return Object.assign({{}}, p, {{
                     total_spent: spent,
                     total_phases_cost: pPhasesCost,
-                    remaining_budget: Math.max(0, bBase - spent),
+                    remaining_budget: remaining,
                     expenses_count: pExps.length
                 }});
             }});
@@ -665,6 +708,10 @@ def build_standalone():
 
                 const nextPay = enrichedPayments.find(cp => !cp.is_received && cp.status !== 'paid');
                 const projSim = phaseFlows.find(pf => pf.order_num === simNum) || phaseFlows[0] || null;
+
+                if (p.budget_mode === 'manual' && p.manual_remaining_budget !== null && p.manual_remaining_budget !== undefined) {{
+                    totRemCost = parseFloat(p.manual_remaining_budget);
+                }}
 
                 company_tot_received += pRecv;
                 company_tot_spent += pSpent;

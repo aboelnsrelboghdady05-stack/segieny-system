@@ -324,13 +324,29 @@ def get_project_details(project_id):
     project_data['total_spent'] = total_spent
     project_data['total_spent_without_tax'] = total_spent_without_tax
     project_data['total_tax_refundable'] = total_tax_refundable
-    rem_budget = max(0.0, total_phases_cost - total_spent) if total_phases_cost > 0 else max(0.0, float(project_data['contract_value'] or 0.0) - total_spent)
-    project_data['remaining_budget'] = rem_budget
+
+    budget_mode = project_data.get('budget_mode') or 'boq'
+    manual_remaining = project_data.get('manual_remaining_budget')
+
+    if budget_mode == 'manual' and manual_remaining is not None:
+        rem_budget = max(0.0, float(manual_remaining))
+        project_data['remaining_budget'] = rem_budget
+        project_data['total_estimated_budget'] = total_spent + rem_budget
+        project_data['total_phases_cost'] = total_spent + rem_budget
+        project_data['total_phases_profit'] = total_phases_selling - (total_spent + rem_budget)
+        project_data['budget_variance'] = rem_budget
+        project_data['is_over_budget'] = False
+        project_data['over_amount'] = 0.0
+        project_data['savings_amount'] = rem_budget
+    else:
+        rem_budget = max(0.0, total_phases_cost - total_spent) if total_phases_cost > 0 else max(0.0, float(project_data['contract_value'] or 0.0) - total_spent)
+        project_data['remaining_budget'] = rem_budget
+        project_data['budget_variance'] = total_phases_cost - total_spent
+        project_data['is_over_budget'] = total_spent > total_phases_cost and total_phases_cost > 0
+        project_data['over_amount'] = max(0.0, total_spent - total_phases_cost) if total_phases_cost > 0 else 0
+        project_data['savings_amount'] = max(0.0, total_phases_cost - total_spent) if total_phases_cost > 0 else 0
+
     project_data['remaining_contract_value'] = max(0.0, float(project_data['contract_value'] or 0.0) - total_spent)
-    project_data['budget_variance'] = total_phases_cost - total_spent
-    project_data['is_over_budget'] = total_spent > total_phases_cost and total_phases_cost > 0
-    project_data['over_amount'] = max(0.0, total_spent - total_phases_cost) if total_phases_cost > 0 else 0
-    project_data['savings_amount'] = max(0.0, total_phases_cost - total_spent) if total_phases_cost > 0 else 0
     project_data['actual_profit'] = total_phases_selling - total_spent
     project_data['is_loss'] = project_data['actual_profit'] < 0
     project_data['actual_profit_margin_pct'] = round(((total_phases_selling - total_spent) / total_phases_selling * 100), 1) if total_phases_selling > 0 else 0
@@ -409,13 +425,15 @@ def create_project():
     progress_percent = int(data.get('progress_percent', 0))
     manager_name = data.get('manager_name', '')
     notes = data.get('notes', '')
+    budget_mode = data.get('budget_mode', 'boq')
+    manual_remaining_budget = float(data['manual_remaining_budget']) if data.get('manual_remaining_budget') not in (None, '') else None
 
     conn = database.get_db_connection()
     cursor = conn.cursor()
     cursor.execute('''
-        INSERT INTO projects (name, code, client_name, location, contract_value, start_date, end_date, status, progress_percent, manager_name, notes)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ''', (name, code, client_name, location, contract_value, start_date, end_date, status, progress_percent, manager_name, notes))
+        INSERT INTO projects (name, code, client_name, location, contract_value, start_date, end_date, status, progress_percent, manager_name, notes, budget_mode, manual_remaining_budget)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (name, code, client_name, location, contract_value, start_date, end_date, status, progress_percent, manager_name, notes, budget_mode, manual_remaining_budget))
     project_id = cursor.lastrowid
 
     # Notification
@@ -452,6 +470,8 @@ def update_project(project_id):
     progress_percent = int(data.get('progress_percent', existing['progress_percent']) or 0)
     manager_name = data.get('manager_name', existing['manager_name'])
     notes = data.get('notes', existing['notes'])
+    budget_mode = data.get('budget_mode', existing['budget_mode'] if 'budget_mode' in existing.keys() else 'boq')
+    manual_remaining_budget = float(data['manual_remaining_budget']) if data.get('manual_remaining_budget') not in (None, '') else (existing['manual_remaining_budget'] if 'manual_remaining_budget' in existing.keys() else None)
 
     cursor.execute('''
         UPDATE projects
@@ -465,7 +485,9 @@ def update_project(project_id):
             status = ?,
             progress_percent = ?,
             manager_name = ?,
-            notes = ?
+            notes = ?,
+            budget_mode = ?,
+            manual_remaining_budget = ?
         WHERE id = ?
     ''', (
         name,
@@ -479,11 +501,43 @@ def update_project(project_id):
         progress_percent,
         manager_name,
         notes,
+        budget_mode,
+        manual_remaining_budget,
         project_id
     ))
     conn.commit()
     conn.close()
     return jsonify({'success': True, 'message': 'تم تحديث بيانات المشروع بنجاح'})
+
+# ----------------- SET PROJECT BUDGET MODE (BOQ vs MANUAL) -----------------
+@app.route('/api/projects/<int:project_id>/budget-mode', methods=['POST'])
+def set_project_budget_mode(project_id):
+    data = request.get_json() or {}
+    mode = data.get('budget_mode', 'boq')
+    manual_rem = data.get('manual_remaining_budget')
+    if manual_rem is not None and str(manual_rem).strip() != '':
+        try:
+            manual_rem = float(manual_rem)
+        except (ValueError, TypeError):
+            manual_rem = None
+    else:
+        manual_rem = None
+
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        UPDATE projects
+        SET budget_mode = ?, manual_remaining_budget = ?
+        WHERE id = ?
+    ''', (mode, manual_rem, project_id))
+    conn.commit()
+    conn.close()
+    return jsonify({
+        'success': True,
+        'message': 'تم تحديث طريقة احتساب المتبقي بنجاح',
+        'budget_mode': mode,
+        'manual_remaining_budget': manual_rem
+    })
 
 @app.route('/api/projects/<int:project_id>', methods=['DELETE'])
 def delete_project(project_id):
@@ -3599,6 +3653,13 @@ def get_cashflow():
             proj_sim_phase = phase_flows[0]
             
         final_cash = running_cash
+
+        p_budget_mode = p['budget_mode'] if 'budget_mode' in p.keys() else 'boq'
+        p_manual_rem = p['manual_remaining_budget'] if 'manual_remaining_budget' in p.keys() else None
+
+        if p_budget_mode == 'manual' and p_manual_rem is not None:
+            tot_rem_cost = max(0.0, float(p_manual_rem))
+            final_cash = current_cash + tot_pending_inflow - tot_rem_cost
         
         company_tot_received += tot_received
         company_tot_spent += tot_spent
@@ -3612,6 +3673,8 @@ def get_cashflow():
             'code': p['code'],
             'contract_value': contract_val,
             'status': p['status'],
+            'budget_mode': p_budget_mode,
+            'manual_remaining_budget': p_manual_rem,
             'progress_percent': p['progress_percent'],
             'total_received': tot_received,
             'total_spent': tot_spent,

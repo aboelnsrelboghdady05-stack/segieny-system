@@ -3166,6 +3166,14 @@ function resetProjectModal() {
 
     const progEl = document.getElementById('project-progress');
     if (progEl) progEl.value = '0';
+
+    const pmodeBoq = document.getElementById('pmode-boq');
+    if (pmodeBoq) pmodeBoq.checked = true;
+    const pmodeMan = document.getElementById('pmode-manual');
+    if (pmodeMan) pmodeMan.checked = false;
+    const manRemInput = document.getElementById('project-manual-remaining');
+    if (manRemInput) manRemInput.value = '';
+    toggleProjectModalManualInput();
 }
 
 function openProjectModal() {
@@ -3211,6 +3219,19 @@ async function openEditProjectModal(projectId) {
         document.getElementById('project-end-date').value = p.end_date || '';
         document.getElementById('project-notes').value = p.notes || '';
 
+        if (p.budget_mode === 'manual') {
+            const pmodeMan = document.getElementById('pmode-manual');
+            if (pmodeMan) pmodeMan.checked = true;
+        } else {
+            const pmodeBoq = document.getElementById('pmode-boq');
+            if (pmodeBoq) pmodeBoq.checked = true;
+        }
+        const manRemInput = document.getElementById('project-manual-remaining');
+        if (manRemInput) {
+            manRemInput.value = (p.manual_remaining_budget !== null && p.manual_remaining_budget !== undefined) ? p.manual_remaining_budget : '';
+        }
+        toggleProjectModalManualInput();
+
         openModal('project-modal');
         initLucide();
     } catch (err) {
@@ -3236,6 +3257,9 @@ async function submitProjectForm(e) {
         return;
     }
 
+    const budgetMode = document.querySelector('input[name="project_modal_budget_mode"]:checked')?.value || 'boq';
+    const manualRem = document.getElementById('project-manual-remaining')?.value;
+
     const payload = {
         name: nameVal,
         code: document.getElementById('project-code')?.value.trim() || undefined,
@@ -3247,7 +3271,9 @@ async function submitProjectForm(e) {
         progress_percent: parseInt(document.getElementById('project-progress')?.value || 0),
         start_date: document.getElementById('project-start-date').value,
         end_date: document.getElementById('project-end-date').value,
-        notes: document.getElementById('project-notes').value.trim()
+        notes: document.getElementById('project-notes').value.trim(),
+        budget_mode: budgetMode,
+        manual_remaining_budget: (budgetMode === 'manual' && manualRem !== '') ? parseFloat(manualRem) : null
     };
 
     const url = editId ? `/api/projects/${editId}` : '/api/projects';
@@ -3452,6 +3478,79 @@ function viewInvoice(filePath, title) {
     initLucide();
 }
 
+// ----------------- BUDGET MODE HELPERS (BOQ vs MANUAL) -----------------
+function toggleManualBudgetInput() {
+    const isManual = document.getElementById('choice-mode-manual')?.checked;
+    const group = document.getElementById('manual-budget-input-group');
+    if (group) group.classList.toggle('hidden', !isManual);
+}
+
+function toggleProjectModalManualInput() {
+    const isManual = document.getElementById('pmode-manual')?.checked;
+    const group = document.getElementById('project-modal-manual-group');
+    if (group) group.classList.toggle('hidden', !isManual);
+}
+
+function openSetBudgetModeModal() {
+    if (!currentProjectDetailData) return;
+    const p = currentProjectDetailData;
+    const idEl = document.getElementById('set-budget-mode-proj-id');
+    if (idEl) idEl.value = p.id;
+    const titleEl = document.getElementById('set-budget-mode-proj-title');
+    if (titleEl) titleEl.innerText = `${p.code || 'PRJ'} - ${p.name}`;
+    
+    const isManual = p.budget_mode === 'manual';
+    const manRadio = document.getElementById('choice-mode-manual');
+    const boqRadio = document.getElementById('choice-mode-boq');
+    const valInput = document.getElementById('manual-budget-input-val');
+    
+    if (isManual) {
+        if (manRadio) manRadio.checked = true;
+        if (valInput) valInput.value = (p.manual_remaining_budget !== null && p.manual_remaining_budget !== undefined) ? p.manual_remaining_budget : '';
+    } else {
+        if (boqRadio) boqRadio.checked = true;
+        if (valInput) valInput.value = '';
+    }
+    toggleManualBudgetInput();
+    openModal('set-budget-mode-modal');
+}
+
+async function saveProjectBudgetMode(e) {
+    if (e && e.preventDefault) e.preventDefault();
+    const pid = document.getElementById('set-budget-mode-proj-id')?.value;
+    if (!pid) return;
+    const mode = document.querySelector('input[name="proj_budget_mode_choice"]:checked')?.value || 'boq';
+    const val = document.getElementById('manual-budget-input-val')?.value;
+    const btn = document.getElementById('btn-save-proj-budget-mode');
+    if (btn) btn.disabled = true;
+    try {
+        const res = await fetch(`/api/projects/${pid}/budget-mode`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                budget_mode: mode,
+                manual_remaining_budget: (mode === 'manual' && val !== '') ? parseFloat(val) : null
+            })
+        });
+        const data = await res.json();
+        if (data.success) {
+            showToast('تم حفظ وتحديث طريقة احتساب المتبقي بنجاح', 'success');
+            closeModal('set-budget-mode-modal');
+            await openProjectDetails(pid);
+            if (typeof loadProjects === 'function') loadProjects();
+            if (typeof loadDashboard === 'function') loadDashboard();
+            if (typeof loadCashFlow === 'function') loadCashFlow();
+        } else {
+            showToast(data.error || 'فشل التحديث', 'error');
+        }
+    } catch(err) {
+        console.error('Error saving project budget mode:', err);
+        showToast('حدث خطأ أثناء الاتصال بالخادم', 'error');
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+}
+
 // ----------------- PROJECT DETAILS MODAL -----------------
 async function openProjectDetails(projectId) {
     currentProjectIdForModal = projectId;
@@ -3470,6 +3569,26 @@ async function openProjectDetails(projectId) {
             document.getElementById('detail-tax-refundable-val').innerText = formatCurrency(p.total_tax_refundable || 0);
         }
         document.getElementById('detail-remaining-val').innerText = formatCurrency(p.remaining_budget);
+        
+        const modeBadge = document.getElementById('detail-budget-mode-badge');
+        const modeSubtext = document.getElementById('detail-budget-mode-subtext');
+        if (modeBadge) {
+            if (p.budget_mode === 'manual') {
+                modeBadge.innerText = 'محدد يدوياً';
+                modeBadge.className = 'text-amber-400 font-bold';
+            } else {
+                modeBadge.innerText = 'تلقائي BOQ';
+                modeBadge.className = 'text-emerald-400 font-bold';
+            }
+        }
+        if (modeSubtext) {
+            if (p.budget_mode === 'manual') {
+                modeSubtext.innerText = `ميزانية مصروفات يدوية: ${formatCurrency(p.manual_remaining_budget || 0)}`;
+            } else {
+                modeSubtext.innerText = 'حساب تلقائي من بنود الـ BOQ';
+            }
+        }
+
         document.getElementById('detail-progress-val').innerText = `${p.progress_percent}%`;
 
         // Counts

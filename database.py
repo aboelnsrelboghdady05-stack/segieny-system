@@ -127,6 +127,14 @@ def init_db():
     if 'unit_selling' not in item_cols:
         cursor.execute('ALTER TABLE phase_items ADD COLUMN unit_selling REAL DEFAULT 0')
 
+    # Projects budget mode migration (boq vs manual)
+    cursor.execute('PRAGMA table_info(projects)')
+    proj_cols = [r[1] for r in cursor.fetchall()]
+    if 'budget_mode' not in proj_cols:
+        cursor.execute("ALTER TABLE projects ADD COLUMN budget_mode TEXT DEFAULT 'boq'")
+    if 'manual_remaining_budget' not in proj_cols:
+        cursor.execute("ALTER TABLE projects ADD COLUMN manual_remaining_budget REAL")
+
     # Expenses table (with invoice file upload & phase/item linking)
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS expenses (

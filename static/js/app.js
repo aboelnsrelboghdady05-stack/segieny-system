@@ -108,6 +108,13 @@ document.addEventListener('DOMContentLoaded', () => {
         loadProjectsDropdowns();
         loadTeamDropdowns();
         loadTeamMembersForSwitcher();
+        if (typeof syncCustomExpenseCategoryOptions === 'function') {
+            syncCustomExpenseCategoryOptions();
+        }
+    }
+
+    if (typeof syncCustomExpenseCategoryOptions === 'function') {
+        syncCustomExpenseCategoryOptions();
     }
 
     // Set today's date in date inputs
@@ -162,7 +169,7 @@ function switchTab(tabId) {
         btn.classList.add('bg-slate-800', 'text-slate-300');
     });
     const mobileTabs = document.querySelectorAll('.mobile-tab');
-    const tabNames = ['dashboard', 'projects', 'tasks', 'expenses', 'suppliers', 'cashflow', 'subcontractors', 'documents', 'reports', 'chat'];
+    const tabNames = ['dashboard', 'projects', 'tasks', 'expenses', 'suppliers', 'cashflow', 'subcontractors', 'custody', 'documents', 'reports', 'chat'];
     const idx = tabNames.indexOf(tabId);
     if (idx !== -1 && mobileTabs[idx]) {
         mobileTabs[idx].classList.remove('bg-slate-800', 'text-slate-300');
@@ -177,6 +184,7 @@ function switchTab(tabId) {
     else if (tabId === 'suppliers') loadSuppliersData();
     else if (tabId === 'cashflow') loadCashFlow();
     else if (tabId === 'subcontractors') loadSubcontractors();
+    else if (tabId === 'custody') loadCustody();
     else if (tabId === 'documents') loadDocuments();
     else if (tabId === 'reports') loadDetailedReports();
     else if (tabId === 'chat') initChatTab();
@@ -240,6 +248,8 @@ function openModal(modalId) {
                 cb.value = currentUser.name;
             }
             checkTaskModalPermissions();
+        } else if (modalId === 'custody-request-modal') {
+            if (typeof initCustodyRequestModal === 'function') initCustodyRequestModal();
         }
         initLucide();
     }
@@ -270,6 +280,192 @@ function openModalForProject(modalId) {
     openModal(modalId);
 }
 
+// ----------------- EXPENSE FORM MODE & CUSTOM CATEGORIES -----------------
+function setExpenseFormMode(mode) {
+    const modeInput = document.getElementById('expense-form-mode');
+    if (modeInput) modeInput.value = mode;
+
+    const btnGen = document.getElementById('tab-expense-mode-general');
+    const btnSup = document.getElementById('tab-expense-mode-supplier');
+    const supZone = document.getElementById('expense-supplier-zone');
+    const itemsZone = document.getElementById('expense-items-zone');
+    const paidToLabel = document.getElementById('expense-paid-to-label');
+    const paidToInput = document.getElementById('expense-paid-to');
+    const titleInput = document.getElementById('expense-title');
+
+    if (mode === 'general') {
+        if (btnGen) {
+            btnGen.className = 'flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl font-bold text-xs transition duration-200 bg-emerald-600 text-white shadow';
+        }
+        if (btnSup) {
+            btnSup.className = 'flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl font-bold text-xs transition duration-200 text-slate-400 hover:text-slate-200 hover:bg-slate-800';
+        }
+        if (supZone) supZone.classList.add('hidden');
+        if (itemsZone) itemsZone.classList.add('hidden');
+
+        if (paidToLabel) paidToLabel.innerText = 'المدفوع له / المستفيد (اسم الموظف، العهدة، المستحق)';
+        if (paidToInput) paidToInput.placeholder = 'مثال: م. أحمد، عهدة الموقع، رواتب العمال...';
+        if (titleInput && (!titleInput.value || titleInput.value.includes('توريد'))) {
+            titleInput.placeholder = 'مثال: رواتب مهندسي وعمالة المشروع لشهر مايو، عهدة مصاريف...';
+        }
+    } else {
+        if (btnSup) {
+            btnSup.className = 'flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl font-bold text-xs transition duration-200 bg-emerald-600 text-white shadow';
+        }
+        if (btnGen) {
+            btnGen.className = 'flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl font-bold text-xs transition duration-200 text-slate-400 hover:text-slate-200 hover:bg-slate-800';
+        }
+        if (supZone) supZone.classList.remove('hidden');
+        if (itemsZone) itemsZone.classList.remove('hidden');
+
+        if (paidToLabel) paidToLabel.innerText = 'المدفوع له (المورد / الشركة / المقاول)';
+        if (paidToInput) paidToInput.placeholder = 'مثال: شركة الراجحي للحديد، مصنع السويس...';
+        if (titleInput && (!titleInput.value || titleInput.value.includes('رواتب'))) {
+            titleInput.placeholder = 'مثال: توريد 20 طن حديد سابك، توريد خرسانة جاهزة...';
+        }
+    }
+    if (typeof initLucide === 'function') initLucide();
+}
+
+function getCustomExpenseCategories() {
+    try {
+        const stored = localStorage.getItem('custom_expense_categories');
+        return stored ? JSON.parse(stored) : [];
+    } catch (e) {
+        return [];
+    }
+}
+
+function saveCustomExpenseCategory(name) {
+    if (!name || !name.trim()) return;
+    name = name.trim();
+    let cats = getCustomExpenseCategories();
+    if (!cats.includes(name)) {
+        cats.push(name);
+        try {
+            localStorage.setItem('custom_expense_categories', JSON.stringify(cats));
+        } catch (e) {}
+    }
+    syncCustomExpenseCategoryOptions(name);
+}
+
+function syncCustomExpenseCategoryOptions(selectValueToSet) {
+    const cats = getCustomExpenseCategories();
+    const select = document.getElementById('expense-category');
+    const filterSelect = document.getElementById('expense-filter-category');
+
+    if (select) {
+        const customGroup = select.querySelector('optgroup[data-custom-group="1"]');
+        if (customGroup) customGroup.remove();
+
+        if (cats.length > 0) {
+            const optgroup = document.createElement('optgroup');
+            optgroup.label = 'تصنيفاتك المخصصة المحفوظة';
+            optgroup.setAttribute('data-custom-group', '1');
+            cats.forEach(c => {
+                const opt = document.createElement('option');
+                opt.value = c;
+                opt.textContent = c;
+                optgroup.appendChild(opt);
+            });
+            const customTriggerOpt = select.querySelector('option[value="__custom__"]');
+            if (customTriggerOpt) {
+                select.insertBefore(optgroup, customTriggerOpt);
+            } else {
+                select.appendChild(optgroup);
+            }
+        }
+
+        if (selectValueToSet) {
+            let opt = select.querySelector(`option[value="${selectValueToSet}"]`);
+            if (!opt) {
+                opt = document.createElement('option');
+                opt.value = selectValueToSet;
+                opt.textContent = selectValueToSet;
+                const customTriggerOpt = select.querySelector('option[value="__custom__"]');
+                if (customTriggerOpt) {
+                    select.insertBefore(opt, customTriggerOpt);
+                } else {
+                    select.appendChild(opt);
+                }
+            }
+            select.value = selectValueToSet;
+        }
+    }
+
+    if (filterSelect) {
+        const customFilterGroup = filterSelect.querySelector('optgroup[data-custom-group="1"]');
+        if (customFilterGroup) customFilterGroup.remove();
+
+        if (cats.length > 0) {
+            const optgroup = document.createElement('optgroup');
+            optgroup.label = 'تصنيفات مخصصة';
+            optgroup.setAttribute('data-custom-group', '1');
+            cats.forEach(c => {
+                const opt = document.createElement('option');
+                opt.value = c;
+                opt.textContent = c;
+                optgroup.appendChild(opt);
+            });
+            filterSelect.appendChild(optgroup);
+        }
+    }
+}
+
+function onExpenseCategoryChanged(val) {
+    const customBox = document.getElementById('expense-custom-category-box');
+    const customInput = document.getElementById('expense-custom-category-input');
+    if (val === '__custom__') {
+        if (customBox) customBox.classList.remove('hidden');
+        if (customInput) {
+            customInput.focus();
+            customInput.select();
+        }
+    } else {
+        if (customBox) customBox.classList.add('hidden');
+    }
+}
+
+function toggleCustomExpenseCategoryInput() {
+    const customBox = document.getElementById('expense-custom-category-box');
+    const customInput = document.getElementById('expense-custom-category-input');
+    if (customBox) {
+        const isHidden = customBox.classList.contains('hidden');
+        if (isHidden) {
+            customBox.classList.remove('hidden');
+            const select = document.getElementById('expense-category');
+            if (select) select.value = '__custom__';
+            if (customInput) customInput.focus();
+        } else {
+            customBox.classList.add('hidden');
+        }
+    }
+}
+
+function cancelCustomExpenseCategory() {
+    const customBox = document.getElementById('expense-custom-category-box');
+    const customInput = document.getElementById('expense-custom-category-input');
+    if (customBox) customBox.classList.add('hidden');
+    if (customInput) customInput.value = '';
+    const select = document.getElementById('expense-category');
+    if (select && select.value === '__custom__') {
+        select.value = 'رواتب وأجور';
+    }
+}
+
+function confirmCustomExpenseCategory() {
+    const customInput = document.getElementById('expense-custom-category-input');
+    const val = customInput ? customInput.value.trim() : '';
+    if (!val) {
+        showToast('يرجى كتابة اسم التصنيف أو بند المصروف', 'warning');
+        return;
+    }
+    saveCustomExpenseCategory(val);
+    const customBox = document.getElementById('expense-custom-category-box');
+    if (customBox) customBox.classList.add('hidden');
+    showToast(`تم اعتماد وتطبيق التصنيف: "${val}" بنجاح`, 'success');
+}
+
 // ----------------- EXPENSE TAX & VAT CALCULATIONS -----------------
 function onExpenseTaxTypeChanged() {
     const isTax = document.getElementById('tax-choice-yes')?.checked;
@@ -278,10 +474,14 @@ function onExpenseTaxTypeChanged() {
     const yesBox = document.getElementById('tax-option-yes-container');
     const noBox = document.getElementById('tax-option-no-container');
     const badge = document.getElementById('tax-status-badge');
+    const amtTotalEl = document.getElementById('expense-amount');
+    const amtNonTaxEl = document.getElementById('expense-amount-nontax');
 
     if (isTax) {
         if (taxSec) taxSec.classList.remove('hidden');
         if (nonTaxSec) nonTaxSec.classList.add('hidden');
+        if (amtTotalEl) amtTotalEl.setAttribute('required', 'required');
+        if (amtNonTaxEl) amtNonTaxEl.removeAttribute('required');
         if (yesBox) yesBox.className = 'cursor-pointer border-2 border-emerald-500 bg-emerald-500/10 rounded-xl p-3 flex items-center gap-3 transition';
         if (noBox) noBox.className = 'cursor-pointer border border-slate-700 bg-slate-800/40 rounded-xl p-3 flex items-center gap-3 transition opacity-70';
         if (badge) {
@@ -292,6 +492,8 @@ function onExpenseTaxTypeChanged() {
     } else {
         if (taxSec) taxSec.classList.add('hidden');
         if (nonTaxSec) nonTaxSec.classList.remove('hidden');
+        if (amtTotalEl) amtTotalEl.removeAttribute('required');
+        if (amtNonTaxEl) amtNonTaxEl.setAttribute('required', 'required');
         if (yesBox) yesBox.className = 'cursor-pointer border border-slate-700 bg-slate-800/40 rounded-xl p-3 flex items-center gap-3 transition opacity-70';
         if (noBox) noBox.className = 'cursor-pointer border-2 border-emerald-500 bg-emerald-500/10 rounded-xl p-3 flex items-center gap-3 transition';
         if (badge) {
@@ -337,6 +539,7 @@ function calcExpenseVat(source) {
             if (document.getElementById('expense-tax-amount')) document.getElementById('expense-tax-amount').value = '';
         }
     }
+    if (typeof validateExpenseAmountAgainstCustody === 'function') validateExpenseAmountAgainstCustody();
 }
 
 function syncNonTaxAmount() {
@@ -344,6 +547,7 @@ function syncNonTaxAmount() {
     if (document.getElementById('expense-amount')) document.getElementById('expense-amount').value = amt;
     if (document.getElementById('expense-amount-without-tax')) document.getElementById('expense-amount-without-tax').value = amt;
     if (document.getElementById('expense-tax-amount')) document.getElementById('expense-tax-amount').value = '0.00';
+    if (typeof validateExpenseAmountAgainstCustody === 'function') validateExpenseAmountAgainstCustody();
 }
 
 function onExpensePaymentStatusChanged() {
@@ -471,8 +675,7 @@ async function loadDashboard() {
         const taskPercent = data.total_tasks > 0 ? Math.round((data.completed_tasks / data.total_tasks) * 100) : 0;
         document.getElementById('stat-tasks-progress-label').innerText = isEn ? `Tasks completion: ${taskPercent}%` : `نسبة إنجاز المهام: ${taskPercent}%`;
 
-        const subRemaining = data.sub_total_agreed - data.sub_total_paid;
-        document.getElementById('stat-subcontractor-balance').innerText = formatCurrency(subRemaining);
+        document.getElementById('stat-subcontractor-balance').innerText = formatCurrency(data.sub_total_paid || 0);
 
         // Render Recent Projects in Dashboard
         const projectsContainer = document.getElementById('dashboard-projects-list');
@@ -696,6 +899,9 @@ async function loadDashboardWidgets() {
                         ` : '<span class="text-[10px] text-slate-500">بدون مرفق</span>'}
                     </div>
                     <div class="flex items-center gap-1 border-r border-slate-700/80 pr-2 mr-1">
+                        <button onclick="openTransferExpenseModal(${e.id})" title="نقل المصروف لمشروع آخر" class="p-1 text-slate-400 hover:text-emerald-400 rounded hover:bg-slate-750 transition">
+                            <i data-lucide="arrow-right-left" class="w-3.5 h-3.5"></i>
+                        </button>
                         <button onclick="openEditExpenseModal(${e.id})" title="تعديل المصروف" class="p-1 text-slate-400 hover:text-amber-400 rounded hover:bg-slate-750 transition">
                             <i data-lucide="edit-3" class="w-3.5 h-3.5"></i>
                         </button>
@@ -912,7 +1118,7 @@ function renderTasksKanban(tasks) {
         // ONLY the person who created/sent the task (e.g. Abulnasr) can approve tasks they assigned to others (e.g. Jehad).
         const isCreator = (currentUser && currentUser.name === t.created_by);
         const isAssignee = (currentUser && currentUser.name === t.assigned_to);
-        const isGeneralManager = (currentUser && (currentUser.name === 'فاروق محمد' || currentUser.role === 'المدير العام'));
+        const isGeneralManager = (currentUser && (currentUser.name === 'نواف سجيني' || currentUser.name === 'فاروق محمد' || currentUser.role === 'المدير العام'));
         const canApprove = isCreator || (isGeneralManager && !isAssignee);
 
         const isPending = t.status === 'pending_approval';
@@ -1145,7 +1351,7 @@ async function submitTaskForApproval(taskId) {
 async function handleQuickTaskStatusChange(taskId, newStatus, createdBy, assignedTo) {
     const isAssignee = (currentUser && currentUser.name === assignedTo);
     const isCreator = (currentUser && currentUser.name === createdBy);
-    const isGeneralManager = (currentUser && (currentUser.name === 'فاروق محمد' || currentUser.role === 'المدير العام'));
+    const isGeneralManager = (currentUser && (currentUser.name === 'نواف سجيني' || currentUser.name === 'فاروق محمد' || currentUser.role === 'المدير العام'));
     const canApprove = isCreator || (isGeneralManager && !isAssignee);
 
     if (newStatus === 'done') {
@@ -1188,7 +1394,7 @@ async function quickToggleTask(taskId, newStatus) {
         if (t && newStatus === 'done') {
             const isCreator = (currentUser && currentUser.name === t.created_by);
             const isAssignee = (currentUser && currentUser.name === t.assigned_to);
-            const isGeneralManager = (currentUser && (currentUser.name === 'فاروق محمد' || currentUser.role === 'المدير العام'));
+            const isGeneralManager = (currentUser && (currentUser.name === 'نواف سجيني' || currentUser.name === 'فاروق محمد' || currentUser.role === 'المدير العام'));
             const canApprove = isCreator || (isGeneralManager && !isAssignee);
 
             if (!canApprove) {
@@ -1223,7 +1429,7 @@ async function editTaskProgress(taskId, currentPercent, createdBy, assignedTo) {
         const p = Math.min(100, Math.max(0, parseInt(val)));
         const isCreator = (currentUser && currentUser.name === createdBy);
         const isAssignee = (currentUser && currentUser.name === assignedTo);
-        const isGeneralManager = (currentUser && (currentUser.name === 'فاروق محمد' || currentUser.role === 'المدير العام'));
+        const isGeneralManager = (currentUser && (currentUser.name === 'نواف سجيني' || currentUser.name === 'فاروق محمد' || currentUser.role === 'المدير العام'));
         const canApprove = isCreator || (isGeneralManager && !isAssignee);
 
         if (p === 100 && !canApprove) {
@@ -1258,7 +1464,7 @@ function checkTaskModalPermissions() {
     const doneOption = statusSelect.querySelector('option[value="done"]');
     const isAssignee = (currentUser && currentUser.name === assignedTo);
     const isCreator = (currentUser && currentUser.name === createdBy);
-    const isGeneralManager = (currentUser && (currentUser.name === 'فاروق محمد' || currentUser.role === 'المدير العام'));
+    const isGeneralManager = (currentUser && (currentUser.name === 'نواف سجيني' || currentUser.name === 'فاروق محمد' || currentUser.role === 'المدير العام'));
     const canApprove = isCreator || (isGeneralManager && !isAssignee);
 
     if (doneOption) {
@@ -1361,6 +1567,7 @@ function renderExpensesTable(expenses) {
             <td class="p-3.5 whitespace-nowrap font-bold text-white">${e.project_name}</td>
             <td class="p-3.5 font-medium text-slate-200">
                 ${e.title}
+                ${e.custody_id ? `<div class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-amber-500/15 text-amber-400 border border-amber-500/25 mr-1 mt-0.5 font-bold"><i data-lucide="wallet" class="w-3 h-3"></i> خصم من عهدة: ${escapeHtml(e.custody_employee_name || 'موظف')} (${escapeHtml(e.custody_request_number || '')})</div>` : ''}
                 ${e.supplier_name ? `<div class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-amber-500/10 text-amber-400 border border-amber-500/20 mr-1 mt-0.5 font-bold"><i data-lucide="truck" class="w-3 h-3"></i> ${e.supplier_name}</div>` : ''}
                 ${e.has_price_increase === 1 ? `<div class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-rose-500/15 text-rose-400 border border-rose-500/30 mr-1 mt-0.5 font-bold">⚠️ زيادة سعر: +${formatCurrency(e.total_variance || 0)}</div>` : ''}
                 ${e.phase_name ? `<div class="text-[10px] text-emerald-400/80 font-normal mt-0.5">${e.phase_name}${e.item_title ? ` • ${e.item_title}` : ''}</div>` : ''}
@@ -1374,7 +1581,14 @@ function renderExpensesTable(expenses) {
             </td>
             <td class="p-3.5 whitespace-nowrap font-bold text-blue-400 text-xs">${formatCurrency(noTax)}</td>
             <td class="p-3.5 whitespace-nowrap font-black text-rose-400 text-sm">${formatCurrency(e.amount)}</td>
-            <td class="p-3.5 whitespace-nowrap text-slate-400">${typeof tr === 'function' ? tr(e.payment_method || 'نقدي') : (e.payment_method || 'نقدي')}</td>
+            <td class="p-3.5 whitespace-nowrap text-slate-400">
+                ${e.custody_id ? `
+                    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                        <i data-lucide="wallet" class="w-3 h-3"></i>
+                        <span>عهدة (${escapeHtml(e.custody_employee_name || 'موظف')})</span>
+                    </span>
+                ` : (typeof tr === 'function' ? tr(e.payment_method || 'نقدي') : (e.payment_method || 'نقدي'))}
+            </td>
             <td class="p-3.5 whitespace-nowrap text-slate-300">
                 ${e.paid_to || e.paid_by || '-'}
             </td>
@@ -1390,6 +1604,9 @@ function renderExpensesTable(expenses) {
             </td>
             <td class="p-3.5 text-center whitespace-nowrap">
                 <div class="flex items-center justify-center gap-1">
+                    <button onclick="openTransferExpenseModal(${e.id})" title="${isEn ? 'Transfer to Another Project' : 'نقل المصروف لمشروع آخر'}" class="p-1.5 text-slate-400 hover:text-emerald-400 rounded-lg hover:bg-slate-800 transition">
+                        <i data-lucide="arrow-right-left" class="w-4 h-4"></i>
+                    </button>
                     <button onclick="openEditExpenseModal(${e.id})" title="${isEn ? 'Edit Expense' : 'تعديل المصروف'}" class="p-1.5 text-slate-400 hover:text-amber-400 rounded-lg hover:bg-slate-800 transition">
                         <i data-lucide="edit-3" class="w-4 h-4"></i>
                     </button>
@@ -1627,62 +1844,61 @@ function renderSubcontractorsGrid(subs) {
     }
 
     subs.forEach(s => {
-        const remaining = s.agreed_amount - s.paid_amount;
-        const paidPercent = s.agreed_amount > 0 ? Math.round((s.paid_amount / s.agreed_amount) * 100) : 0;
+        const totalPaid = s.total_paid != null ? s.total_paid : (s.paid_amount || 0);
+        const count = s.payments_count != null ? s.payments_count : 0;
         const card = document.createElement('div');
-        card.className = 'bg-slate-850 rounded-2xl border border-slate-800 p-5 space-y-4 hover:border-blue-500/50 transition-all shadow-xl';
+        card.className = 'bg-slate-850 rounded-2xl border border-slate-800 p-5 space-y-4 hover:border-blue-500/50 transition-all shadow-xl flex flex-col justify-between';
+        
+        const escapedName = (s.name || '').replace(/'/g, "\\'");
+
         card.innerHTML = `
-            <div class="flex items-center justify-between">
-                <div>
-                    <h3 class="font-extrabold text-base text-white">${s.name}</h3>
-                    <span class="inline-block mt-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-500/10 text-blue-400 border border-blue-500/20">${typeof tr === 'function' ? tr(s.trade) : s.trade}</span>
+            <div class="space-y-3">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h3 class="font-extrabold text-base text-white">${s.name}</h3>
+                        <span class="inline-block mt-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-500/10 text-blue-400 border border-blue-500/20">${typeof tr === 'function' ? tr(s.trade) : s.trade}</span>
+                    </div>
+                    <div class="flex items-center gap-1.5">
+                        <button onclick="openEditSubcontractorModal(${s.id})" title="${isEn ? 'Edit Subcontractor' : 'تعديل بيانات المقاول'}" class="p-1.5 text-slate-400 hover:text-amber-400 rounded-lg hover:bg-slate-800 transition">
+                            <i data-lucide="edit-3" class="w-4 h-4"></i>
+                        </button>
+                        <button onclick="deleteSubcontractor(${s.id})" title="${isEn ? 'Delete Subcontractor' : 'حذف المقاول'}" class="p-1.5 text-slate-400 hover:text-rose-400 rounded-lg hover:bg-slate-800 transition">
+                            <i data-lucide="trash-2" class="w-4 h-4"></i>
+                        </button>
+                        <div class="p-1.5 rounded-lg bg-blue-500/10 text-blue-400 ml-1">
+                            <i data-lucide="wrench" class="w-4 h-4"></i>
+                        </div>
+                    </div>
                 </div>
-                <div class="flex items-center gap-1.5">
-                    <button onclick="openEditSubcontractorModal(${s.id})" title="${isEn ? 'Edit Subcontractor' : 'تعديل بيانات المقاول'}" class="p-1.5 text-slate-400 hover:text-amber-400 rounded-lg hover:bg-slate-800 transition">
-                        <i data-lucide="edit-3" class="w-4 h-4"></i>
-                    </button>
-                    <button onclick="deleteSubcontractor(${s.id})" title="${isEn ? 'Delete Subcontractor' : 'حذف المقاول'}" class="p-1.5 text-slate-400 hover:text-rose-400 rounded-lg hover:bg-slate-800 transition">
-                        <i data-lucide="trash-2" class="w-4 h-4"></i>
-                    </button>
-                    <div class="p-1.5 rounded-lg bg-blue-500/10 text-blue-400 ml-1">
-                        <i data-lucide="wrench" class="w-4 h-4"></i>
+
+                <div class="text-xs text-slate-400 space-y-1">
+                    <p>${isEn ? 'Default Project:' : 'المشروع المرتبط:'} <strong class="text-slate-200">${s.project_name || (isEn ? 'General / Multi-project' : 'عام / مشاريع متعددة')}</strong></p>
+                    <p>${isEn ? 'Phone:' : 'الهاتف:'} <strong class="text-slate-200 font-mono">${s.phone || '-'}</strong></p>
+                    ${s.notes ? `<p class="italic text-[11px] text-slate-400 line-clamp-2">${s.notes}</p>` : ''}
+                </div>
+
+                <!-- Financial Summary Box -->
+                <div class="bg-gradient-to-br from-slate-850 to-slate-800 border border-slate-750/80 rounded-xl p-3.5 space-y-2">
+                    <div class="flex items-center justify-between text-xs">
+                        <span class="text-slate-400">${isEn ? 'Total Disbursed:' : 'إجمالي المنصرف للمقاول:'}</span>
+                        <strong class="text-emerald-400 text-sm font-black font-mono">${formatCurrency(totalPaid)}</strong>
+                    </div>
+                    <div class="flex items-center justify-between text-[11px] pt-1.5 border-t border-slate-750/50 text-slate-400">
+                        <span>${isEn ? 'Payments count:' : 'عدد الدفعات والمصاريف:'}</span>
+                        <span class="px-2 py-0.5 rounded-md bg-blue-500/10 text-blue-400 font-bold border border-blue-500/20">${count} ${isEn ? 'payments' : 'حركة صرف'}</span>
                     </div>
                 </div>
             </div>
 
-            <div class="text-xs text-slate-400 space-y-1">
-                <p>${isEn ? 'Project:' : 'المشروع:'} <strong class="text-slate-200">${s.project_name || (isEn ? 'All Sites' : 'عام لجميع المواقع')}</strong></p>
-                <p>${isEn ? 'Phone:' : 'الهاتف:'} <strong class="text-slate-200 font-mono">${s.phone || '-'}</strong></p>
-                ${s.notes ? `<p class="italic">${s.notes}</p>` : ''}
-            </div>
-
-            <!-- Payment progress -->
-            <div>
-                <div class="flex items-center justify-between text-xs mb-1">
-                    <span class="text-slate-400">${isEn ? `Paid of Contract (${paidPercent}%):` : `المسدد من الاتفاق (${paidPercent}%):`}</span>
-                    <strong class="text-emerald-400">${formatCurrency(s.paid_amount)}</strong>
-                </div>
-                <div class="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
-                    <div class="bg-blue-500 h-full rounded-full" style="width: ${paidPercent}%"></div>
-                </div>
-            </div>
-
-            <div class="grid grid-cols-2 gap-2 text-xs pt-2 border-t border-slate-750">
-                <div class="bg-slate-800 p-2 rounded-xl">
-                    <span class="text-[10px] text-slate-400 block">${isEn ? 'Total Contract:' : 'إجمالي الاتفاق:'}</span>
-                    <strong class="text-white">${formatCurrency(s.agreed_amount)}</strong>
-                </div>
-                <div class="bg-slate-800 p-2 rounded-xl">
-                    <span class="text-[10px] text-slate-400 block">${isEn ? 'Remaining:' : 'المتبقي:'}</span>
-                    <strong class="text-amber-400">${formatCurrency(remaining)}</strong>
-                </div>
-            </div>
-
-            <!-- Action: Pay مستخلص -->
-            <div class="pt-2 border-t border-slate-750">
-                <button onclick="openSubPaymentModal(${s.id}, '${s.name}')" class="w-full py-2 rounded-xl bg-emerald-600/20 hover:bg-emerald-600 text-emerald-400 hover:text-white font-bold text-xs flex items-center justify-center gap-1.5 transition">
+            <!-- Action Buttons: Disburse Expense + Statement Report -->
+            <div class="pt-3 border-t border-slate-750 space-y-2">
+                <button onclick="openSubPaymentModal(${s.id}, '${escapedName}', ${s.project_id || 'null'})" class="w-full py-2.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600 text-emerald-400 hover:text-white font-bold text-xs flex items-center justify-center gap-1.5 transition shadow-sm">
                     <i data-lucide="badge-dollar-sign" class="w-4 h-4"></i>
-                    <span>${isEn ? 'Issue Payment Certificate' : 'صرف مستخلص / دفعة'}</span>
+                    <span>${isEn ? 'Disburse Expense / Payment' : 'صرف دفعة / مصروف للمقاول'}</span>
+                </button>
+                <button onclick="openSubcontractorStatementModal(${s.id})" class="w-full py-2 rounded-xl bg-blue-600/20 hover:bg-blue-600 text-blue-400 hover:text-white font-bold text-xs flex items-center justify-center gap-1.5 transition shadow-sm">
+                    <i data-lucide="printer" class="w-4 h-4"></i>
+                    <span>${isEn ? 'Subcontractor Statement & Report' : '🖨️ كشف حساب وتقرير المقاول'}</span>
                 </button>
             </div>
         `;
@@ -1697,6 +1913,8 @@ function resetSubcontractorModal() {
     if (form) form.reset();
     const editId = document.getElementById('sub-edit-id');
     if (editId) editId.value = '';
+    const agreedInput = document.getElementById('sub-agreed-amount');
+    if (agreedInput) agreedInput.value = '0';
     cancelCustomSubcontractorTrade();
     refreshSubcontractorTradeDropdowns('حدادة مسلحة');
     const title = document.getElementById('sub-modal-title');
@@ -1720,7 +1938,8 @@ function openEditSubcontractorModal(subId) {
     
     document.getElementById('sub-phone').value = s.phone || '';
     document.getElementById('sub-project-id').value = s.project_id || '';
-    document.getElementById('sub-agreed-amount').value = s.agreed_amount || 0;
+    const agreedInput = document.getElementById('sub-agreed-amount');
+    if (agreedInput) agreedInput.value = s.agreed_amount || 0;
     document.getElementById('sub-notes').value = s.notes || '';
 
     const title = document.getElementById('sub-modal-title');
@@ -1749,11 +1968,492 @@ async function deleteSubcontractor(subId) {
     }
 }
 
-function openSubPaymentModal(subId, subName) {
+async function openSubPaymentModal(subId, subName, defaultProjectId) {
     document.getElementById('sub-pay-id').value = subId;
     const isEn = typeof currentLang !== 'undefined' && currentLang === 'en';
-    document.getElementById('sub-pay-target-name').innerText = `${isEn ? 'Beneficiary:' : 'المستفيد:'} ${subName}`;
+    const nameEl = document.getElementById('sub-pay-target-name');
+    if (nameEl) {
+        nameEl.innerText = `${isEn ? 'Beneficiary Subcontractor:' : 'المقاول المستفيد:'} ${subName}`;
+    }
+
+    // Populate projects dropdown
+    const projSelect = document.getElementById('sub-pay-project-id');
+    if (projSelect) {
+        if (projSelect.options.length <= 1) {
+            try {
+                const res = await fetch('/api/projects');
+                const projs = await res.json();
+                projSelect.innerHTML = '<option value="">-- اختر المشروع المنصرف له * --</option>';
+                projs.forEach(p => {
+                    const opt = document.createElement('option');
+                    opt.value = p.id;
+                    opt.innerText = `${p.name} (${p.code || '#' + p.id})`;
+                    projSelect.appendChild(opt);
+                });
+            } catch (e) {
+                console.error(e);
+            }
+        }
+        if (defaultProjectId) {
+            projSelect.value = String(defaultProjectId);
+        }
+    }
+
+    // Reset fields
+    const amtEl = document.getElementById('sub-pay-amount');
+    if (amtEl) amtEl.value = '';
+    const dateEl = document.getElementById('sub-pay-date');
+    if (dateEl) dateEl.value = new Date().toISOString().split('T')[0];
+    const notesEl = document.getElementById('sub-pay-notes');
+    if (notesEl) notesEl.value = '';
+    const fileEl = document.getElementById('sub-pay-receipt-file');
+    if (fileEl) fileEl.value = '';
+
     openModal('sub-payment-modal');
+}
+
+// ----------------- SUBCONTRACTOR STATEMENT & REPORT -----------------
+let currentStatementData = null;
+
+async function openSubcontractorStatementModal(subId) {
+    try {
+        const res = await fetch(`/api/subcontractors/${subId}/statement`);
+        const data = await res.json();
+        if (!data.success || !data.subcontractor) {
+            showToast(data.error || 'تعذر جلب كشف حساب المقاول', 'error');
+            return;
+        }
+
+        currentStatementData = data;
+        const sub = data.subcontractor;
+        const payments = data.payments || [];
+        const projectsSummary = data.projects_summary || [];
+
+        // Set Title
+        const titleEl = document.getElementById('sub-stmt-title');
+        if (titleEl) titleEl.innerText = `كشف حساب مقاول: ${sub.name}`;
+        const subtitleEl = document.getElementById('sub-stmt-subtitle');
+        if (subtitleEl) subtitleEl.innerText = `التخصص: ${sub.trade} • إجمالي المنصرف: ${formatCurrency(data.total_paid)}`;
+
+        const container = document.getElementById('sub-statement-content');
+        if (!container) return;
+
+        const printDate = new Date().toLocaleDateString('ar-SA');
+        const printGregorian = new Date().toISOString().split('T')[0];
+
+        let projectsBreakdownHtml = '';
+        if (projectsSummary.length > 0) {
+            projectsBreakdownHtml = `
+                <div class="bg-slate-850 p-4 rounded-xl border border-slate-750 space-y-3">
+                    <h4 class="font-bold text-sm text-white flex items-center gap-2">
+                        <i data-lucide="layers" class="w-4 h-4 text-blue-400"></i>
+                        <span>توزيع المصروفات حسب المشاريع</span>
+                    </h4>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                        ${projectsSummary.map(ps => {
+                            const pct = data.total_paid > 0 ? ((ps.total / data.total_paid) * 100).toFixed(1) : 0;
+                            return `
+                                <div class="bg-slate-800 p-3 rounded-lg border border-slate-700 space-y-1">
+                                    <span class="text-xs text-slate-300 font-bold block truncate">${ps.project_name}</span>
+                                    <div class="flex items-center justify-between text-xs">
+                                        <span class="font-extrabold text-emerald-400 font-mono">${formatCurrency(ps.total)}</span>
+                                        <span class="text-[10px] text-slate-400 font-bold">${pct}%</span>
+                                    </div>
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+                </div>
+            `;
+        }
+
+        let paymentsTableRows = '';
+        if (payments.length === 0) {
+            paymentsTableRows = `
+                <tr>
+                    <td colspan="8" class="text-center py-8 text-slate-500 font-bold">لا توجد مصاريف أو دفعات مسجلة لهذا المقاول حتى الآن</td>
+                </tr>
+            `;
+        } else {
+            payments.forEach((p, idx) => {
+                paymentsTableRows += `
+                    <tr class="border-b border-slate-800 hover:bg-slate-800/50 transition">
+                        <td class="p-3 text-center text-slate-400 font-mono text-xs">${idx + 1}</td>
+                        <td class="p-3 whitespace-nowrap text-slate-300 font-mono text-xs">${p.payment_date}</td>
+                        <td class="p-3 whitespace-nowrap">
+                            <span class="font-bold text-white text-xs">${p.project_name || 'مشروع عام'}</span>
+                            ${p.project_code ? `<span class="text-[10px] text-blue-400 font-mono block">(${p.project_code})</span>` : ''}
+                        </td>
+                        <td class="p-3 whitespace-nowrap">
+                            <span class="px-2 py-0.5 rounded text-[11px] font-bold bg-blue-500/10 text-blue-400 border border-blue-500/20">${p.payment_type || 'دفعة'}</span>
+                        </td>
+                        <td class="p-3 whitespace-nowrap text-xs text-slate-300">${p.payment_method || 'نقدي'}</td>
+                        <td class="p-3 text-xs text-slate-300">${p.notes || '-'}</td>
+                        <td class="p-3 whitespace-nowrap text-center">
+                            ${p.receipt_file_path ? `
+                                <a href="${p.receipt_file_path}" target="_blank" class="inline-flex items-center gap-1 text-[11px] text-emerald-400 hover:underline font-bold">
+                                    <i data-lucide="paperclip" class="w-3 h-3"></i>
+                                    <span>معاينة السند</span>
+                                </a>
+                            ` : `<span class="text-[10px] text-slate-500">-</span>`}
+                        </td>
+                        <td class="p-3 whitespace-nowrap text-left font-black text-emerald-400 font-mono text-sm">${formatCurrency(p.amount)}</td>
+                    </tr>
+                `;
+            });
+        }
+
+        container.innerHTML = `
+            <div id="statement-printable-sheet" class="space-y-6">
+                <!-- Header -->
+                <div class="flex items-center justify-between pb-4 border-b-2 border-slate-700 bg-slate-850 p-4 rounded-xl">
+                    <div class="space-y-1">
+                        <h2 class="text-xl font-black text-white tracking-wide">مؤسسة السجيني للمقاولات العامة</h2>
+                        <p class="text-xs text-slate-400">إدارة المشاريع والشؤون المالية والمحاسبية</p>
+                        <p class="text-[11px] text-slate-400 font-mono">تاريخ الاستخراج: ${printGregorian} م (${printDate} هـ)</p>
+                    </div>
+                    <div class="text-left space-y-1">
+                        <div class="px-3 py-1 bg-blue-500/10 border border-blue-500/30 rounded-lg inline-block">
+                            <span class="text-xs font-black text-blue-400 uppercase tracking-widest">كشف حساب مقاول باطن</span>
+                        </div>
+                        <p class="text-[11px] text-slate-400 font-mono">رقم المقاول: SUB-${String(sub.id).padStart(4, '0')}</p>
+                    </div>
+                </div>
+
+                <!-- Info Grid -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+                    <div class="bg-slate-850 p-3.5 rounded-xl border border-slate-750">
+                        <span class="text-[11px] text-slate-400 block mb-0.5">اسم المقاول / المعلم</span>
+                        <strong class="text-white text-sm">${sub.name}</strong>
+                    </div>
+                    <div class="bg-slate-850 p-3.5 rounded-xl border border-slate-750">
+                        <span class="text-[11px] text-slate-400 block mb-0.5">المهنة / التخصص</span>
+                        <strong class="text-blue-400 text-sm">${sub.trade}</strong>
+                    </div>
+                    <div class="bg-slate-850 p-3.5 rounded-xl border border-slate-750">
+                        <span class="text-[11px] text-slate-400 block mb-0.5">رقم الهاتف</span>
+                        <strong class="text-slate-200 text-sm font-mono">${sub.phone || '-'}</strong>
+                    </div>
+                    <div class="bg-gradient-to-br from-emerald-950/40 to-slate-850 p-3.5 rounded-xl border border-emerald-500/30">
+                        <span class="text-[11px] text-emerald-400 font-bold block mb-0.5">إجمالي المنصرف للمقاول</span>
+                        <strong class="text-emerald-400 text-lg font-black font-mono">${formatCurrency(data.total_paid)}</strong>
+                    </div>
+                </div>
+
+                <!-- Projects Breakdown -->
+                ${projectsBreakdownHtml}
+
+                <!-- Table -->
+                <div class="bg-slate-850 rounded-xl border border-slate-750 overflow-hidden space-y-2">
+                    <div class="px-4 py-3 border-b border-slate-750 flex items-center justify-between">
+                        <h4 class="font-bold text-sm text-white flex items-center gap-2">
+                            <i data-lucide="receipt" class="w-4 h-4 text-emerald-400"></i>
+                            <span>سجل الحركات والمصاريف المنصرفة (${payments.length} حركة)</span>
+                        </h4>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-right border-collapse">
+                            <thead>
+                                <tr class="bg-slate-800 text-[11px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-700">
+                                    <th class="p-3 text-center w-10">م</th>
+                                    <th class="p-3">تاريخ الصرف</th>
+                                    <th class="p-3">المشروع</th>
+                                    <th class="p-3">نوع الصرف</th>
+                                    <th class="p-3">طريقة الدفع</th>
+                                    <th class="p-3">البيان والملاحظات</th>
+                                    <th class="p-3 text-center">المستند</th>
+                                    <th class="p-3 text-left">المبلغ المصروف</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${paymentsTableRows}
+                            </tbody>
+                            <tfoot>
+                                <tr class="bg-slate-800/90 font-black text-white border-t-2 border-slate-700">
+                                    <td colspan="7" class="p-3 text-right text-xs">إجمالي المنصرف المقيد للمقاول:</td>
+                                    <td class="p-3 text-left text-emerald-400 font-mono text-base">${formatCurrency(data.total_paid)}</td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Signatures -->
+                <div class="bg-slate-850 p-5 rounded-xl border border-slate-750 grid grid-cols-1 sm:grid-cols-3 gap-6 pt-6 text-center text-xs">
+                    <div class="space-y-8">
+                        <span class="text-slate-400 font-bold block">المقاول المستلم:</span>
+                        <div class="border-b border-dashed border-slate-600 pb-1">
+                            <p class="font-bold text-white">${sub.name}</p>
+                        </div>
+                        <span class="text-[10px] text-slate-500">التوقيع والختم</span>
+                    </div>
+                    <div class="space-y-8">
+                        <span class="text-slate-400 font-bold block">المهندس المشرف:</span>
+                        <div class="border-b border-dashed border-slate-600 pb-1">
+                            <p class="font-bold text-white">إدارة المشاريع</p>
+                        </div>
+                        <span class="text-[10px] text-slate-500">التوقيع والاعتماد</span>
+                    </div>
+                    <div class="space-y-8">
+                        <span class="text-slate-400 font-bold block">الإدارة المالية:</span>
+                        <div class="border-b border-dashed border-slate-600 pb-1">
+                            <p class="font-bold text-white">مؤسسة السجيني</p>
+                        </div>
+                        <span class="text-[10px] text-slate-500">الختم الرسمي والتاريخ</span>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        openModal('subcontractor-statement-modal');
+        initLucide();
+    } catch (err) {
+        console.error(err);
+        showToast('فشل في جلب تقرير كشف حساب المقاول', 'error');
+    }
+}
+
+function printCurrentSubcontractorStatement() {
+    if (!currentStatementData) {
+        showToast('لا توجد بيانات كشف حساب متاحة للطباعة', 'warning');
+        return;
+    }
+
+    const sub = currentStatementData.subcontractor;
+    const payments = currentStatementData.payments || [];
+    const totalPaid = currentStatementData.total_paid || 0;
+    const printDate = new Date().toLocaleDateString('ar-SA');
+    const printGregorian = new Date().toISOString().split('T')[0];
+
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+        showToast('يرجى السماح بالنوافذ المنبثقة لطباعة التقرير', 'warning');
+        return;
+    }
+
+    let rowsHtml = '';
+    payments.forEach((p, i) => {
+        rowsHtml += `
+            <tr>
+                <td style="text-align: center;">${i + 1}</td>
+                <td>${p.payment_date}</td>
+                <td><strong>${p.project_name || 'عام'}</strong> ${p.project_code ? `(${p.project_code})` : ''}</td>
+                <td>${p.payment_type || 'دفعة'}</td>
+                <td>${p.payment_method || 'نقدي'}</td>
+                <td>${p.notes || '-'}</td>
+                <td style="text-align: left; font-weight: bold;">${Number(p.amount).toLocaleString('en-US', {minimumFractionDigits: 2})} ر.س</td>
+            </tr>
+        `;
+    });
+
+    const docHtml = `
+    <!DOCTYPE html>
+    <html lang="ar" dir="rtl">
+    <head>
+        <meta charset="UTF-8">
+        <title>كشف حساب مقاول - ${sub.name}</title>
+        <style>
+            @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap');
+            body {
+                font-family: 'Cairo', sans-serif;
+                margin: 20px;
+                color: #111;
+                background: #fff;
+                direction: rtl;
+                font-size: 12px;
+            }
+            .header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                border-bottom: 2px solid #0f172a;
+                padding-bottom: 12px;
+                margin-bottom: 20px;
+            }
+            .header h1 {
+                margin: 0;
+                font-size: 18px;
+                color: #0f172a;
+                font-weight: 900;
+            }
+            .header p {
+                margin: 2px 0 0 0;
+                color: #64748b;
+                font-size: 11px;
+            }
+            .badge-box {
+                border: 2px solid #0f172a;
+                padding: 6px 14px;
+                border-radius: 8px;
+                text-align: center;
+            }
+            .badge-box strong {
+                font-size: 14px;
+                color: #0f172a;
+                display: block;
+            }
+            .info-grid {
+                display: grid;
+                grid-template-columns: repeat(4, 1fr);
+                gap: 10px;
+                margin-bottom: 20px;
+            }
+            .info-card {
+                border: 1px solid #cbd5e1;
+                border-radius: 8px;
+                padding: 10px;
+                background: #f8fafc;
+            }
+            .info-card span {
+                display: block;
+                font-size: 10px;
+                color: #64748b;
+                margin-bottom: 2px;
+            }
+            .info-card strong {
+                font-size: 12px;
+                color: #0f172a;
+            }
+            .kpi-total {
+                background: #ecfdf5;
+                border-color: #10b981;
+            }
+            .kpi-total strong {
+                color: #059669;
+                font-size: 15px;
+            }
+            table {
+                width: 100%;
+                border-collapse: collapse;
+                margin-bottom: 25px;
+            }
+            th, td {
+                border: 1px solid #cbd5e1;
+                padding: 8px 10px;
+                text-align: right;
+            }
+            th {
+                background: #f1f5f9;
+                color: #0f172a;
+                font-size: 11px;
+                font-weight: bold;
+            }
+            tfoot td {
+                background: #f8fafc;
+                font-size: 13px;
+                font-weight: bold;
+            }
+            .signatures {
+                display: grid;
+                grid-template-columns: repeat(3, 1fr);
+                gap: 20px;
+                margin-top: 40px;
+                text-align: center;
+                page-break-inside: avoid;
+            }
+            .sig-box {
+                border: 1px solid #e2e8f0;
+                border-radius: 8px;
+                padding: 15px;
+            }
+            .sig-line {
+                margin-top: 40px;
+                border-top: 1px dashed #94a3b8;
+                padding-top: 5px;
+                font-size: 11px;
+                color: #64748b;
+            }
+            @media print {
+                body { margin: 10mm; }
+                .no-print { display: none; }
+            }
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <div>
+                <h1>مؤسسة السجيني للمقاولات العامة</h1>
+                <p>إدارة المشاريع والشؤون المالية والمحاسبية</p>
+                <p>تاريخ الاستخراج: ${printGregorian} م (${printDate} هـ)</p>
+            </div>
+            <div class="badge-box">
+                <strong>كشف حساب مقاول باطن</strong>
+                <span style="font-size: 10px; color: #64748b;">SUB-${String(sub.id).padStart(4, '0')}</span>
+            </div>
+        </div>
+
+        <div class="info-grid">
+            <div class="info-card">
+                <span>اسم المقاول / المعلم</span>
+                <strong>${sub.name}</strong>
+            </div>
+            <div class="info-card">
+                <span>المهنة / التخصص</span>
+                <strong>${sub.trade}</strong>
+            </div>
+            <div class="info-card">
+                <span>الهاتف</span>
+                <strong>${sub.phone || '-'}</strong>
+            </div>
+            <div class="info-card kpi-total">
+                <span>إجمالي المنصرف الفعلي</span>
+                <strong>${Number(totalPaid).toLocaleString('en-US', {minimumFractionDigits: 2})} ر.س</strong>
+            </div>
+        </div>
+
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 30px; text-align: center;">م</th>
+                    <th>تاريخ الصرف</th>
+                    <th>المشروع</th>
+                    <th>نوع الصرف</th>
+                    <th>طريقة الدفع</th>
+                    <th>البيان والملاحظات</th>
+                    <th style="text-align: left;">المبلغ المصروف</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${rowsHtml}
+            </tbody>
+            <tfoot>
+                <tr>
+                    <td colspan="6" style="text-align: right;">إجمالي المبالغ المنصرفة:</td>
+                    <td style="text-align: left; color: #059669;">${Number(totalPaid).toLocaleString('en-US', {minimumFractionDigits: 2})} ر.س</td>
+                </tr>
+            </tfoot>
+        </table>
+
+        <div class="signatures">
+            <div class="sig-box">
+                <strong>المقاول المستلم</strong>
+                <p style="margin: 5px 0 0 0; color: #475569;">${sub.name}</p>
+                <div class="sig-line">التوقيع والختم</div>
+            </div>
+            <div class="sig-box">
+                <strong>المهندس المشرف</strong>
+                <p style="margin: 5px 0 0 0; color: #475569;">إدارة المشاريع</p>
+                <div class="sig-line">التوقيع والاعتماد</div>
+            </div>
+            <div class="sig-box">
+                <strong>الإدارة المالية</strong>
+                <p style="margin: 5px 0 0 0; color: #475569;">مؤسسة السجيني</p>
+                <div class="sig-line">الختم الرسمي والتاريخ</div>
+            </div>
+        </div>
+
+        <script>
+            window.onload = function() {
+                window.print();
+            };
+        <\/script>
+    </body>
+    </html>
+    `;
+
+    printWindow.document.open();
+    printWindow.document.write(docHtml);
+    printWindow.document.close();
 }
 
 // ----------------- DOCUMENTS & BLUEPRINTS TAB -----------------
@@ -1829,6 +2529,30 @@ async function submitExpenseForm(e) {
     btn.innerHTML = `<span class="animate-spin inline-block mr-1">⌛</span> جاري الحفظ والرفع...`;
 
     try {
+        const formMode = document.getElementById('expense-form-mode')?.value || 'general';
+        const isGeneralMode = formMode === 'general';
+
+        let selectedCategory = document.getElementById('expense-category')?.value || 'رواتب وأجور';
+        const customInput = document.getElementById('expense-custom-category-input');
+        const customBox = document.getElementById('expense-custom-category-box');
+        const customVal = customInput ? customInput.value.trim() : '';
+
+        if (selectedCategory === '__custom__') {
+            if (!customVal) {
+                showToast('يرجى كتابة مسمى بند المصروف المخصص أو اختيار تصنيف من القائمة', 'warning');
+                btn.disabled = false;
+                const isEditing = Boolean(document.getElementById('expense-edit-id')?.value);
+                btn.innerHTML = `<i data-lucide="save" class="w-4 h-4"></i><span>${isEditing ? 'تحديث وحفظ التعديلات' : 'حفظ المصروف والفاتورة'}</span>`;
+                if (typeof initLucide === 'function') initLucide();
+                return;
+            }
+            selectedCategory = customVal;
+            saveCustomExpenseCategory(customVal);
+        } else if (customVal && customBox && !customBox.classList.contains('hidden')) {
+            selectedCategory = customVal;
+            saveCustomExpenseCategory(customVal);
+        }
+
         const isTax = document.getElementById('tax-choice-yes')?.checked;
         let totalAmt = parseFloat(document.getElementById('expense-amount').value) || 0;
         let amtNoTax = parseFloat(document.getElementById('expense-amount-without-tax')?.value) || 0;
@@ -1858,8 +2582,19 @@ async function submitExpenseForm(e) {
         formData.append('tax_rate', '0.15');
         formData.append('amount_without_tax', amtNoTax.toString());
         formData.append('tax_amount', taxAmt.toString());
-        formData.append('category', document.getElementById('expense-category').value);
-        formData.append('payment_method', document.getElementById('expense-payment-method').value);
+        formData.append('category', selectedCategory);
+        const payMethod = document.getElementById('expense-payment-method')?.value || 'تحويل بنكي';
+        const custodyId = (payMethod === 'عهدة') ? (document.getElementById('expense-custody-id')?.value || '') : '';
+        if (payMethod === 'عهدة' && !custodyId) {
+            showToast('يرجى اختيار العهدة الجارية المطلوب الخصم منها', 'warning');
+            btn.disabled = false;
+            const isEditing = Boolean(document.getElementById('expense-edit-id')?.value);
+            btn.innerHTML = `<i data-lucide="save" class="w-4 h-4"></i><span>${isEditing ? 'تحديث وحفظ التعديلات' : 'حفظ المصروف والفاتورة'}</span>`;
+            if (typeof initLucide === 'function') initLucide();
+            return;
+        }
+        formData.append('custody_id', custodyId);
+        formData.append('payment_method', payMethod);
         formData.append('paid_by', document.getElementById('expense-paid-by').value);
         formData.append('paid_to', document.getElementById('expense-paid-to').value);
         formData.append('expense_date', document.getElementById('expense-date').value);
@@ -1868,28 +2603,38 @@ async function submitExpenseForm(e) {
         formData.append('payment_status', document.getElementById('expense-payment-status')?.value || 'paid');
         formData.append('paid_amount', document.getElementById('expense-paid-amount')?.value || '');
 
-        // Supplier & Quotation & Variance Tracking Fields
-        formData.append('supplier_id', document.getElementById('expense-supplier-id')?.value || '');
-        formData.append('quotation_id', document.getElementById('expense-quotation-id')?.value || '');
-        formData.append('quotation_item_id', document.getElementById('expense-quotation-item-id')?.value || '');
-        formData.append('item_quantity', document.getElementById('expense-item-quantity')?.value || '1');
-        formData.append('unit_price', document.getElementById('expense-unit-price')?.value || '0');
-        formData.append('quoted_unit_price', document.getElementById('expense-quoted-unit-price')?.value || '0');
+        if (isGeneralMode) {
+            // General expense without supplier
+            formData.append('supplier_id', '');
+            formData.append('quotation_id', '');
+            formData.append('quotation_item_id', '');
+            formData.append('item_quantity', '1');
+            formData.append('unit_price', '0');
+            formData.append('quoted_unit_price', '0');
+        } else {
+            // Supplier & Quotation & Variance Tracking Fields
+            formData.append('supplier_id', document.getElementById('expense-supplier-id')?.value || '');
+            formData.append('quotation_id', document.getElementById('expense-quotation-id')?.value || '');
+            formData.append('quotation_item_id', document.getElementById('expense-quotation-item-id')?.value || '');
+            formData.append('item_quantity', document.getElementById('expense-item-quantity')?.value || '1');
+            formData.append('unit_price', document.getElementById('expense-unit-price')?.value || '0');
+            formData.append('quoted_unit_price', document.getElementById('expense-quoted-unit-price')?.value || '0');
 
-        // Multi-Line Items (جدول بنود الفاتورة المتعددة)
-        if (typeof currentExpenseItems !== 'undefined' && Array.isArray(currentExpenseItems)) {
-            const validItems = currentExpenseItems.map(r => ({
-                quotation_item_id: r.quotation_item_id ? parseInt(r.quotation_item_id) : null,
-                item_name: (r.item_name || '').trim(),
-                unit: (r.unit || 'طن').trim(),
-                quantity: parseFloat(r.quantity) || 1,
-                unit_price: parseFloat(r.unit_price) || 0,
-                quoted_unit_price: parseFloat(r.quoted_unit_price) || 0,
-                notes: r.notes || ''
-            })).filter(r => r.item_name.length > 0 || r.unit_price > 0 || r.quotation_item_id);
+            // Multi-Line Items (جدول بنود الفاتورة المتعددة)
+            if (typeof currentExpenseItems !== 'undefined' && Array.isArray(currentExpenseItems)) {
+                const validItems = currentExpenseItems.map(r => ({
+                    quotation_item_id: r.quotation_item_id ? parseInt(r.quotation_item_id) : null,
+                    item_name: (r.item_name || '').trim(),
+                    unit: (r.unit || 'طن').trim(),
+                    quantity: parseFloat(r.quantity) || 1,
+                    unit_price: parseFloat(r.unit_price) || 0,
+                    quoted_unit_price: parseFloat(r.quoted_unit_price) || 0,
+                    notes: r.notes || ''
+                })).filter(r => r.item_name.length > 0 || r.unit_price > 0 || r.quotation_item_id);
 
-            if (validItems.length > 0) {
-                formData.append('items', JSON.stringify(validItems));
+                if (validItems.length > 0) {
+                    formData.append('items', JSON.stringify(validItems));
+                }
             }
         }
 
@@ -1915,7 +2660,7 @@ async function submitExpenseForm(e) {
             if (data.has_price_increase) {
                 showToast(`⚠️ تنبيه: تم رصد زيادة بسعر الفاتورة عن عرض السعر بمقدار +${formatCurrency(data.total_variance)} ر.س!`, 'warning');
             } else {
-                showToast(editId ? 'تم تحديث بيانات المصروف والفاتورة بنجاح!' : 'تم تسجيل المصروف وأرشفة الفاتورة بنجاح!');
+                showToast(editId ? 'تم تحديث بيانات المصروف والفاتورة بنجاح!' : 'تم تسجيل المصروف بنجاح!');
             }
             closeModal('expense-modal');
             resetExpenseModal();
@@ -1925,6 +2670,13 @@ async function submitExpenseForm(e) {
             if (currentTab === 'cashflow' && typeof loadCashFlow === 'function') loadCashFlow();
             if (typeof currentProjectDetailData !== 'undefined' && currentProjectDetailData) openProjectDetails(currentProjectDetailData.id);
             if (typeof currentSelectedSupplierDetailId !== 'undefined' && currentSelectedSupplierDetailId) openSupplierDetailModal(currentSelectedSupplierDetailId);
+            if (typeof currentViewedCustodyId !== 'undefined' && currentViewedCustodyId) {
+                const cModal = document.getElementById('custody-expenses-modal');
+                if (cModal && !cModal.classList.contains('hidden')) {
+                    viewCustodyExpenses(currentViewedCustodyId);
+                }
+            }
+            if (typeof loadCustody === 'function') loadCustody();
         } else {
             showToast(data.error || 'حدث خطأ أثناء الحفظ', 'error');
         }
@@ -1956,6 +2708,21 @@ function resetExpenseModal() {
     if (dateEl) dateEl.value = todayStr;
     const payDateEl = document.getElementById('expense-payment-date');
     if (payDateEl) payDateEl.value = todayStr;
+
+    // Reset mode to general (رواتب وتشغيل ومصروف عام) by default
+    setExpenseFormMode('general');
+
+    // Default to non-tax for general expenses (salaries, petty cash, etc.)
+    const taxNo = document.getElementById('tax-choice-no');
+    if (taxNo) {
+        taxNo.checked = true;
+        onExpenseTaxTypeChanged();
+    }
+
+    // Reset custom category input and sync dropdowns
+    cancelCustomExpenseCategory();
+    syncCustomExpenseCategoryOptions('رواتب وأجور');
+
     if (typeof resetExpenseTaxFields === 'function') resetExpenseTaxFields();
     if (typeof resetExpenseSupplierFields === 'function') resetExpenseSupplierFields();
     if (typeof clearInvoiceFile === 'function') clearInvoiceFile();
@@ -1966,6 +2733,18 @@ function resetExpenseModal() {
     if (pAmtCont) pAmtCont.classList.add('hidden');
     const pAmtEl = document.getElementById('expense-paid-amount');
     if (pAmtEl) pAmtEl.value = '';
+
+    // Reset custody selector and containers
+    const cCont = document.getElementById('expense-custody-select-container');
+    if (cCont) cCont.classList.add('hidden');
+    const cSelect = document.getElementById('expense-custody-id');
+    if (cSelect) cSelect.value = '';
+    const cBadge = document.getElementById('expense-custody-balance-badge');
+    if (cBadge) cBadge.classList.add('hidden');
+    const cWarn = document.getElementById('expense-custody-warning');
+    if (cWarn) cWarn.classList.add('hidden');
+    const cInfo = document.getElementById('expense-custody-info');
+    if (cInfo) cInfo.classList.add('hidden');
 
     // Reset multi-items list
     if (typeof resetExpenseItemsState === 'function') {
@@ -2009,9 +2788,21 @@ async function openEditExpenseModal(expenseId) {
             await loadItemsForExpenseModal(exp.phase_id, exp.item_id);
         }
 
+        if (exp.supplier_id) {
+            setExpenseFormMode('supplier');
+        } else {
+            setExpenseFormMode('general');
+        }
+
         if (document.getElementById('expense-title')) document.getElementById('expense-title').value = exp.title || '';
-        if (document.getElementById('expense-category')) document.getElementById('expense-category').value = exp.category || 'مواد بناء';
-        if (document.getElementById('expense-payment-method')) document.getElementById('expense-payment-method').value = exp.payment_method || 'تحويل بنكي';
+        syncCustomExpenseCategoryOptions(exp.category || 'رواتب وأجور');
+        if (exp.custody_id || exp.payment_method === 'عهدة') {
+            if (document.getElementById('expense-payment-method')) document.getElementById('expense-payment-method').value = 'عهدة';
+            await onExpensePaymentMethodChanged(exp.custody_id);
+        } else {
+            if (document.getElementById('expense-payment-method')) document.getElementById('expense-payment-method').value = exp.payment_method || 'تحويل بنكي';
+            await onExpensePaymentMethodChanged();
+        }
         if (document.getElementById('expense-paid-by')) document.getElementById('expense-paid-by').value = exp.paid_by || '';
         if (document.getElementById('expense-paid-to')) document.getElementById('expense-paid-to').value = exp.paid_to || '';
         if (document.getElementById('expense-date')) document.getElementById('expense-date').value = exp.expense_date || '';
@@ -2138,6 +2929,167 @@ async function openEditExpenseModal(expenseId) {
     } catch (err) {
         console.error('Error opening edit expense modal:', err);
         showToast('تعذر فتح نموذج تعديل المصروف', 'error');
+    }
+}
+
+// ----------------- EXPENSE PROJECT TRANSFER -----------------
+let currentTransferExpenseData = null;
+
+async function openTransferExpenseModal(expenseId) {
+    try {
+        const res = await fetch(`/api/expenses/${expenseId}`);
+        const data = await res.json();
+        if (!data.success || !data.expense) {
+            showToast('تعذر العثور على بيانات المصروف', 'error');
+            return;
+        }
+
+        const exp = data.expense;
+        currentTransferExpenseData = exp;
+
+        document.getElementById('transfer-exp-id').value = exp.id;
+        document.getElementById('transfer-exp-title').innerText = exp.title || `مصروف #${exp.id}`;
+        document.getElementById('transfer-exp-amount').innerText = formatCurrency(exp.amount);
+        document.getElementById('transfer-exp-current-project').innerText = exp.project_name ? `${exp.project_name} (${exp.project_code || '#' + exp.project_id})` : `مشروع #${exp.project_id}`;
+        document.getElementById('transfer-exp-notes').value = '';
+
+        // Populate and select projects
+        const sel = document.getElementById('transfer-exp-new-project-id');
+        if (sel) {
+            sel.innerHTML = '<option value="">-- اختر المشروع الجديد المحول إليه --</option>';
+            const projs = (allProjectsList && allProjectsList.length > 0) ? allProjectsList : await (await fetch('/api/projects')).json();
+            projs.forEach(p => {
+                const opt = document.createElement('option');
+                opt.value = p.id;
+                opt.innerText = `${p.name} (${p.code || '#' + p.id})`;
+                if (p.id == exp.project_id) {
+                    opt.disabled = true;
+                    opt.innerText += ' [المشروع الحالي]';
+                }
+                sel.appendChild(opt);
+            });
+        }
+
+        // Reset phases & items dropdown
+        const phaseSel = document.getElementById('transfer-exp-phase-id');
+        if (phaseSel) phaseSel.innerHTML = '<option value="">-- عام للمشروع (بدون مرحلة) --</option>';
+        const itemSel = document.getElementById('transfer-exp-item-id');
+        if (itemSel) itemSel.innerHTML = '<option value="">-- عام للمرحلة --</option>';
+
+        openModal('transfer-expense-modal');
+        initLucide();
+    } catch (err) {
+        console.error('Error opening transfer expense modal:', err);
+        showToast('حدث خطأ أثناء فتح نافذة نقل المصروف', 'error');
+    }
+}
+
+async function loadPhasesForTransferModal(projectId, selectedPhaseId = null) {
+    const phaseSel = document.getElementById('transfer-exp-phase-id');
+    const itemSel = document.getElementById('transfer-exp-item-id');
+    if (!phaseSel) return;
+    phaseSel.innerHTML = '<option value="">-- عام للمشروع (بدون مرحلة) --</option>';
+    if (itemSel) itemSel.innerHTML = '<option value="">-- عام للمرحلة --</option>';
+    if (!projectId) return;
+
+    try {
+        const res = await fetch(`/api/projects/${projectId}`);
+        const p = await res.json();
+        if (p.phases && p.phases.length > 0) {
+            p.phases.forEach(ph => {
+                const opt = document.createElement('option');
+                opt.value = ph.id;
+                opt.innerText = `مرحلة ${ph.order_num}: ${ph.name}`;
+                if (selectedPhaseId && selectedPhaseId == ph.id) opt.selected = true;
+                phaseSel.appendChild(opt);
+            });
+            if (selectedPhaseId) {
+                loadItemsForTransferModal(selectedPhaseId);
+            }
+        }
+    } catch (err) {
+        console.error('Error loading phases for transfer modal:', err);
+    }
+}
+
+async function loadItemsForTransferModal(phaseId, selectedItemId = null) {
+    const itemSel = document.getElementById('transfer-exp-item-id');
+    if (!itemSel) return;
+    itemSel.innerHTML = '<option value="">-- عام للمرحلة --</option>';
+    if (!phaseId) return;
+
+    const projectId = document.getElementById('transfer-exp-new-project-id')?.value;
+    if (!projectId) return;
+
+    try {
+        const res = await fetch(`/api/projects/${projectId}`);
+        const p = await res.json();
+        const ph = (p.phases || []).find(x => x.id == phaseId);
+        if (ph && ph.items && ph.items.length > 0) {
+            ph.items.forEach(it => {
+                const opt = document.createElement('option');
+                opt.value = it.id;
+                opt.innerText = `${it.item_code ? it.item_code + ' - ' : ''}${it.title}`;
+                if (selectedItemId && selectedItemId == it.id) opt.selected = true;
+                itemSel.appendChild(opt);
+            });
+        }
+    } catch (err) {
+        console.error('Error loading items for transfer modal:', err);
+    }
+}
+
+async function submitTransferExpenseForm(e) {
+    e.preventDefault();
+    const expenseId = document.getElementById('transfer-exp-id').value;
+    const newProjectId = document.getElementById('transfer-exp-new-project-id').value;
+    const phaseId = document.getElementById('transfer-exp-phase-id').value;
+    const itemId = document.getElementById('transfer-exp-item-id').value;
+    const notes = document.getElementById('transfer-exp-notes').value.trim();
+
+    if (!newProjectId) {
+        showToast('يرجى تحديد المشروع الجديد المحول إليه', 'warning');
+        return;
+    }
+
+    const btn = document.getElementById('btn-submit-transfer-expense');
+    btn.disabled = true;
+    btn.innerHTML = `<span class="animate-spin inline-block mr-1">⌛</span> جاري نقل المصروف...`;
+
+    try {
+        const res = await fetch(`/api/expenses/${expenseId}/transfer`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                new_project_id: newProjectId,
+                phase_id: phaseId || null,
+                item_id: itemId || null,
+                notes: notes
+            })
+        });
+
+        const data = await res.json();
+        if (data.success) {
+            showToast(data.message || 'تم نقل المصروف بنجاح!');
+            closeModal('transfer-expense-modal');
+            loadDashboard();
+            if (currentTab === 'expenses') loadExpenses();
+            if (currentTab === 'subcontractors' && typeof loadSubcontractors === 'function') loadSubcontractors();
+            if (currentTab === 'suppliers' && typeof loadSuppliersData === 'function') loadSuppliersData();
+            if (currentTab === 'cashflow' && typeof loadCashFlow === 'function') loadCashFlow();
+            if (typeof currentProjectDetailData !== 'undefined' && currentProjectDetailData) {
+                openProjectDetails(currentProjectDetailData.id);
+            }
+        } else {
+            showToast(data.error || 'فشل في نقل المصروف', 'error');
+        }
+    } catch (err) {
+        console.error('Error transferring expense:', err);
+        showToast('تعذر الاتصال بالخادم لنقل المصروف', 'error');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = `<i data-lucide="arrow-right-left" class="w-4 h-4"></i><span>تأكيد نقل المصروف للمشروع الجديد</span>`;
+        initLucide();
     }
 }
 
@@ -2371,28 +3323,50 @@ async function submitSubcontractorForm(e) {
 async function submitSubPaymentForm(e) {
     e.preventDefault();
     const subId = document.getElementById('sub-pay-id').value;
+    const projectId = document.getElementById('sub-pay-project-id')?.value;
+    const amount = parseFloat(document.getElementById('sub-pay-amount')?.value || 0);
+
+    if (!projectId) {
+        showToast('يرجى اختيار المشروع المخصص له الصرف', 'warning');
+        return;
+    }
+    if (amount <= 0) {
+        showToast('يرجى كتابة مبلغ صحيح للصرف', 'warning');
+        return;
+    }
+
     const formData = new FormData();
-    formData.append('amount', document.getElementById('sub-pay-amount').value);
-    formData.append('payment_type', document.getElementById('sub-pay-type').value);
-    formData.append('payment_date', document.getElementById('sub-pay-date').value);
-    formData.append('notes', document.getElementById('sub-pay-notes').value);
+    formData.append('project_id', projectId);
+    formData.append('amount', amount);
+    formData.append('payment_method', document.getElementById('sub-pay-method')?.value || 'نقدي');
+    formData.append('payment_type', document.getElementById('sub-pay-type')?.value || 'دفعة أعمال');
+    formData.append('payment_date', document.getElementById('sub-pay-date')?.value || new Date().toISOString().split('T')[0]);
+    formData.append('notes', document.getElementById('sub-pay-notes')?.value || '');
 
     const fileInput = document.getElementById('sub-pay-receipt-file');
-    if (fileInput.files.length > 0) {
+    if (fileInput && fileInput.files.length > 0) {
         formData.append('receipt_file', fileInput.files[0]);
     }
 
-    const res = await fetch(`/api/subcontractors/${subId}/payments`, {
-        method: 'POST',
-        body: formData
-    });
-    const data = await res.json();
-    if (data.success) {
-        showToast('تم قيد المستخلص وترحيله للمصروفات');
-        closeModal('sub-payment-modal');
-        document.getElementById('sub-payment-form').reset();
-        loadSubcontractors();
-        loadDashboard();
+    try {
+        const res = await fetch(`/api/subcontractors/${subId}/payments`, {
+            method: 'POST',
+            body: formData
+        });
+        const data = await res.json();
+        if (data.success) {
+            showToast('تم قيد المصروف في حساب المقاول وترحيله لمصاريف المشروع بنجاح');
+            closeModal('sub-payment-modal');
+            document.getElementById('sub-payment-form').reset();
+            loadSubcontractors();
+            loadDashboard();
+            if (typeof loadExpenses === 'function') loadExpenses();
+        } else {
+            showToast(data.error || 'حدث خطأ أثناء صرف المصروف', 'error');
+        }
+    } catch (err) {
+        console.error(err);
+        showToast('فشل في الاتصال بالخادم لحفظ المصروف', 'error');
     }
 }
 
@@ -2537,6 +3511,9 @@ async function openProjectDetails(projectId) {
                     </td>
                     <td class="p-2.5 text-center whitespace-nowrap">
                         <div class="flex items-center justify-center gap-1">
+                            <button onclick="openTransferExpenseModal(${e.id})" title="نقل المصروف لمشروع آخر" class="p-1 text-slate-400 hover:text-emerald-400 rounded hover:bg-slate-800 transition">
+                                <i data-lucide="arrow-right-left" class="w-3.5 h-3.5"></i>
+                            </button>
                             <button onclick="openEditExpenseModal(${e.id})" title="تعديل المصروف" class="p-1 text-slate-400 hover:text-amber-400 rounded hover:bg-slate-800 transition">
                                 <i data-lucide="edit-3" class="w-3.5 h-3.5"></i>
                             </button>
@@ -2559,7 +3536,7 @@ async function openProjectDetails(projectId) {
             p.tasks.forEach(t => {
                 const isCreator = (currentUser && currentUser.name === t.created_by);
                 const isAssignee = (currentUser && currentUser.name === t.assigned_to);
-                const isGeneralManager = (currentUser && (currentUser.name === 'فاروق محمد' || currentUser.role === 'المدير العام'));
+                const isGeneralManager = (currentUser && (currentUser.name === 'نواف سجيني' || currentUser.name === 'فاروق محمد' || currentUser.role === 'المدير العام'));
                 const canApprove = isCreator || (isGeneralManager && !isAssignee);
                 const isPending = t.status === 'pending_approval';
                 const isDone = t.status === 'done';
@@ -3439,6 +4416,11 @@ function renderProjectPaymentsTab(p) {
                     <button onclick="openEditClientPaymentModal(${cp.id})" class="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition" title="${isEn ? 'Edit' : 'تعديل'}">
                         <i data-lucide="edit-3" class="w-3.5 h-3.5"></i>
                     </button>
+                    ${cp.received_amount > 0 ? `
+                    <button onclick="resetClientPaymentReceipt(${cp.id}, ${p.id})" class="p-1.5 rounded-lg bg-slate-800 hover:bg-amber-500/20 text-slate-400 hover:text-amber-400 transition" title="إلغاء وتصفير السداد">
+                        <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i>
+                    </button>
+                    ` : ''}
                     <button onclick="deleteClientPayment(${cp.id}, ${p.id})" class="p-1.5 rounded-lg bg-slate-800 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 transition" title="${isEn ? 'Delete' : 'حذف'}">
                         <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
                     </button>
@@ -3509,16 +4491,40 @@ function openAddClientPaymentModal() {
     openModal('client-payment-modal');
 }
 
-function openEditClientPaymentModal(paymentId) {
-    if (!currentProjectDetailData || !currentProjectDetailData.client_payments) return;
-    const cp = currentProjectDetailData.client_payments.find(x => x.id === paymentId);
+async function openEditClientPaymentModal(paymentId, projectId = null) {
+    let cp = null;
+    if (currentProjectDetailData && currentProjectDetailData.client_payments) {
+        cp = currentProjectDetailData.client_payments.find(x => x.id === paymentId);
+    }
+    if (!cp && currentDetailedReportsData && currentDetailedReportsData.client_payments_report) {
+        for (const pr of currentDetailedReportsData.client_payments_report) {
+            cp = (pr.payments || []).find(x => x.id === paymentId);
+            if (cp) {
+                if (!projectId) projectId = pr.project_id;
+                break;
+            }
+        }
+    }
+    if (!cp && paymentId) {
+        try {
+            const res = await fetch(`/api/client-payments?project_id=${projectId || ''}`);
+            const data = await res.json();
+            if (data.success && data.payments) {
+                cp = data.payments.find(x => x.id === paymentId);
+            }
+        } catch (e) {
+            console.error('Error fetching client payment for edit:', e);
+        }
+    }
     if (!cp) return;
+
+    const actualProjectId = projectId || cp.project_id || (currentProjectDetailData ? currentProjectDetailData.id : '');
     
     document.getElementById('cp-id').value = cp.id;
-    document.getElementById('cp-project-id').value = currentProjectDetailData.id;
+    document.getElementById('cp-project-id').value = actualProjectId;
     const selGroup = document.getElementById('cp-project-select-group');
     if (selGroup) selGroup.classList.add('hidden');
-    document.getElementById('client-payment-modal-title').innerText = 'تعديل دفعة واستحقاق العميل';
+    document.getElementById('client-payment-modal-title').innerText = `تعديل استحقاق دفعة (${cp.milestone_name})`;
     document.getElementById('cp-number').value = cp.payment_number;
     document.getElementById('cp-percentage').value = cp.percentage || '';
     document.getElementById('cp-milestone').value = cp.milestone_name;
@@ -3569,6 +4575,9 @@ async function submitClientPaymentForm(e) {
             if (currentTab === 'cashflow') {
                 loadCashFlow();
             }
+            if (currentTab === 'reports') {
+                loadDetailedReports();
+            }
             loadDashboardStats();
         } else {
             showToast(data.error || 'حدث خطأ في حفظ الدفعة', 'error');
@@ -3610,7 +4619,14 @@ async function openReceivePaymentModal(paymentId, milestoneTitle, dueAmount, pro
             }
         }
     }
-    // 4. Fallback: Fetch directly from API
+    // 4. Check currentDetailedReportsData client_payments_report
+    if (!cp && currentDetailedReportsData && currentDetailedReportsData.client_payments_report) {
+        for (const pr of currentDetailedReportsData.client_payments_report) {
+            cp = (pr.payments || []).find(x => x.id === paymentId);
+            if (cp) break;
+        }
+    }
+    // 5. Fallback: Fetch directly from API
     if (!cp && paymentId) {
         try {
             const res = await fetch(`/api/client-payments?project_id=${projectId || ''}`);
@@ -3627,19 +4643,41 @@ async function openReceivePaymentModal(paymentId, milestoneTitle, dueAmount, pro
     if (selectGroup) selectGroup.classList.add('hidden');
 
     if (cp) {
+        const totalDue = parseFloat(cp.amount_with_tax) || 0;
+        const alreadyReceived = parseFloat(cp.received_amount) || 0;
+        const remainingDue = Math.max(0, Math.round((totalDue - alreadyReceived) * 100) / 100);
+
         document.getElementById('rec-payment-id').value = cp.id;
         document.getElementById('rec-milestone-title').innerText = `${cp.project_name || cp.project_code || ''} - ${cp.milestone_name} (دفعة رقم ${cp.payment_number})`;
-        document.getElementById('rec-total-due').innerText = formatMoney(cp.amount_with_tax);
-        document.getElementById('rec-amount').value = cp.is_received ? cp.received_amount : (cp.amount_with_tax - (cp.received_amount || 0));
-        document.getElementById('rec-date').value = cp.received_date || new Date().toISOString().split('T')[0];
+        if (document.getElementById('rec-total-due')) {
+            document.getElementById('rec-total-due').innerText = formatMoney(totalDue);
+        }
+        if (document.getElementById('rec-already-received')) {
+            document.getElementById('rec-already-received').innerText = formatMoney(alreadyReceived);
+        }
+        if (document.getElementById('rec-remaining-due')) {
+            document.getElementById('rec-remaining-due').innerText = formatMoney(remainingDue);
+        }
+        // Prefill with remaining due if not fully paid, or total due
+        document.getElementById('rec-amount').value = remainingDue > 0 ? remainingDue : totalDue;
+        document.getElementById('rec-date').value = new Date().toISOString().split('T')[0];
         document.getElementById('rec-method').value = cp.payment_method || 'تحويل بنكي';
-        document.getElementById('rec-voucher-no').value = cp.receipt_voucher_no || '';
-        document.getElementById('rec-notes').value = cp.notes || '';
+        document.getElementById('rec-voucher-no').value = '';
+        document.getElementById('rec-notes').value = '';
     } else {
+        const dueVal = parseFloat(dueAmount) || 0;
         document.getElementById('rec-payment-id').value = paymentId || '';
         document.getElementById('rec-milestone-title').innerText = milestoneTitle || 'تسجيل استلام الدفعة';
-        document.getElementById('rec-total-due').innerText = dueAmount ? formatMoney(dueAmount) : '0 ر.س';
-        document.getElementById('rec-amount').value = dueAmount || 0;
+        if (document.getElementById('rec-total-due')) {
+            document.getElementById('rec-total-due').innerText = formatMoney(dueVal);
+        }
+        if (document.getElementById('rec-already-received')) {
+            document.getElementById('rec-already-received').innerText = '0 ر.س';
+        }
+        if (document.getElementById('rec-remaining-due')) {
+            document.getElementById('rec-remaining-due').innerText = formatMoney(dueVal);
+        }
+        document.getElementById('rec-amount').value = dueVal;
         document.getElementById('rec-date').value = new Date().toISOString().split('T')[0];
         document.getElementById('rec-method').value = 'تحويل بنكي';
         document.getElementById('rec-voucher-no').value = '';
@@ -3676,6 +4714,9 @@ async function submitReceivePaymentForm(e) {
             if (currentTab === 'cashflow') {
                 loadCashFlow();
             }
+            if (currentTab === 'reports') {
+                loadDetailedReports();
+            }
             loadDashboardStats();
         } else {
             showToast(data.error || 'حدث خطأ في تسجيل التحصيل', 'error');
@@ -3693,7 +4734,15 @@ async function deleteClientPayment(paymentId, projectId) {
         const data = await res.json();
         if (data.success) {
             showToast(data.message, 'success');
-            openProjectDetailModal(projectId);
+            if (projectId && currentProjectDetailData && currentProjectDetailData.id == projectId) {
+                openProjectDetailModal(projectId);
+            }
+            if (currentTab === 'reports') {
+                loadDetailedReports();
+            }
+            if (currentTab === 'cashflow') {
+                loadCashFlow();
+            }
             loadDashboardStats();
         } else {
             showToast(data.error || 'فشل حذف الدفعة', 'error');
@@ -3701,6 +4750,285 @@ async function deleteClientPayment(paymentId, projectId) {
     } catch (err) {
         console.error('Error deleting client payment:', err);
         showToast('خطأ في الاتصال بالخادم', 'error');
+    }
+}
+
+async function resetClientPaymentReceipt(paymentId, projectId) {
+    if (!confirm('هل تريد إلغاء تحصيل هذه الدفعة وتصفير المبالغ المستلمة وإعادتها لحالة الانتظار؟')) return;
+    try {
+        const res = await fetch(`/api/client-payments/${paymentId}/reset`, { method: 'POST' });
+        const data = await res.json();
+        if (data.success) {
+            showToast(data.message, 'success');
+            if (projectId && currentProjectDetailData && currentProjectDetailData.id == projectId) {
+                openProjectDetailModal(projectId);
+            }
+            if (currentTab === 'reports') {
+                loadDetailedReports();
+            }
+            if (currentTab === 'cashflow') {
+                loadCashFlow();
+            }
+            loadDashboardStats();
+        } else {
+            showToast(data.error || 'فشل إلغاء التحصيل', 'error');
+        }
+    } catch (err) {
+        console.error('Error resetting client payment:', err);
+        showToast('خطأ في الاتصال بالخادم', 'error');
+    }
+}
+
+// ==============================================================
+// SMART AUTO-ALLOCATION OF CLIENT PAYMENTS (السداد والتوزيع الذكي للأقساط)
+// ==============================================================
+let autoAllocDebounceTimer = null;
+
+async function openAutoAllocateModal(preselectedProjectId = null) {
+    const projSelect = document.getElementById('auto-alloc-project-id');
+    if (!projSelect) return;
+
+    let projectsList = [];
+    if (typeof allProjects !== 'undefined' && allProjects && allProjects.length > 0) {
+        projectsList = allProjects;
+    } else {
+        try {
+            const res = await fetch('/api/projects');
+            projectsList = await res.json();
+        } catch (e) {
+            console.error('Error fetching projects:', e);
+        }
+    }
+
+    projSelect.innerHTML = '';
+    projectsList.forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = p.id;
+        opt.textContent = `${p.code || 'PRJ'} - ${p.name} (العميل: ${p.client_name || ''})`;
+        if (preselectedProjectId && (p.id === preselectedProjectId || p.id == preselectedProjectId)) {
+            opt.selected = true;
+        }
+        projSelect.appendChild(opt);
+    });
+
+    if (preselectedProjectId) {
+        projSelect.value = preselectedProjectId;
+    }
+
+    document.getElementById('auto-alloc-amount').value = '';
+    document.getElementById('auto-alloc-date').value = new Date().toISOString().split('T')[0];
+    document.getElementById('auto-alloc-method').value = 'تحويل بنكي';
+    document.getElementById('auto-alloc-voucher-no').value = '';
+    
+    const currUser = JSON.parse(localStorage.getItem('segieny_auth_user') || '{}');
+    document.getElementById('auto-alloc-received-by').value = currUser.name || '';
+    document.getElementById('auto-alloc-notes').value = '';
+
+    openModal('auto-allocate-payment-modal');
+    onAutoAllocProjectChange();
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+}
+
+function openAutoAllocateModalForCurrentProject() {
+    if (currentProjectDetailData) {
+        openAutoAllocateModal(currentProjectDetailData.id);
+    } else {
+        openAutoAllocateModal();
+    }
+}
+
+function onAutoAllocProjectChange() {
+    triggerAutoAllocPreview();
+}
+
+function triggerAutoAllocPreview() {
+    if (autoAllocDebounceTimer) clearTimeout(autoAllocDebounceTimer);
+    autoAllocDebounceTimer = setTimeout(runAutoAllocPreview, 150);
+}
+
+async function runAutoAllocPreview() {
+    const projId = document.getElementById('auto-alloc-project-id').value;
+    const amountVal = parseFloat(document.getElementById('auto-alloc-amount').value) || 0;
+    const container = document.getElementById('auto-alloc-preview-container');
+    const badge = document.getElementById('auto-alloc-preview-badge');
+    const totalDueEl = document.getElementById('auto-alloc-total-due');
+    const dueCountEl = document.getElementById('auto-alloc-due-count');
+
+    if (!projId) {
+        if (container) container.innerHTML = '<p class="text-center text-slate-500 py-3 text-xs">يرجى اختيار المشروع أولاً</p>';
+        return;
+    }
+
+    try {
+        const res = await fetch(`/api/client-payments/auto-allocate-preview?project_id=${projId}&amount=${amountVal}`);
+        const data = await res.json();
+        if (!data.success) {
+            if (container) container.innerHTML = `<p class="text-center text-rose-400 py-3 text-xs">${data.error || 'حدث خطأ في جلب بيانات الدفعات'}</p>`;
+            return;
+        }
+
+        if (totalDueEl) totalDueEl.innerText = formatMoney(data.total_pending_amount || 0);
+        if (dueCountEl) dueCountEl.innerText = `${(data.allocations || []).filter(a => a.total_due - a.previous_received > 0.01).length} دفعة`;
+
+        if (!data.allocations || data.allocations.length === 0) {
+            badge.innerText = 'لا توجد دفعات معلقة';
+            badge.className = 'text-[10px] text-emerald-400 font-bold';
+            container.innerHTML = `
+                <div class="p-4 text-center text-emerald-400 bg-emerald-500/10 rounded-xl border border-emerald-500/20">
+                    <i data-lucide="check-circle-2" class="w-6 h-6 mx-auto mb-1 text-emerald-400"></i>
+                    <p class="font-bold text-xs">رائع! جميع دفعات هذا العميل مسددة بالكامل ولا توجد أي مبالغ متأخرة.</p>
+                </div>
+            `;
+            if (typeof lucide !== 'undefined') lucide.createIcons();
+            return;
+        }
+
+        if (amountVal <= 0) {
+            badge.innerText = 'في انتظار إدخال المبلغ';
+            badge.className = 'text-[10px] text-slate-400';
+            let listHtml = `
+                <div class="text-[11px] text-slate-400 mb-1.5 flex justify-between font-bold">
+                    <span>الدفعات المستحقة على العميل حالياً:</span>
+                    <span>الإجمالي: ${formatMoney(data.total_pending_amount)}</span>
+                </div>
+                <div class="space-y-1.5">
+            `;
+            data.allocations.forEach(a => {
+                const rem = a.total_due - a.previous_received;
+                if (rem <= 0.01) return;
+                listHtml += `
+                    <div class="flex items-center justify-between p-2 rounded-lg bg-slate-800/80 border border-slate-750 text-xs">
+                        <div class="flex items-center gap-2">
+                            <span class="w-5 h-5 rounded-full bg-slate-700 text-slate-300 font-mono text-[10px] flex items-center justify-center font-bold">${a.payment_number}</span>
+                            <span class="font-bold text-slate-200">${a.milestone_name}</span>
+                        </div>
+                        <div class="text-left font-mono">
+                            <span class="font-bold text-rose-400 text-xs">${formatMoney(rem)}</span>
+                            ${a.previous_received > 0 ? `<span class="block text-[9px] text-slate-400">سُدد منها ${formatMoney(a.previous_received)}</span>` : ''}
+                        </div>
+                    </div>
+                `;
+            });
+            listHtml += '</div>';
+            container.innerHTML = listHtml;
+            if (typeof lucide !== 'undefined') lucide.createIcons();
+            return;
+        }
+
+        // When amountVal > 0: Show Live Distribution
+        badge.innerText = `سيتم إغلاق ${data.fully_paid_count} دفعة وسداد ${data.partially_paid_count} جزئياً`;
+        badge.className = 'text-[10px] text-emerald-400 font-bold';
+
+        let previewHtml = '';
+
+        if (data.surplus > 0) {
+            previewHtml += `
+                <div class="p-2.5 rounded-xl bg-amber-500/15 border border-amber-500/40 text-amber-300 text-xs flex items-center justify-between font-bold mb-2">
+                    <span class="flex items-center gap-1.5">
+                        <i data-lucide="alert-triangle" class="w-4 h-4 text-amber-400"></i>
+                        <span>المبلغ المدفوع يفيض عن كامل الأقساط المستحقة!</span>
+                    </span>
+                    <span class="text-amber-400 font-mono text-sm">فائض: +${formatMoney(data.surplus)}</span>
+                </div>
+            `;
+        }
+
+        previewHtml += '<div class="space-y-1.5">';
+        data.allocations.forEach(a => {
+            let statusBadge = '';
+            let borderStyle = 'border-slate-800';
+            let bgStyle = 'bg-slate-800/40';
+
+            if (a.action === 'full') {
+                statusBadge = `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 text-[10px] font-bold"><i data-lucide="check-check" class="w-3 h-3"></i> إغلاق وسداد بالكامل (+${formatMoney(a.allocated_amount)})</span>`;
+                borderStyle = 'border-emerald-500/40';
+                bgStyle = 'bg-emerald-950/20';
+            } else if (a.action === 'partial') {
+                statusBadge = `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/40 text-[10px] font-bold"><i data-lucide="clock" class="w-3 h-3"></i> سداد جزئي (+${formatMoney(a.allocated_amount)}) • متبقي: ${formatMoney(a.remaining_due)}</span>`;
+                borderStyle = 'border-amber-500/40';
+                bgStyle = 'bg-amber-950/20';
+            } else {
+                statusBadge = `<span class="px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700 text-[10px]">مستحق لم يُسدد بعد (${formatMoney(a.remaining_due)})</span>`;
+            }
+
+            previewHtml += `
+                <div class="p-2.5 rounded-xl border ${borderStyle} ${bgStyle} transition flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 text-xs">
+                    <div class="flex items-center gap-2">
+                        <span class="w-5 h-5 rounded-full bg-slate-700 text-slate-200 font-mono text-[10px] flex items-center justify-center font-bold shrink-0">${a.payment_number}</span>
+                        <div>
+                            <span class="font-bold text-white block">${a.milestone_name}</span>
+                            <span class="text-[10px] text-slate-400">القيمة التعاقدية: ${formatMoney(a.total_due)}</span>
+                        </div>
+                    </div>
+                    <div class="text-left shrink-0">
+                        ${statusBadge}
+                    </div>
+                </div>
+            `;
+        });
+        previewHtml += '</div>';
+
+        container.innerHTML = previewHtml;
+        if (typeof lucide !== 'undefined') lucide.createIcons();
+
+    } catch (err) {
+        console.error('Error running auto alloc preview:', err);
+    }
+}
+
+async function submitAutoAllocatePaymentForm(e) {
+    e.preventDefault();
+    const btn = document.getElementById('btn-submit-auto-alloc');
+    const originalText = btn.innerHTML;
+
+    const projectId = document.getElementById('auto-alloc-project-id').value;
+    const amount = parseFloat(document.getElementById('auto-alloc-amount').value) || 0;
+    const payload = {
+        project_id: projectId,
+        amount: amount,
+        payment_date: document.getElementById('auto-alloc-date').value,
+        payment_method: document.getElementById('auto-alloc-method').value,
+        receipt_voucher_no: document.getElementById('auto-alloc-voucher-no').value,
+        received_by: document.getElementById('auto-alloc-received-by').value,
+        notes: document.getElementById('auto-alloc-notes').value
+    };
+
+    if (amount <= 0) {
+        showToast('يرجى إدخال مبلغ صحيح أكبر من الصفر', 'warning');
+        return;
+    }
+
+    try {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="inline-block animate-spin mr-1">⌛</span> جاري تسوية الأقساط...';
+
+        const res = await fetch('/api/client-payments/auto-allocate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+
+        if (data.success) {
+            showToast(data.message, 'success');
+            closeModal('auto-allocate-payment-modal');
+
+            if (currentProjectDetailData && currentProjectDetailData.id == projectId) {
+                openProjectDetailModal(projectId);
+            }
+            if (currentTab === 'cashflow') {
+                loadCashFlow();
+            }
+            loadDashboardStats();
+        } else {
+            showToast(data.error || 'حدث خطأ أثناء تسوية الدفعات', 'error');
+        }
+    } catch (err) {
+        console.error('Error submitting auto allocate payment:', err);
+        showToast('خطأ في الاتصال بالخادم', 'error');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
     }
 }
 
@@ -3721,9 +5049,270 @@ function switchDetailTab(dtab) {
     }
 }
 
-function printProjectReport() {
-    window.print();
+async function printProjectReport(projectId = null) {
+    let p = currentProjectDetailData;
+    if (projectId && (!p || p.id != projectId)) {
+        try {
+            const res = await fetch(`/api/projects/${projectId}`);
+            p = await res.json();
+        } catch (e) {
+            console.error('Error fetching project for print:', e);
+        }
+    }
+    if (!p) {
+        showToast('يرجى فتح أو اختيار المشروع أولاً للطباعة', 'warning');
+        return;
+    }
+
+    const todayStr = new Date().toLocaleDateString('ar-EG', { year: 'numeric', month: 'long', day: 'numeric' });
+    const printTimeStr = new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' });
+
+    // Financial KPIs
+    const contractVal    = parseFloat(p.contract_value) || 0;
+    const totalSpent     = parseFloat(p.total_spent) || 0;
+    const remainingBudget= parseFloat(p.remaining_budget) || 0;
+    const taxRefundable  = parseFloat(p.total_tax_refundable) || 0;
+    const pSum           = p.payment_summary || {};
+    const totalReceived  = parseFloat(pSum.total_received) || 0;
+    const totalPending   = parseFloat(pSum.total_pending) || 0;
+    const colRate        = pSum.collection_rate || 0;
+    const netCashFlow    = totalReceived - totalSpent;
+    const budgetBurnPct  = contractVal > 0 ? Math.min(100, Math.round((totalSpent / contractVal) * 100)) : 0;
+    const collectionPct  = contractVal > 0 ? Math.min(100, Math.round((totalReceived / contractVal) * 100)) : 0;
+    const progressPct    = parseFloat(p.progress_percent) || 0;
+
+    // SVG Donut Chart
+    function svgDonut(slices, size) {
+        size = size || 120;
+        if (!slices.length) return '<text x="60" y="65" text-anchor="middle" font-size="10" fill="#94a3b8">لا بيانات</text>';
+        const total = slices.reduce(function(s, sl) { return s + sl.value; }, 0);
+        if (total <= 0) return '';
+        const cx = size / 2, cy = size / 2, r = size * 0.38, ri = size * 0.22;
+        let svgPaths = '', angle = -Math.PI / 2;
+        slices.forEach(function(sl) {
+            const a = (sl.value / total) * 2 * Math.PI;
+            const x1 = cx + r * Math.cos(angle), y1 = cy + r * Math.sin(angle);
+            const x2 = cx + r * Math.cos(angle + a), y2 = cy + r * Math.sin(angle + a);
+            const ix1 = cx + ri * Math.cos(angle), iy1 = cy + ri * Math.sin(angle);
+            const ix2 = cx + ri * Math.cos(angle + a), iy2 = cy + ri * Math.sin(angle + a);
+            const large = a > Math.PI ? 1 : 0;
+            svgPaths += '<path d="M' + x1.toFixed(1) + ',' + y1.toFixed(1) + ' A' + r + ',' + r + ' 0 ' + large + ',1 ' + x2.toFixed(1) + ',' + y2.toFixed(1) + ' L' + ix2.toFixed(1) + ',' + iy2.toFixed(1) + ' A' + ri + ',' + ri + ' 0 ' + large + ',0 ' + ix1.toFixed(1) + ',' + iy1.toFixed(1) + ' Z" fill="' + sl.color + '" stroke="#fff" stroke-width="1.5"/>';
+            angle += a;
+        });
+        return svgPaths;
+    }
+
+    // SVG Horizontal Bar
+    function svgHBar(pct, color, bgColor, w, h) {
+        bgColor = bgColor || '#e2e8f0'; w = w || 200; h = h || 10;
+        const fill = Math.max(0, Math.min(100, pct));
+        return '<svg width="' + w + '" height="' + h + '" xmlns="http://www.w3.org/2000/svg"><rect width="' + w + '" height="' + h + '" rx="' + (h/2) + '" fill="' + bgColor + '"/><rect width="' + (fill / 100 * w).toFixed(1) + '" height="' + h + '" rx="' + (h/2) + '" fill="' + color + '"/></svg>';
+    }
+
+    // Expense Categories
+    const catBreakdown = {};
+    const exps = (p.expenses || []);
+    let totalExpensesSum = 0;
+    exps.forEach(function(e) {
+        const amt = parseFloat(e.amount) || 0;
+        totalExpensesSum += amt;
+        const cat = e.category || 'عام';
+        catBreakdown[cat] = (catBreakdown[cat] || 0) + amt;
+    });
+    const sortedCats = Object.entries(catBreakdown).sort(function(a, b) { return b[1] - a[1]; });
+    const PALETTE = ['#059669','#2563eb','#d97706','#e11d48','#7c3aed','#0891b2','#65a30d'];
+    const catSlices = sortedCats.slice(0, 7).map(function(item, i) { return { name: item[0], value: item[1], color: PALETTE[i % PALETTE.length] }; });
+
+    // Category Bars HTML
+    let catBarsHtml = '';
+    catSlices.forEach(function(sl) {
+        const pct = totalExpensesSum > 0 ? Math.round((sl.value / totalExpensesSum) * 100) : 0;
+        catBarsHtml += '<div style="margin-bottom:7px;"><div style="display:flex;justify-content:space-between;font-size:9.5px;margin-bottom:2px;"><span style="font-weight:700;color:#1e293b;">' + escapeHtml(sl.name) + '</span><span style="font-family:monospace;color:#475569;">' + formatCurrency(sl.value) + ' <span style="color:' + sl.color + ';font-weight:800;">(' + pct + '%)</span></span></div>' + svgHBar(pct, sl.color, '#e2e8f0', 260, 9) + '</div>';
+    });
+
+    // Cash Flow: Build Monthly Timeline
+    const cfMap = {};
+    function getMonth(d) {
+        if (!d) return null;
+        const parts = String(d).split('-');
+        return parts.length >= 2 ? parts[0] + '-' + parts[1] : null;
+    }
+    (p.client_payments || []).forEach(function(cp) {
+        if ((parseFloat(cp.received_amount) || 0) > 0) {
+            const m = getMonth(cp.received_date || cp.due_date);
+            if (m) { if (!cfMap[m]) cfMap[m] = { inflow: 0, outflow: 0 }; cfMap[m].inflow += parseFloat(cp.received_amount) || 0; }
+        }
+    });
+    exps.forEach(function(e) {
+        const m = getMonth(e.expense_date);
+        if (m) {
+            if (!cfMap[m]) cfMap[m] = { inflow: 0, outflow: 0 };
+            cfMap[m].outflow += parseFloat(e.amount) || 0;
+        }
+    });
+    const cfMonths = Object.keys(cfMap).sort();
+    let cfRunning = 0;
+    const cfRows = cfMonths.map(function(mon) {
+        const row = cfMap[mon];
+        const inflow = row.inflow, outflow = row.outflow;
+        const net = inflow - outflow;
+        cfRunning += net;
+        const parts = mon.split('-');
+        const label = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, 1).toLocaleDateString('ar-EG', { year: 'numeric', month: 'long' });
+        return { mon: mon, label: label, inflow: inflow, outflow: outflow, net: net, running: cfRunning };
+    });
+
+    // Cash Flow SVG Chart
+    function buildCashFlowSVG(rows) {
+        if (!rows.length) return '<div style="text-align:center;color:#94a3b8;padding:20px;font-size:10px;">لا توجد بيانات تدفق نقدي بعد</div>';
+        const W = 560, H = 140, padL = 65, padR = 15, padT = 12, padB = 32;
+        const allVals = [];
+        rows.forEach(function(r) { allVals.push(r.running, r.inflow, r.outflow); });
+        allVals.push(0);
+        const maxV = Math.max.apply(null, allVals);
+        const minV = Math.min.apply(null, [Math.min.apply(null, rows.map(function(r) { return r.running; })), 0]);
+        const range = maxV - minV || 1;
+        const chartW = W - padL - padR;
+        const chartH = H - padT - padB;
+        const n = rows.length;
+        function toX(i) { return padL + (n > 1 ? i * (chartW / (n - 1)) : chartW / 2); }
+        function toY(v) { return padT + chartH - ((v - minV) / range) * chartH; }
+        const zeroY = toY(0);
+
+        let bars = '';
+        rows.forEach(function(r, i) {
+            const bW = Math.max(4, (n > 1 ? chartW / (n - 1) : chartW) * 0.3);
+            const x = toX(i);
+            if (r.inflow > 0) {
+                const y1 = toY(r.inflow), bH = Math.abs(zeroY - y1);
+                bars += '<rect x="' + (x - bW).toFixed(1) + '" y="' + y1.toFixed(1) + '" width="' + bW.toFixed(1) + '" height="' + bH.toFixed(1) + '" fill="#059669" opacity="0.3"/>';
+            }
+            if (r.outflow > 0) {
+                const bH = Math.abs(zeroY - toY(r.outflow));
+                bars += '<rect x="' + x.toFixed(1) + '" y="' + (zeroY - bH).toFixed(1) + '" width="' + bW.toFixed(1) + '" height="' + bH.toFixed(1) + '" fill="#e11d48" opacity="0.3"/>';
+            }
+        });
+
+        const linePts = rows.map(function(r, i) { return toX(i).toFixed(1) + ',' + toY(r.running).toFixed(1); }).join(' ');
+        const dots = rows.map(function(r, i) {
+            return '<circle cx="' + toX(i).toFixed(1) + '" cy="' + toY(r.running).toFixed(1) + '" r="3" fill="' + (r.running >= 0 ? '#2563eb' : '#e11d48') + '" stroke="#fff" stroke-width="1.5"/>';
+        }).join('');
+
+        const step = Math.ceil(n / 6);
+        const xLabels = rows.filter(function(_, i) { return i % step === 0 || i === n - 1; }).map(function(r) {
+            const i = rows.indexOf(r);
+            return '<text x="' + toX(i).toFixed(1) + '" y="' + (H - 5).toFixed(1) + '" text-anchor="middle" font-size="7" fill="#64748b">' + r.mon + '</text>';
+        }).join('');
+
+        const yLabels = [0, 0.25, 0.5, 0.75, 1].map(function(t) {
+            const v = minV + t * range;
+            const y = toY(v);
+            const lbl = Math.abs(v) >= 1000 ? (v / 1000).toFixed(0) + 'k' : v.toFixed(0);
+            return '<text x="' + (padL - 4).toFixed(1) + '" y="' + (y + 3).toFixed(1) + '" text-anchor="end" font-size="7" fill="#64748b">' + lbl + '</text><line x1="' + padL + '" y1="' + y.toFixed(1) + '" x2="' + (W - padR).toFixed(1) + '" y2="' + y.toFixed(1) + '" stroke="#e2e8f0" stroke-width="0.5"/>';
+        }).join('');
+
+        return '<svg width="' + W + '" height="' + H + '" xmlns="http://www.w3.org/2000/svg" style="direction:ltr;display:block;"><rect width="' + W + '" height="' + H + '" fill="#f8fafc" rx="4"/>' + yLabels + '<line x1="' + padL + '" y1="' + padT + '" x2="' + padL + '" y2="' + (H - padB).toFixed(1) + '" stroke="#cbd5e1" stroke-width="1"/><line x1="' + padL + '" y1="' + zeroY.toFixed(1) + '" x2="' + (W - padR).toFixed(1) + '" y2="' + zeroY.toFixed(1) + '" stroke="#94a3b8" stroke-width="0.8" stroke-dasharray="3,2"/>' + bars + '<polyline points="' + linePts + '" fill="none" stroke="#2563eb" stroke-width="2" stroke-linejoin="round"/>' + dots + xLabels + '</svg>';
+    }
+
+    // Cash Flow Table Rows
+    let cfTableRows = '';
+    if (cfRows.length === 0) {
+        cfTableRows = '<tr><td colspan="5" style="text-align:center;color:#64748b;padding:10px;">لا توجد بيانات تدفق نقدي بعد</td></tr>';
+    } else {
+        cfRows.forEach(function(r) {
+            const netColor = r.net >= 0 ? '#059669' : '#dc2626';
+            const runColor = r.running >= 0 ? '#059669' : '#dc2626';
+            cfTableRows += '<tr><td style="text-align:center;font-weight:700;">' + r.label + '</td><td style="font-family:monospace;color:#059669;font-weight:700;text-align:left;">' + (r.inflow > 0 ? formatCurrency(r.inflow) : '-') + '</td><td style="font-family:monospace;color:#e11d48;font-weight:700;text-align:left;">' + (r.outflow > 0 ? formatCurrency(r.outflow) : '-') + '</td><td style="font-family:monospace;color:' + netColor + ';font-weight:700;text-align:left;">' + (r.net >= 0 ? '+' : '') + formatCurrency(r.net) + '</td><td style="font-family:monospace;color:' + runColor + ';font-weight:900;text-align:left;">' + (r.running >= 0 ? '+' : '') + formatCurrency(r.running) + '</td></tr>';
+        });
+    }
+
+    // Phases Table
+    let phasesRows = '', totalPhasesCost = 0, totalPhasesSelling = 0, totalPhasesWeight = 0;
+    (p.phases || []).forEach(function(ph, idx) {
+        const cost = parseFloat(ph.cost_price) || 0;
+        const selling = parseFloat(ph.selling_price) || 0;
+        const weight = parseFloat(ph.weight_percent) || 0;
+        const prog = parseFloat(ph.progress_percent) || 0;
+        totalPhasesCost += cost; totalPhasesSelling += selling; totalPhasesWeight += weight;
+        const done = prog >= 100;
+        phasesRows += '<tr><td style="text-align:center;font-weight:700;">' + (idx+1) + '</td><td><strong>' + escapeHtml(ph.name) + '</strong></td><td style="text-align:center;">' + weight + '%</td><td style="text-align:center;"><div style="display:flex;align-items:center;gap:4px;">' + svgHBar(prog, done ? '#059669' : '#2563eb', '#e2e8f0', 55, 7) + '<span style="font-weight:800;color:' + (done ? '#059669' : '#2563eb') + ';font-size:9px;">' + prog + '%</span></div></td><td style="font-family:monospace;text-align:left;">' + formatCurrency(cost) + '</td><td style="font-family:monospace;font-weight:700;text-align:left;">' + formatCurrency(selling) + '</td><td style="text-align:center;"><span style="background:' + (done ? '#dcfce7' : '#fef3c7') + ';color:' + (done ? '#059669' : '#d97706') + ';padding:1px 5px;border-radius:3px;font-size:9px;font-weight:700;">' + (done ? 'مكتملة ✓' : 'جاري') + '</span></td></tr>';
+    });
+    if (!phasesRows) phasesRows = '<tr><td colspan="7" style="text-align:center;color:#64748b;padding:10px;">لا توجد مراحل</td></tr>';
+
+    // Client Payments Table
+    let paymentsRows = '', totalMilReq = 0, totalMilRecv = 0, totalMilRem = 0;
+    (p.client_payments || []).forEach(function(cp) {
+        const req = parseFloat(cp.amount_with_tax) || 0;
+        const recv = parseFloat(cp.received_amount) || 0;
+        const rem = Math.max(0, req - recv);
+        totalMilReq += req; totalMilRecv += recv; totalMilRem += rem;
+        const isPaid = cp.is_received === 1 || cp.status === 'paid';
+        const isPart = !isPaid && (recv > 0 || cp.status === 'partially_paid');
+        const stText = isPaid ? 'مسددة ✓' : (isPart ? 'جزئي' : 'منتظرة');
+        const stBg = isPaid ? '#dcfce7' : (isPart ? '#fef3c7' : '#f1f5f9');
+        const stColor = isPaid ? '#059669' : (isPart ? '#d97706' : '#64748b');
+        paymentsRows += '<tr><td style="text-align:center;font-weight:700;">' + (cp.payment_number || '-') + '</td><td><strong>' + escapeHtml(cp.milestone_name) + '</strong>' + (cp.receipt_voucher_no ? '<div style="font-size:8.5px;color:#059669;">سند: ' + escapeHtml(cp.receipt_voucher_no) + '</div>' : '') + '</td><td style="text-align:center;">' + (cp.percentage ? cp.percentage + '%' : '-') + '</td><td style="font-family:monospace;font-weight:700;text-align:left;">' + formatCurrency(req) + '</td><td style="font-family:monospace;font-weight:700;color:#059669;text-align:left;">' + formatCurrency(recv) + '</td><td style="font-family:monospace;font-weight:700;color:' + (rem > 0 ? '#dc2626' : '#059669') + ';text-align:left;">' + formatCurrency(rem) + '</td><td style="text-align:center;font-size:9px;">' + (cp.due_date || '-') + '</td><td style="text-align:center;"><span style="background:' + stBg + ';color:' + stColor + ';padding:1px 6px;border-radius:3px;font-size:9px;font-weight:800;">' + stText + '</span></td></tr>';
+    });
+    if (!paymentsRows) paymentsRows = '<tr><td colspan="8" style="text-align:center;color:#64748b;padding:10px;">لا توجد دفعات</td></tr>';
+
+    // Expenses Table
+    let expensesRows = '';
+    exps.forEach(function(e, idx) {
+        const amt = parseFloat(e.amount) || 0;
+        const cat = e.category || 'عام';
+        const catIdx = sortedCats.findIndex(function(c) { return c[0] === cat; });
+        const catColor = catIdx >= 0 ? PALETTE[catIdx % PALETTE.length] : '#64748b';
+        expensesRows += '<tr><td style="text-align:center;color:#64748b;">' + (idx+1) + '</td><td style="font-family:monospace;font-size:9px;white-space:nowrap;">' + (e.expense_date || '-') + '</td><td><strong>' + escapeHtml(e.title) + '</strong></td><td><span style="background:' + catColor + '22;color:' + catColor + ';padding:1px 5px;border-radius:3px;font-size:8.5px;font-weight:700;border:1px solid ' + catColor + '55;">' + escapeHtml(cat) + '</span></td><td style="font-size:9px;">' + escapeHtml(e.paid_to || '-') + '</td><td style="font-family:monospace;font-weight:700;color:#dc2626;text-align:left;">' + formatCurrency(amt) + '</td><td style="text-align:center;"><span style="font-size:8.5px;background:' + (e.is_tax_invoice ? '#eff6ff' : '#f8fafc') + ';color:' + (e.is_tax_invoice ? '#2563eb' : '#64748b') + ';padding:1px 4px;border-radius:3px;border:1px solid ' + (e.is_tax_invoice ? '#bfdbfe' : '#e2e8f0') + ';">' + (e.is_tax_invoice ? '🧾 ضريبية' : 'بدون') + '</span></td></tr>';
+    });
+    if (!expensesRows) expensesRows = '<tr><td colspan="7" style="text-align:center;color:#64748b;padding:10px;">لا توجد مصروفات</td></tr>';
+
+    // Subcontractors
+    let subsSection = '';
+    if ((p.subcontractors || []).length > 0) {
+        let subsRows = '', totalSubsAgreed = 0, totalSubsPaid = 0, totalSubsRem = 0;
+        p.subcontractors.forEach(function(s, idx) {
+            const agreed = parseFloat(s.agreed_amount) || 0;
+            const paid = parseFloat(s.paid_amount) || 0;
+            const rem = Math.max(0, agreed - paid);
+            totalSubsAgreed += agreed; totalSubsPaid += paid; totalSubsRem += rem;
+            const paidPct = agreed > 0 ? Math.round((paid / agreed) * 100) : 0;
+            subsRows += '<tr><td style="text-align:center;">' + (idx+1) + '</td><td><strong>' + escapeHtml(s.name) + '</strong></td><td>' + escapeHtml(s.trade || '-') + '</td><td style="font-family:monospace;font-weight:700;text-align:left;">' + formatCurrency(agreed) + '</td><td style="font-family:monospace;color:#059669;font-weight:700;text-align:left;">' + formatCurrency(paid) + '</td><td style="font-family:monospace;color:' + (rem > 0 ? '#dc2626' : '#059669') + ';font-weight:700;text-align:left;">' + formatCurrency(rem) + '</td><td style="text-align:center;"><div style="display:flex;align-items:center;gap:3px;">' + svgHBar(paidPct, '#059669', '#e2e8f0', 50, 7) + '<span style="font-size:9px;font-weight:700;">' + paidPct + '%</span></div></td></tr>';
+        });
+        subsSection = '<div class="section-title">🔧 4. مقاولو الباطن والعمالة</div><table><thead><tr><th style="width:25px;">م</th><th>الاسم</th><th>التخصص</th><th>المتفق عليه</th><th>المنصرف</th><th>المتبقي</th><th style="width:85px;">نسبة السداد</th></tr></thead><tbody>' + subsRows + '</tbody><tfoot><tr class="total-row"><td colspan="3" style="text-align:center;">الإجمالي (' + p.subcontractors.length + ')</td><td style="font-family:monospace;">' + formatCurrency(totalSubsAgreed) + '</td><td style="font-family:monospace;">' + formatCurrency(totalSubsPaid) + '</td><td style="font-family:monospace;">' + formatCurrency(totalSubsRem) + '</td><td></td></tr></tfoot></table>';
+    }
+
+    // Donut SVG
+    const donutPaths = svgDonut(catSlices, 120);
+    const donutLegend = catSlices.slice(0, 6).map(function(sl) {
+        const pct = totalExpensesSum > 0 ? Math.round((sl.value / totalExpensesSum) * 100) : 0;
+        return '<div style="display:flex;align-items:center;gap:4px;margin-bottom:4px;"><div style="width:9px;height:9px;border-radius:2px;background:' + sl.color + ';flex-shrink:0;"></div><span style="font-size:8.5px;color:#334155;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escapeHtml(sl.name) + '</span><span style="font-size:8.5px;font-weight:700;color:' + sl.color + ';">' + pct + '%</span></div>';
+    }).join('');
+
+    // Build full HTML
+    const printHtml = '<!DOCTYPE html>\n<html dir="rtl" lang="ar">\n<head>\n<meta charset="UTF-8">\n<title>تقرير - ' + escapeHtml(p.name) + '</title>\n<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap" rel="stylesheet">\n<style>\n*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}\n@page{size:A4;margin:12mm 10mm 10mm 10mm;}\nbody{font-family:\'Cairo\',system-ui,sans-serif;background:#fff;color:#1e293b;font-size:10.5px;line-height:1.45;-webkit-print-color-adjust:exact;print-color-adjust:exact;}\n.action-bar{background:#f1f5f9;border-bottom:1px solid #e2e8f0;padding:8px 14px;display:flex;align-items:center;gap:10px;}\n.btn-print{background:#059669;color:#fff;border:none;padding:7px 22px;font-size:13px;font-weight:700;border-radius:6px;cursor:pointer;font-family:inherit;}\n@media print{.action-bar{display:none!important;}}\n.report-header{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #1e293b;padding-bottom:8px;margin-bottom:10px;}\n.company-name{font-size:17px;font-weight:900;color:#1e293b;}\n.company-sub{font-size:10px;color:#059669;font-weight:700;margin-top:2px;}\n.report-badge{display:inline-block;background:#1e293b;color:#fff;font-weight:800;font-size:11.5px;padding:3px 12px;border-radius:5px;margin-top:5px;}\n.header-meta{text-align:left;font-size:9.5px;color:#64748b;line-height:1.7;}\n.header-meta strong{color:#1e293b;}\n.info-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;border:1px solid #e2e8f0;border-radius:6px;padding:7px 8px;background:#f8fafc;margin-bottom:10px;}\n.info-label{font-size:8.5px;color:#64748b;font-weight:600;display:block;}\n.info-value{font-size:11px;font-weight:800;color:#0f172a;}\n.kpi-row{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:8px;}\n.kpi-card{border-radius:7px;padding:8px 10px;border:1px solid;text-align:center;}\n.kpi-card .kpi-label{font-size:8.5px;font-weight:700;margin-bottom:3px;}\n.kpi-card .kpi-value{font-size:13px;font-weight:900;font-family:monospace;}\n.kpi-slate{background:#f8fafc;border-color:#cbd5e1;color:#1e293b;}\n.kpi-red{background:#fff1f2;border-color:#fecdd3;}\n.kpi-red .kpi-value{color:#dc2626;}\n.kpi-green{background:#f0fdf4;border-color:#bbf7d0;}\n.kpi-green .kpi-value{color:#059669;}\n.kpi-amber{background:#fffbeb;border-color:#fde68a;}\n.kpi-amber .kpi-value{color:#d97706;}\n.kpi-blue{background:#eff6ff;border-color:#bfdbfe;}\n.kpi-blue .kpi-value{color:#2563eb;}\n.kpi-purple{background:#faf5ff;border-color:#e9d5ff;}\n.kpi-purple .kpi-value{color:#7c3aed;}\n.kpi-teal{background:#f0fdfa;border-color:#99f6e4;}\n.kpi-teal .kpi-value{color:#0f766e;}\n.cf-banner{display:flex;align-items:center;justify-content:space-between;border-radius:8px;padding:10px 14px;margin-bottom:10px;border:1.5px solid;}\n.cf-banner.surplus{background:#f0fdf4;border-color:#059669;}\n.cf-banner.deficit{background:#fff1f2;border-color:#e11d48;}\n.cf-banner-label{font-weight:900;font-size:12px;}\n.cf-banner.surplus .cf-banner-label{color:#065f46;}\n.cf-banner.deficit .cf-banner-label{color:#9f1239;}\n.cf-banner-sub{font-size:9px;color:#475569;margin-top:2px;}\n.cf-banner-val{font-size:20px;font-weight:900;font-family:monospace;}\n.cf-banner.surplus .cf-banner-val{color:#059669;}\n.cf-banner.deficit .cf-banner-val{color:#dc2626;}\n.dash-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;}\n.dash-card{border:1px solid #e2e8f0;border-radius:7px;padding:9px 11px;background:#fff;}\n.dash-card-title{font-size:10.5px;font-weight:900;color:#1e293b;margin-bottom:7px;border-bottom:1px solid #f1f5f9;padding-bottom:4px;}\n.section-title{font-size:11.5px;font-weight:900;border-right:4px solid #059669;padding-right:8px;margin:12px 0 6px 0;color:#1e293b;}\ntable{width:100%;border-collapse:collapse;margin-bottom:6px;font-size:9.5px;}\nth{background:#1e293b;color:#fff;font-weight:700;padding:5px 6px;text-align:right;font-size:9.5px;border:1px solid #334155;}\ntd{border:1px solid #e2e8f0;padding:4px 5px;text-align:right;vertical-align:middle;}\ntr:nth-child(even) td{background:#f8fafc;}\n.total-row td{background:#1e293b!important;color:#fff!important;font-weight:900;padding:5px 6px;}\n.sigs{display:flex;justify-content:space-between;margin-top:18px;padding-top:12px;border-top:2px solid #1e293b;page-break-inside:avoid;}\n.sig-col{width:30%;text-align:center;font-size:9.5px;font-weight:700;}\n.sig-line{margin-top:30px;border-top:1px solid #94a3b8;padding-top:4px;font-size:9px;color:#64748b;}\n.cf-legend{display:flex;gap:12px;font-size:8.5px;margin-bottom:5px;flex-wrap:wrap;}\n.no-break{page-break-inside:avoid;}\n@media print{body{font-size:9.5px;}table{page-break-inside:auto;}tr{page-break-inside:avoid;page-break-after:auto;}thead{display:table-header-group;}tfoot{display:table-footer-group;}.section-title{page-break-after:avoid;}svg{display:block!important;}}\n</style>\n</head>\n<body>\n<div class="action-bar"><button class="btn-print" onclick="window.print()">🖨️ طباعة / حفظ PDF</button><span style="color:#64748b;font-size:10.5px;margin-right:10px;">يتضمن: لوحة المؤشرات · التدفق النقدي · الرسوم البيانية · جداول البيانات</span></div>\n<div class="report-header"><div><div class="company-name">شركة مقاولات السجيني العامة</div><div class="company-sub">إدارة المشاريع الإنشائية · الرقابة المالية · تحليل التدفقات النقدية</div><div class="report-badge">📋 تقرير الموقف التنفيذي والمالي المتكامل</div></div><div class="header-meta"><div><strong>كود المشروع:</strong> ' + escapeHtml(p.code || 'PRJ-000') + '</div><div><strong>تاريخ التقرير:</strong> ' + todayStr + '</div><div><strong>وقت الاستخراج:</strong> ' + printTimeStr + '</div><div><strong>حالة المشروع:</strong> ' + (p.status === 'completed' ? '<strong style="color:#059669">مكتمل ✓</strong>' : '<strong style="color:#d97706">جاري التنفيذ</strong>') + '</div><div><strong>نسبة الإنجاز:</strong> <strong style="color:#2563eb;">' + progressPct + '%</strong></div></div></div>\n<div class="info-grid"><div><span class="info-label">اسم المشروع</span><span class="info-value">' + escapeHtml(p.name) + '</span></div><div><span class="info-label">العميل / المالك</span><span class="info-value">' + escapeHtml(p.client_name || '-') + '</span></div><div><span class="info-label">الموقع</span><span class="info-value">' + escapeHtml(p.location || '-') + '</span></div><div><span class="info-label">مدير المشروع</span><span class="info-value">' + escapeHtml(p.manager_name || 'م. السجيني') + '</span></div><div><span class="info-label">تاريخ البدء</span><span class="info-value" style="font-family:monospace;">' + escapeHtml(p.start_date || '-') + '</span></div><div><span class="info-label">تاريخ التسليم</span><span class="info-value" style="font-family:monospace;">' + escapeHtml(p.end_date || '-') + '</span></div><div><span class="info-label">نسبة التحصيل</span><span class="info-value" style="color:#d97706;">' + colRate + '%</span></div><div><span class="info-label">نسبة الإنجاز</span><span class="info-value" style="color:#059669;">' + progressPct + '%</span></div></div>\n<div class="kpi-row"><div class="kpi-card kpi-slate"><div class="kpi-label">📄 قيمة العقد الإجمالية</div><div class="kpi-value">' + formatCurrency(contractVal) + '</div></div><div class="kpi-card kpi-red"><div class="kpi-label">💸 إجمالي المصروف الفعلي</div><div class="kpi-value">' + formatCurrency(totalSpent) + '</div></div><div class="kpi-card kpi-green"><div class="kpi-label">📦 المتبقي من الميزانية</div><div class="kpi-value">' + formatCurrency(remainingBudget) + '</div></div><div class="kpi-card kpi-amber"><div class="kpi-label">💰 المحصل من العميل</div><div class="kpi-value">' + formatCurrency(totalReceived) + '</div></div></div>\n<div class="kpi-row"><div class="kpi-card kpi-blue"><div class="kpi-label">⏳ المتبقي للتحصيل</div><div class="kpi-value">' + formatCurrency(totalPending) + '</div></div><div class="kpi-card ' + (netCashFlow >= 0 ? 'kpi-teal' : 'kpi-red') + '"><div class="kpi-label">💵 صافي السيولة الحالية</div><div class="kpi-value">' + (netCashFlow >= 0 ? '+' : '') + formatCurrency(netCashFlow) + '</div></div><div class="kpi-card kpi-purple"><div class="kpi-label">🔄 ضريبة قابلة للاسترداد</div><div class="kpi-value">' + formatCurrency(taxRefundable) + '</div></div><div class="kpi-card kpi-green"><div class="kpi-label">📈 نسبة استهلاك الميزانية</div><div class="kpi-value" style="color:' + (budgetBurnPct > 90 ? '#dc2626' : '#059669') + ';">' + budgetBurnPct + '%</div></div></div>\n<div class="cf-banner ' + (netCashFlow >= 0 ? 'surplus' : 'deficit') + '"><div><div class="cf-banner-label">' + (netCashFlow >= 0 ? '✅ فائض سيولة — التدفق النقدي إيجابي' : '⚠️ عجز سيولة — المصروفات تجاوزت المحصل') + '</div><div class="cf-banner-sub">المحصل من العميل (' + formatCurrency(totalReceived) + ') — إجمالي المنصرف (' + formatCurrency(totalSpent) + ') — نسبة التحصيل (' + colRate + '%)</div></div><div style="text-align:left;"><div class="cf-banner-val">' + (netCashFlow >= 0 ? '+' : '') + formatCurrency(netCashFlow) + '</div><div style="font-size:9px;color:#475569;font-weight:700;">صافي التدفق النقدي</div></div></div>\n<div class="dash-grid no-break"><div class="dash-card"><div class="dash-card-title">📊 مؤشرات الأداء المقارن</div><div style="margin-bottom:9px;"><div style="display:flex;justify-content:space-between;font-size:9.5px;margin-bottom:3px;font-weight:700;"><span>🏗️ نسبة الإنجاز الميداني</span><span style="color:#059669;">' + progressPct + '%</span></div>' + svgHBar(progressPct, '#059669', '#dcfce7', 290, 11) + '</div><div style="margin-bottom:9px;"><div style="display:flex;justify-content:space-between;font-size:9.5px;margin-bottom:3px;font-weight:700;"><span>💸 نسبة استهلاك الميزانية</span><span style="color:' + (budgetBurnPct > 90 ? '#dc2626' : '#2563eb') + ';">' + budgetBurnPct + '%</span></div>' + svgHBar(budgetBurnPct, budgetBurnPct > 90 ? '#dc2626' : '#2563eb', '#eff6ff', 290, 11) + '</div><div style="margin-bottom:9px;"><div style="display:flex;justify-content:space-between;font-size:9.5px;margin-bottom:3px;font-weight:700;"><span>💰 نسبة التحصيل من قيمة العقد</span><span style="color:#d97706;">' + collectionPct + '%</span></div>' + svgHBar(collectionPct, '#d97706', '#fffbeb', 290, 11) + '</div><div><div style="display:flex;justify-content:space-between;font-size:9.5px;margin-bottom:3px;font-weight:700;"><span>💸 بنود الصرف (أعلى 5 فئات)</span></div>' + catBarsHtml + '</div></div><div class="dash-card"><div class="dash-card-title">🍩 توزيع بنود الصرف حسب الفئة</div><div style="display:flex;align-items:center;gap:10px;"><svg width="120" height="120" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0;">' + donutPaths + '<text x="60" y="57" text-anchor="middle" font-size="8" fill="#64748b">إجمالي</text><text x="60" y="68" text-anchor="middle" font-size="7.5" fill="#1e293b" font-weight="bold">' + (totalExpensesSum/1000).toFixed(0) + 'k</text></svg><div style="flex:1;">' + (donutLegend || '<div style="color:#94a3b8;font-size:9px;">لا بيانات</div>') + '</div></div></div></div>\n<div class="dash-card no-break" style="margin-bottom:10px;"><div class="dash-card-title">📉 مخطط التدفقات النقدية التراكمي (الرصيد الجاري للمشروع)</div><div class="cf-legend"><span><span style="display:inline-block;width:14px;height:8px;background:#059669;opacity:0.5;border-radius:2px;"></span> التحصيل من العميل</span><span><span style="display:inline-block;width:14px;height:8px;background:#e11d48;opacity:0.5;border-radius:2px;"></span> المصروفات</span><span><span style="display:inline-block;width:14px;height:3px;background:#2563eb;border-radius:1px;margin-top:3px;"></span> الرصيد التراكمي</span></div>' + buildCashFlowSVG(cfRows) + '</div>\n<div class="section-title">💵 1. جدول التدفقات النقدية الشهرية للمشروع</div>\n<table><thead><tr><th style="width:110px;">الشهر</th><th>التحصيل (دخل)</th><th>المصروفات (خروج)</th><th>صافي الشهر</th><th>الرصيد التراكمي</th></tr></thead><tbody>' + cfTableRows + '</tbody><tfoot><tr class="total-row"><td style="text-align:center;">الإجمالي (' + cfRows.length + ' شهر)</td><td style="font-family:monospace;">' + formatCurrency(cfRows.reduce(function(s,r){return s+r.inflow;},0)) + '</td><td style="font-family:monospace;">' + formatCurrency(cfRows.reduce(function(s,r){return s+r.outflow;},0)) + '</td><td style="font-family:monospace;">' + (netCashFlow >= 0 ? '+' : '') + formatCurrency(netCashFlow) + '</td><td style="font-family:monospace;">' + (netCashFlow >= 0 ? '+' : '') + formatCurrency(netCashFlow) + '</td></tr></tfoot></table>\n<div class="section-title">💰 2. جدول استحقاقات ودفعات العميل</div>\n<table><thead><tr><th style="width:25px;">م</th><th>مرحلة الاستحقاق</th><th style="width:50px;text-align:center;">النسبة</th><th>المبلغ المطلوب</th><th>المحصل فعلياً</th><th>المتبقي</th><th style="width:75px;">تاريخ الاستحقاق</th><th style="width:70px;text-align:center;">الحالة</th></tr></thead><tbody>' + paymentsRows + '</tbody><tfoot><tr class="total-row"><td colspan="3" style="text-align:center;">إجمالي الدفعات (' + (p.client_payments || []).length + ')</td><td style="font-family:monospace;">' + formatCurrency(totalMilReq) + '</td><td style="font-family:monospace;">' + formatCurrency(totalMilRecv) + '</td><td style="font-family:monospace;">' + formatCurrency(totalMilRem) + '</td><td colspan="2" style="text-align:center;">نسبة التحصيل: ' + colRate + '%</td></tr></tfoot></table>\n<div class="section-title">🏗️ 3. مراحل التنفيذ الفني والإنجاز الميداني (WBS)</div>\n<table><thead><tr><th style="width:25px;">م</th><th>اسم المرحلة</th><th style="width:50px;text-align:center;">الوزن %</th><th style="width:100px;text-align:center;">نسبة الإنجاز</th><th>سعر التكلفة</th><th>سعر البيع</th><th style="width:65px;text-align:center;">الحالة</th></tr></thead><tbody>' + phasesRows + '</tbody><tfoot><tr class="total-row"><td colspan="2" style="text-align:center;">الإجمالي (' + (p.phases || []).length + ' مرحلة)</td><td style="text-align:center;">' + totalPhasesWeight.toFixed(0) + '%</td><td style="text-align:center;">' + progressPct + '%</td><td style="font-family:monospace;">' + formatCurrency(totalPhasesCost) + '</td><td style="font-family:monospace;">' + formatCurrency(totalPhasesSelling) + '</td><td></td></tr></tfoot></table>\n' + subsSection + '\n<div class="section-title">📑 ' + (subsSection ? '5' : '4') + '. سجل كافة مصروفات وفواتير المشروع (' + exps.length + ' بند)</div>\n<table><thead><tr><th style="width:22px;">م</th><th style="width:72px;">التاريخ</th><th>بيان الصرف / الفاتورة</th><th style="width:75px;">الفئة</th><th style="width:80px;">الجهة / المدفوع له</th><th style="width:90px;">المبلغ</th><th style="width:62px;text-align:center;">نوع الفاتورة</th></tr></thead><tbody>' + expensesRows + '</tbody><tfoot><tr class="total-row"><td colspan="5" style="text-align:center;">إجمالي كافة مصروفات المشروع (' + exps.length + ' بند)</td><td style="font-family:monospace;">' + formatCurrency(totalExpensesSum) + '</td><td></td></tr></tfoot></table>\n<div class="sigs no-break"><div class="sig-col"><div>المهندس الميداني</div><div style="font-size:8px;color:#64748b;margin-top:3px;">' + escapeHtml(p.manager_name || '-') + '</div><div class="sig-line">التوقيع: ................................</div></div><div class="sig-col"><div>المراجعة المالية</div><div style="font-size:8px;color:#64748b;margin-top:3px;">الإدارة المالية</div><div class="sig-line">التوقيع: ................................</div></div><div class="sig-col"><div>اعتماد مدير عام المشاريع</div><div style="font-size:8px;color:#64748b;margin-top:3px;">شركة مقاولات السجيني</div><div class="sig-line">الختم الرسمي: ..........................</div></div></div>\n<div style="text-align:center;margin-top:8px;font-size:8px;color:#94a3b8;border-top:1px solid #e2e8f0;padding-top:5px;">تم إعداد هذا التقرير بواسطة نظام إدارة مشاريع السجيني — ' + todayStr + ' — كافة الأرقام بالريال السعودي (ر.س)</div>\n</body>\n</html>';
+
+    const printWin = window.open('', '_blank', 'width=1050,height=900,scrollbars=yes,resizable=yes');
+    if (printWin) {
+        printWin.document.open();
+        printWin.document.write(printHtml);
+        printWin.document.close();
+        printWin.focus();
+        setTimeout(function() { printWin.print(); }, 800);
+    } else {
+        let printIframe = document.getElementById('project-print-iframe');
+        if (!printIframe) {
+            printIframe = document.createElement('iframe');
+            printIframe.id = 'project-print-iframe';
+            printIframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
+            document.body.appendChild(printIframe);
+        }
+        printIframe.contentDocument.open();
+        printIframe.contentDocument.write(printHtml);
+        printIframe.contentDocument.close();
+        setTimeout(function() { printIframe.contentWindow.focus(); printIframe.contentWindow.print(); }, 800);
+    }
 }
+
 
 // ----------------- EXPORT TO EXCEL (SHEETJS) -----------------
 async function exportExpensesToExcel() {
@@ -4082,7 +5671,7 @@ async function loadProjectsDropdowns() {
     try {
         const res = await fetch('/api/projects');
         const projects = await res.json();
-        const selects = ['expense-project-id', 'task-project-id', 'sub-project-id', 'doc-project-id', 'task-filter-project', 'expense-filter-project', 'rep-filter-project'];
+        const selects = ['expense-project-id', 'transfer-exp-new-project-id', 'task-project-id', 'sub-project-id', 'sub-pay-project-id', 'doc-project-id', 'task-filter-project', 'expense-filter-project', 'rep-filter-project'];
         const isEn = typeof currentLang !== 'undefined' && currentLang === 'en';
         
         selects.forEach(selId => {
@@ -4842,38 +6431,58 @@ function renderRepClientPaymentsReport(reportList) {
         
         let rowsHtml = '';
         if ((proj.payments || []).length === 0) {
-            rowsHtml = `<tr><td colspan="8" class="p-4 text-center text-slate-500">${isEn ? 'No payment milestones for this project' : 'لا توجد دفعات مسجلة لهذا المشروع'}</td></tr>`;
+            rowsHtml = `<tr><td colspan="10" class="p-4 text-center text-slate-500">${isEn ? 'No payment milestones for this project' : 'لا توجد دفعات مسجلة لهذا المشروع'}</td></tr>`;
         } else {
             rowsHtml = proj.payments.map(cp => {
                 const isPaid = cp.is_received === 1 || cp.status === 'paid';
                 const isPart = !isPaid && (cp.received_amount > 0 || cp.status === 'partially_paid');
+                const remainingDue = Math.max(0, Math.round(((cp.amount_with_tax || 0) - (cp.received_amount || 0)) * 100) / 100);
                 return `
                     <tr class="hover:bg-slate-800/40 transition border-b border-slate-800/60">
                         <td class="p-3 text-center font-mono font-bold text-slate-400">${cp.payment_number || '-'}</td>
                         <td class="p-3">
                             <strong class="text-white text-xs block">${cp.milestone_name}</strong>
                             ${cp.receipt_voucher_no ? `<span class="text-[10px] text-emerald-400 font-mono block">سند: ${cp.receipt_voucher_no}</span>` : ''}
+                            ${cp.notes ? `<span class="text-[10px] text-slate-400 block">${cp.notes}</span>` : ''}
                         </td>
                         <td class="p-3 text-center font-bold text-amber-400 font-mono">${cp.percentage ? `${cp.percentage}%` : '-'}</td>
                         <td class="p-3 font-black text-emerald-400 font-mono">${formatCurrency(cp.amount_with_tax)}</td>
-                        <td class="p-3 text-slate-400 font-mono text-[11px]">${formatCurrency(cp.tax_amount)}</td>
-                        <td class="p-3 text-blue-400 font-mono text-[11px] font-bold">${formatCurrency(cp.amount_without_tax)}</td>
+                        <td class="p-3 font-bold text-blue-400 font-mono text-xs">${formatCurrency(cp.received_amount || 0)}</td>
+                        <td class="p-3 font-bold ${remainingDue > 0 ? 'text-amber-400' : 'text-slate-500'} font-mono text-xs">${formatCurrency(remainingDue)}</td>
                         <td class="p-3 text-slate-400 font-mono text-[11px]">${cp.due_date || '-'}</td>
                         <td class="p-3 text-center">
                             ${isPaid ? `
                                 <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 font-bold text-[10px]">
                                     <i data-lucide="check-check" class="w-3 h-3"></i>
-                                    <span>${isEn ? 'Collected' : 'محصل بالكامل'} (${formatCurrency(cp.received_amount)})</span>
+                                    <span>${isEn ? 'Collected' : 'محصل بالكامل'}</span>
                                 </span>
                             ` : isPart ? `
                                 <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400 font-bold text-[10px]">
-                                    <span>${isEn ? 'Partial' : 'محصل جزئياً'} (${formatCurrency(cp.received_amount)})</span>
+                                    <span>${isEn ? 'Partial' : 'محصل جزئياً'}</span>
                                 </span>
                             ` : `
                                 <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700 font-bold text-[10px]">
                                     <span>${isEn ? 'Pending' : 'قيد التحصيل'}</span>
                                 </span>
                             `}
+                        </td>
+                        <td class="p-2.5 text-center">
+                            <div class="flex items-center justify-center gap-1">
+                                <button onclick="openReceivePaymentModal(${cp.id}, '${escapeHtml(cp.milestone_name)}', ${cp.amount_with_tax}, ${proj.project_id})" class="p-1.5 rounded-lg ${isPaid ? 'bg-slate-800 text-emerald-400 hover:bg-emerald-500 hover:text-white' : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm'} transition" title="تسجيل سداد / تحصيل">
+                                    <i data-lucide="receipt" class="w-3.5 h-3.5"></i>
+                                </button>
+                                <button onclick="openEditClientPaymentModal(${cp.id}, ${proj.project_id})" class="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-amber-400 transition" title="تعديل الدفعة">
+                                    <i data-lucide="edit-3" class="w-3.5 h-3.5"></i>
+                                </button>
+                                ${cp.received_amount > 0 ? `
+                                <button onclick="resetClientPaymentReceipt(${cp.id}, ${proj.project_id})" class="p-1.5 rounded-lg bg-slate-800 hover:bg-amber-500/20 text-slate-400 hover:text-amber-400 transition" title="إلغاء وتصفير السداد">
+                                    <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i>
+                                </button>
+                                ` : ''}
+                                <button onclick="deleteClientPayment(${cp.id}, ${proj.project_id})" class="p-1.5 rounded-lg bg-slate-800 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 transition" title="حذف الدفعة نهائياً">
+                                    <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                                </button>
+                            </div>
                         </td>
                     </tr>
                 `;
@@ -4900,11 +6509,12 @@ function renderRepClientPaymentsReport(reportList) {
                             <th class="p-2.5 w-10 text-center">م</th>
                             <th class="p-2.5">${isEn ? 'Milestone' : 'مرحلة الاستحقاق'}</th>
                             <th class="p-2.5 text-center">${isEn ? 'Percentage %' : 'النسبة %'}</th>
-                            <th class="p-2.5 text-emerald-400">${isEn ? 'Amount (Inc. Tax)' : 'القيمة شاملة الضريبة'}</th>
-                            <th class="p-2.5 text-slate-400">${isEn ? 'VAT 15%' : 'الضريبة (15%)'}</th>
-                            <th class="p-2.5 text-blue-400">${isEn ? 'Amount (Exc. Tax)' : 'القيمة بدون ضريبة'}</th>
+                            <th class="p-2.5 text-emerald-400">${isEn ? 'Amount (Inc. Tax)' : 'القيمة المطلوبة'}</th>
+                            <th class="p-2.5 text-blue-400">${isEn ? 'Collected' : 'المسدد فعلياً'}</th>
+                            <th class="p-2.5 text-amber-400">${isEn ? 'Remaining' : 'المتبقي'}</th>
                             <th class="p-2.5 text-slate-400">${isEn ? 'Due Date' : 'تاريخ الاستحقاق'}</th>
                             <th class="p-2.5 text-center">${isEn ? 'Status' : 'حالة التحصيل'}</th>
+                            <th class="p-2.5 text-center w-28">${isEn ? 'Actions' : 'إجراءات السداد'}</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-slate-800">
@@ -4915,6 +6525,7 @@ function renderRepClientPaymentsReport(reportList) {
         `;
         container.appendChild(card);
     });
+    if (typeof initLucide === 'function') initLucide();
 }
 
 function exportClientPaymentsExcel() {
@@ -4967,30 +6578,56 @@ function exportClientPaymentsExcel() {
 // USER SWITCHER & IDENTITY MODULE (تبديل اليوزر والصلاحيات)
 // ========================================================
 
-// User switching and active session management
-function initCurrentUser() {
-    const saved = localStorage.getItem('segieny_current_user');
-    if (saved) {
-        try {
-            currentUser = JSON.parse(saved);
-        } catch (e) {
-            console.error('Error parsing stored user:', e);
-        }
+// ========================================================
+// AUTHENTICATION & SESSION MANAGEMENT (تسجيل الدخول وإدارة الجلسات)
+// ========================================================
+
+function checkAuthSession() {
+    const isSessionActive = sessionStorage.getItem('segieny_session_active');
+    const saved = localStorage.getItem('segieny_auth_user');
+    const authScreen = document.getElementById('auth-screen');
+    if (!isSessionActive || !saved) {
+        if (authScreen) authScreen.classList.remove('hidden');
+        return false;
     }
-    // Validate if the stored user exists in active team members list
+    try {
+        currentUser = JSON.parse(saved);
+        if (authScreen) authScreen.classList.add('hidden');
+        updateUserUI();
+        return true;
+    } catch (e) {
+        if (authScreen) authScreen.classList.remove('hidden');
+        return false;
+    }
+}
+
+function initCurrentUser() {
+    const hasSession = checkAuthSession();
+    if (!hasSession) {
+        const authScreen = document.getElementById('auth-screen');
+        if (authScreen) authScreen.classList.remove('hidden');
+        return;
+    }
+
+    // Refresh user profile from backend
     fetch('/api/team')
         .then(res => res.json())
         .then(team => {
             allTeamMembers = team;
-            const valid = team.find(m => m.id === currentUser.id && m.name === currentUser.name);
+            const valid = team.find(m => m.id === currentUser.id);
             if (valid) {
-                currentUser = { id: valid.id, name: valid.name, role: valid.role, phone: valid.phone || '' };
-            } else if (team.length > 0) {
-                currentUser = { id: team[0].id, name: team[0].name, role: team[0].role, phone: team[0].phone || '' };
+                currentUser = { 
+                    id: valid.id, 
+                    name: valid.name, 
+                    role: valid.role, 
+                    username: valid.username || '', 
+                    phone: valid.phone || '',
+                    email: valid.email || ''
+                };
+                localStorage.setItem('segieny_auth_user', JSON.stringify(currentUser));
                 localStorage.setItem('segieny_current_user', JSON.stringify(currentUser));
             }
             updateUserUI();
-            renderUserSwitcher(team);
         })
         .catch(err => {
             updateUserUI();
@@ -5000,11 +6637,18 @@ function initCurrentUser() {
 function updateUserUI() {
     const nameEl = document.getElementById('active-user-name');
     const roleEl = document.getElementById('active-user-role');
+    const menuNameEl = document.getElementById('menu-user-name');
+    const menuRoleEl = document.getElementById('menu-user-role');
+    const menuUsernameEl = document.getElementById('menu-user-username');
     const charEl = document.getElementById('user-avatar-char');
     const isEn = typeof currentLang !== 'undefined' && currentLang === 'en';
 
     if (nameEl) nameEl.innerText = isEn && typeof tr === 'function' ? tr(currentUser.name) : currentUser.name;
     if (roleEl) roleEl.innerText = isEn && typeof tr === 'function' ? tr(currentUser.role) : currentUser.role;
+    if (menuNameEl) menuNameEl.innerText = currentUser.name;
+    if (menuRoleEl) menuRoleEl.innerText = currentUser.role;
+    if (menuUsernameEl) menuUsernameEl.innerText = currentUser.username ? `@${currentUser.username}` : '';
+
     if (charEl) {
         const displayName = isEn && typeof tr === 'function' ? tr(currentUser.name) : currentUser.name;
         const cleanName = displayName.replace(/^(م\.|أ\.|Eng\.)\s*/, '').trim();
@@ -5012,71 +6656,154 @@ function updateUserUI() {
     }
 }
 
-async function loadTeamMembersForSwitcher() {
+async function handleLoginSubmit(e) {
+    e.preventDefault();
+    const usernameInput = document.getElementById('login-username');
+    const passwordInput = document.getElementById('login-password');
+    const submitBtn = document.getElementById('btn-login-submit');
+    const errorBox = document.getElementById('login-error-alert');
+    const errorMsg = document.getElementById('login-error-msg');
+
+    const username = usernameInput ? usernameInput.value.trim() : '';
+    const password = passwordInput ? passwordInput.value.trim() : '';
+
+    if (!username || !password) return;
+
+    if (errorBox) errorBox.classList.add('hidden');
+    if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.classList.add('opacity-70');
+    }
+
     try {
-        const res = await fetch('/api/team');
-        const team = await res.json();
-        allTeamMembers = team;
-        renderUserSwitcher(team);
+        const res = await fetch('/api/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, password })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+            currentUser = data.user;
+            sessionStorage.setItem('segieny_session_active', 'true');
+            localStorage.setItem('segieny_auth_user', JSON.stringify(currentUser));
+            localStorage.setItem('segieny_current_user', JSON.stringify(currentUser));
+
+            const authScreen = document.getElementById('auth-screen');
+            if (authScreen) authScreen.classList.add('hidden');
+
+            updateUserUI();
+            showToast(`أهلاً بك يا ${currentUser.name}، تم تسجيل الدخول بنجاح`, 'success');
+
+            // Refresh app modules for the logged in user
+            if (typeof loadDashboard === 'function') loadDashboard();
+            if (typeof loadChatChannels === 'function') loadChatChannels();
+            if (typeof loadChatMessages === 'function') loadChatMessages();
+        } else {
+            if (errorBox) {
+                errorBox.classList.remove('hidden');
+                if (errorMsg) errorMsg.innerText = data.error || 'اسم المستخدم أو كلمة المرور غير صحيحة';
+            }
+        }
     } catch (err) {
-        console.error('Error loading team for switcher:', err);
+        console.error('Error logging in:', err);
+        if (errorBox) {
+            errorBox.classList.remove('hidden');
+            if (errorMsg) errorMsg.innerText = 'حدث خطأ في الاتصال، يرجى المحاولة لاحقاً';
+        }
+    } finally {
+        if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.classList.remove('opacity-70');
+        }
     }
 }
 
-function renderUserSwitcher(team) {
-    const list = document.getElementById('user-switch-list');
-    if (!list) return;
-    list.innerHTML = '';
-    const isEn = typeof currentLang !== 'undefined' && currentLang === 'en';
+function prefillLogin(username, password) {
+    const u = document.getElementById('login-username');
+    const p = document.getElementById('login-password');
+    if (u) u.value = username;
+    if (p) p.value = password;
+    const btn = document.getElementById('btn-login-submit');
+    if (btn) btn.focus();
+}
 
-    team.forEach(m => {
-        const isCurrent = m.id === currentUser.id;
-        const item = document.createElement('button');
-        item.type = 'button';
-        item.className = `w-full text-right p-2 rounded-xl flex items-center justify-between text-xs transition ${isCurrent ? 'bg-emerald-600/20 text-emerald-400 font-bold border border-emerald-500/30' : 'hover:bg-slate-800 text-slate-300'}`;
-        item.onclick = () => switchCurrentUser(m);
-        const displayName = isEn && typeof tr === 'function' ? tr(m.name) : m.name;
-        const cleanName = displayName.replace(/^(م\.|Eng\.)\s*/, '');
-        item.innerHTML = `
-            <div class="flex items-center gap-2">
-                <div class="w-6 h-6 rounded-full ${isCurrent ? 'bg-emerald-500 text-white' : 'bg-slate-700 text-slate-300'} flex items-center justify-center text-[10px] font-bold">
-                    ${cleanName.charAt(0)}
-                </div>
-                <div>
-                    <span class="block text-white font-medium">${displayName}</span>
-                    <span class="block text-[10px] text-slate-400">${isEn && typeof tr === 'function' ? tr(m.role) : m.role}</span>
-                </div>
-            </div>
-            ${isCurrent ? '<i data-lucide="check" class="w-3.5 h-3.5 text-emerald-400"></i>' : ''}
-        `;
-        list.appendChild(item);
-    });
-
+function toggleLoginPasswordVisibility() {
+    const input = document.getElementById('login-password');
+    const icon = document.getElementById('login-eye-icon');
+    if (!input) return;
+    if (input.type === 'password') {
+        input.type = 'text';
+        if (icon) icon.setAttribute('data-lucide', 'eye-off');
+    } else {
+        input.type = 'password';
+        if (icon) icon.setAttribute('data-lucide', 'eye');
+    }
     initLucide();
 }
 
-function switchCurrentUser(member) {
-    currentUser = {
-        id: member.id,
-        name: member.name,
-        role: member.role,
-        phone: member.phone || ''
-    };
-    localStorage.setItem('segieny_current_user', JSON.stringify(currentUser));
-    const isEn = typeof currentLang !== 'undefined' && currentLang === 'en';
-    
-    updateUserUI();
-    renderUserSwitcher(allTeamMembers);
-    toggleUserMenu();
+function logoutUser() {
+    if (!confirm('هل تريد بالتأكيد تسجيل الخروج من المنظومة؟')) {
+        return;
+    }
+    sessionStorage.removeItem('segieny_session_active');
+    localStorage.removeItem('segieny_auth_user');
+    localStorage.removeItem('segieny_current_user');
 
-    const displayName = isEn && typeof tr === 'function' ? tr(currentUser.name) : currentUser.name;
-    const displayRole = isEn && typeof tr === 'function' ? tr(currentUser.role) : currentUser.role;
-    showToast(isEn ? `Active account switched to: ${displayName} (${displayRole})` : `تم تبديل الحساب الحالي إلى: ${displayName} (${displayRole})`);
+    const authScreen = document.getElementById('auth-screen');
+    if (authScreen) authScreen.classList.remove('hidden');
 
-    // If chat tab is active, refresh chat
-    if (currentTab === 'chat') {
-        loadChatChannels();
-        loadChatMessages();
+    const pInput = document.getElementById('login-password');
+    if (pInput) pInput.value = '';
+
+    const userMenu = document.getElementById('user-menu');
+    if (userMenu) userMenu.classList.add('hidden');
+
+    showToast('تم تسجيل الخروج بنجاح', 'info');
+}
+
+function openChangePasswordModal() {
+    const userMenu = document.getElementById('user-menu');
+    if (userMenu) userMenu.classList.add('hidden');
+    openModal('change-password-modal');
+    const p1 = document.getElementById('cp-current');
+    const p2 = document.getElementById('cp-new');
+    const p3 = document.getElementById('cp-confirm');
+    if (p1) p1.value = '';
+    if (p2) p2.value = '';
+    if (p3) p3.value = '';
+}
+
+async function handleChangePasswordSubmit(e) {
+    e.preventDefault();
+    const currentPass = document.getElementById('cp-current').value.trim();
+    const newPass = document.getElementById('cp-new').value.trim();
+    const confirmPass = document.getElementById('cp-confirm').value.trim();
+
+    if (newPass !== confirmPass) {
+        showToast('كلمة المرور الجديدة غير متطابقة مع التأكيد', 'error');
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/auth/change-password', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                user_id: currentUser.id,
+                current_password: currentPass,
+                new_password: newPass
+            })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+            showToast('تم تحديث كلمة المرور بنجاح', 'success');
+            closeModal('change-password-modal');
+        } else {
+            showToast(data.error || 'تعذر تغيير كلمة المرور', 'error');
+        }
+    } catch (err) {
+        console.error('Error changing password:', err);
+        showToast('حدث خطأ أثناء تغيير كلمة المرور', 'error');
     }
 }
 
@@ -8329,6 +10056,12 @@ function checkExpensePriceVariance() {
 
 async function openExpenseModalForSupplier(supplierId = null, quotationId = null) {
     if (typeof resetExpenseModal === 'function') resetExpenseModal();
+    setExpenseFormMode('supplier');
+    const taxYes = document.getElementById('tax-choice-yes');
+    if (taxYes) {
+        taxYes.checked = true;
+        onExpenseTaxTypeChanged();
+    }
     openModal('expense-modal');
     if (typeof loadSuppliersDropdownForExpenseModal === 'function') {
         await loadSuppliersDropdownForExpenseModal(supplierId);
@@ -8659,6 +10392,1216 @@ function renderExpenseItemsTable() {
 
     tbody.innerHTML = html;
     initLucide();
+}
+
+// ==========================================
+// CUSTODY & PETTY CASH MANAGEMENT (إدارة العهد النثرية ومصروفات الموظفين)
+// ==========================================
+
+let allCustodyRequests = [];
+let currentCustodyStatusFilter = '';
+
+function isFinancialManager() {
+    if (!currentUser) return false;
+    const r = currentUser.role || '';
+    const n = currentUser.name || '';
+    return r.includes('مالي') || r.includes('عام') || n.includes('البغدادي') || n.includes('سجيني') || n.includes('نواف');
+}
+
+function updateCustodyRoleBanner() {
+    const bannerBadge = document.getElementById('custody-current-user-badge');
+    const desc = document.getElementById('custody-permission-desc');
+    if (bannerBadge && currentUser) {
+        bannerBadge.textContent = `${currentUser.name} (${currentUser.role || 'عضو فريق'})`;
+    }
+    if (desc) {
+        if (isFinancialManager()) {
+            desc.textContent = 'تملك صلاحية الاعتماد وصرف وتصفية العهد (المدير المالي)';
+            desc.className = 'text-emerald-400 font-semibold';
+        } else {
+            desc.textContent = 'يمكنك رفع طلبات عهد جديدة ومتابعة حالة اعتمادها وصرفها';
+            desc.className = 'text-amber-400 font-semibold';
+        }
+    }
+}
+
+async function loadCustody() {
+    updateCustodyRoleBanner();
+    try {
+        const res = await fetch('/api/custody');
+        const data = await res.json();
+        allCustodyRequests = data.requests || [];
+        const summary = data.summary || {};
+
+        // Update KPI Cards
+        const activeKpi = document.getElementById('custody-kpi-active');
+        const activeCount = document.getElementById('custody-kpi-active-count');
+        const pendingKpi = document.getElementById('custody-kpi-pending');
+        const pendingCount = document.getElementById('custody-kpi-pending-count');
+        const approvedKpi = document.getElementById('custody-kpi-approved');
+        const approvedCount = document.getElementById('custody-kpi-approved-count');
+        const totalDisbursedKpi = document.getElementById('custody-kpi-total-disbursed');
+        const settledCount = document.getElementById('custody-kpi-settled-count');
+
+        if (activeKpi) activeKpi.textContent = formatCurrency(summary.total_disbursed_active || 0) + ' ر.س';
+        if (activeCount) activeCount.textContent = `${summary.disbursed_count || 0} عهدة قيد التشغيل`;
+
+        if (pendingKpi) pendingKpi.textContent = formatCurrency(summary.pending_amount || 0) + ' ر.س';
+        if (pendingCount) pendingCount.textContent = `${summary.pending_count || 0} طلب معلق بانتظار الاعتماد`;
+
+        if (approvedKpi) approvedKpi.textContent = formatCurrency(summary.approved_amount || 0) + ' ر.س';
+        if (approvedCount) approvedCount.textContent = `${summary.approved_count || 0} طلب معتمد جاهز للصرف`;
+
+        if (totalDisbursedKpi) totalDisbursedKpi.textContent = formatCurrency(summary.grand_total_disbursed || 0) + ' ر.س';
+        if (settledCount) settledCount.textContent = `${summary.settled_count || 0} عهدة تمت تصفيتها وإغلاقها`;
+
+        // Update Navbar Badge
+        const pendingBadge = document.getElementById('badge-custody-pending');
+        if (pendingBadge) {
+            const pCount = summary.pending_count || 0;
+            if (pCount > 0) {
+                pendingBadge.textContent = pCount;
+                pendingBadge.classList.remove('hidden');
+            } else {
+                pendingBadge.classList.add('hidden');
+            }
+        }
+
+        // Update Filter counts
+        const cntAll = document.getElementById('custody-count-all');
+        const cntPend = document.getElementById('custody-count-pending');
+        const cntApp = document.getElementById('custody-count-approved');
+        const cntDis = document.getElementById('custody-count-disbursed');
+        const cntSet = document.getElementById('custody-count-settled');
+        const cntRej = document.getElementById('custody-count-rejected');
+
+        if (cntAll) cntAll.textContent = allCustodyRequests.length;
+        if (cntPend) cntPend.textContent = allCustodyRequests.filter(r => r.status === 'pending').length;
+        if (cntApp) cntApp.textContent = allCustodyRequests.filter(r => r.status === 'approved').length;
+        if (cntDis) cntDis.textContent = allCustodyRequests.filter(r => r.status === 'disbursed').length;
+        if (cntSet) cntSet.textContent = allCustodyRequests.filter(r => r.status === 'settled').length;
+        if (cntRej) cntRej.textContent = allCustodyRequests.filter(r => r.status === 'rejected').length;
+
+        // Populate Project Filter Dropdown
+        populateCustodyProjectFilter();
+
+        renderCustodyTable();
+    } catch (err) {
+        console.error('Error loading custody requests:', err);
+        showToast('تعذر تحميل بيانات العهد', 'error');
+    }
+}
+
+function populateCustodyProjectFilter() {
+    const sel = document.getElementById('custody-project-filter');
+    if (!sel) return;
+    const currentVal = sel.value;
+    const projs = allProjectsList || [];
+    let opts = '<option value="">جميع المشاريع</option>';
+    opts += '<option value="general">مصروف عام / إداري (بدون مشروع)</option>';
+    projs.forEach(p => {
+        opts += `<option value="${p.id}" ${String(currentVal) === String(p.id) ? 'selected' : ''}>${escapeHtml(p.name)} (${p.code || 'PRJ'})</option>`;
+    });
+    sel.innerHTML = opts;
+}
+
+function setCustodyStatusFilter(status) {
+    currentCustodyStatusFilter = status;
+    document.querySelectorAll('.custody-filter-btn').forEach(btn => {
+        btn.classList.remove('bg-amber-500/20', 'text-amber-400');
+        btn.classList.add('text-slate-400');
+    });
+    const activeBtn = document.getElementById(`custody-filter-${status || 'all'}`);
+    if (activeBtn) {
+        activeBtn.classList.add('bg-amber-500/20', 'text-amber-400');
+        activeBtn.classList.remove('text-slate-400');
+    }
+    applyCustodyFilters();
+}
+
+function applyCustodyFilters() {
+    renderCustodyTable();
+}
+
+function renderCustodyTable() {
+    const tbody = document.getElementById('custody-table-body');
+    const emptyState = document.getElementById('custody-empty-state');
+    if (!tbody) return;
+
+    const searchVal = (document.getElementById('custody-search-input')?.value || '').trim().toLowerCase();
+    const projVal = document.getElementById('custody-project-filter')?.value || '';
+
+    let filtered = allCustodyRequests.filter(item => {
+        if (currentCustodyStatusFilter && item.status !== currentCustodyStatusFilter) return false;
+        if (projVal === 'general') {
+            if (item.project_id) return false;
+        } else if (projVal && String(item.project_id) !== String(projVal)) {
+            return false;
+        }
+        if (searchVal) {
+            const num = (item.request_number || '').toLowerCase();
+            const emp = (item.employee_name || '').toLowerCase();
+            const pur = (item.purpose || '').toLowerCase();
+            const prj = (item.project_name || '').toLowerCase();
+            if (!num.includes(searchVal) && !emp.includes(searchVal) && !pur.includes(searchVal) && !prj.includes(searchVal)) {
+                return false;
+            }
+        }
+        return true;
+    });
+
+    if (filtered.length === 0) {
+        tbody.innerHTML = '';
+        if (emptyState) emptyState.classList.remove('hidden');
+        return;
+    }
+
+    if (emptyState) emptyState.classList.add('hidden');
+
+    const isFinMgr = isFinancialManager();
+
+    let html = '';
+    filtered.forEach(item => {
+        // Status Badge
+        let statusBadge = '';
+        if (item.status === 'pending') {
+            statusBadge = '<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30">⏳ بانتظار الاعتماد</span>';
+        } else if (item.status === 'approved') {
+            statusBadge = '<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-blue-500/20 text-blue-400 border border-blue-500/30">✅ معتمدة (جاهزة للصرف)</span>';
+        } else if (item.status === 'disbursed') {
+            statusBadge = '<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">💵 تم الصرف (جارية)</span>';
+        } else if (item.status === 'settled') {
+            statusBadge = '<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-purple-500/20 text-purple-400 border border-purple-500/30">📁 تمت التصفية ✓</span>';
+        } else if (item.status === 'rejected') {
+            statusBadge = '<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-rose-500/20 text-rose-400 border border-rose-500/30">❌ مرفوضة</span>';
+        }
+
+        // Project badge
+        const projName = item.project_name ? escapeHtml(item.project_name) : '<span class="text-slate-400">مصروف عام / إداري</span>';
+        const projCode = item.project_code ? `<span class="text-[10px] text-slate-500 font-mono block">${escapeHtml(item.project_code)}</span>` : '';
+
+        // Disbursed info
+        const reqAmountFormatted = formatCurrency(item.amount);
+        const disAmountFormatted = item.disbursed_amount > 0 ? formatCurrency(item.disbursed_amount) : '-';
+
+        // Actions buttons depending on status and role
+        let actionsHtml = '<div class="flex items-center justify-center gap-1.5 flex-wrap">';
+
+        if (item.status === 'pending') {
+            if (isFinMgr) {
+                actionsHtml += `
+                    <button onclick="approveCustodyRequest(${item.id})" class="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] flex items-center gap-1 transition shadow-sm" title="اعتماد طلب العهدة">
+                        <i data-lucide="check" class="w-3.5 h-3.5"></i>
+                        <span>اعتماد</span>
+                    </button>
+                    <button onclick="openCustodyRejectModal(${item.id})" class="px-2 py-1 rounded-lg bg-rose-600/20 hover:bg-rose-600 text-rose-400 hover:text-white font-bold text-[11px] flex items-center gap-1 transition" title="رفض الطلب">
+                        <i data-lucide="x" class="w-3.5 h-3.5"></i>
+                        <span>رفض</span>
+                    </button>
+                `;
+            } else {
+                actionsHtml += `<span class="text-[11px] text-amber-400/80 font-medium">بانتظار المدير المالي</span>`;
+            }
+        } else if (item.status === 'approved') {
+            if (isFinMgr) {
+                actionsHtml += `
+                    <button onclick="openCustodyDisburseModal(${item.id})" class="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] flex items-center gap-1 transition shadow-sm" title="تسجيل صرف المبلغ">
+                        <i data-lucide="wallet" class="w-3.5 h-3.5"></i>
+                        <span>صرف العهدة</span>
+                    </button>
+                `;
+            } else {
+                actionsHtml += `<span class="text-[11px] text-blue-400 font-medium">معتمدة - جاهزة للصرف</span>`;
+            }
+        } else if (item.status === 'disbursed') {
+            actionsHtml += `
+                <button onclick="viewCustodyExpenses(${item.id})" class="px-2 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500 text-amber-300 hover:text-white font-bold text-[11px] flex items-center gap-1 transition shadow-sm" title="عرض الفواتير المسددة من هذه العهدة">
+                    <i data-lucide="receipt" class="w-3.5 h-3.5"></i>
+                    <span>الفواتير (${formatCurrency(item.spent_amount || 0)})</span>
+                </button>
+                <button onclick="openCustodySettleModal(${item.id})" class="px-2 py-1 rounded-lg bg-purple-600/20 hover:bg-purple-600 text-purple-300 hover:text-white font-bold text-[11px] flex items-center gap-1 transition" title="تصفية وتسوية العهدة">
+                    <i data-lucide="calculator" class="w-3.5 h-3.5"></i>
+                    <span>تصفية</span>
+                </button>
+                <button onclick="printCustodyVoucher(${item.id})" class="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition" title="طباعة سند صرف العهدة">
+                    <i data-lucide="printer" class="w-3.5 h-3.5"></i>
+                </button>
+            `;
+        } else if (item.status === 'settled') {
+            actionsHtml += `
+                <button onclick="viewCustodyExpenses(${item.id})" class="px-2 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500 text-amber-300 hover:text-white font-bold text-[11px] flex items-center gap-1 transition shadow-sm" title="عرض الفواتير المسددة من هذه العهدة">
+                    <i data-lucide="receipt" class="w-3.5 h-3.5"></i>
+                    <span>الفواتير (${formatCurrency(item.spent_amount || 0)})</span>
+                </button>
+                <button onclick="printCustodyVoucher(${item.id})" class="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white font-bold text-[11px] flex items-center gap-1 transition" title="طباعة سند التصفية">
+                    <i data-lucide="printer" class="w-3.5 h-3.5"></i>
+                    <span>سند التصفية</span>
+                </button>
+            `;
+        } else if (item.status === 'rejected') {
+            if (item.approval_notes) {
+                actionsHtml += `<span class="text-[10px] text-rose-400 font-medium truncate max-w-[120px]" title="${escapeHtml(item.approval_notes)}">السبب: ${escapeHtml(item.approval_notes)}</span>`;
+            }
+        }
+
+        // Edit button for custody request details (Financial manager or owner if pending)
+        if (isFinMgr || (currentUser && currentUser.name === item.employee_name && item.status === 'pending')) {
+            actionsHtml += `
+                <button onclick="openEditCustodyModal(${item.id})" class="p-1 text-slate-400 hover:text-amber-400 rounded hover:bg-slate-800 transition" title="تعديل بيانات العهدة">
+                    <i data-lucide="edit-3" class="w-3.5 h-3.5"></i>
+                </button>
+            `;
+        }
+
+        // Delete button for custody (Financial manager can delete any custody, owner can delete pending)
+        if (isFinMgr || (currentUser && currentUser.name === item.employee_name && item.status === 'pending')) {
+            actionsHtml += `
+                <button onclick="deleteCustodyRequest(${item.id})" class="p-1 text-slate-500 hover:text-rose-400 rounded hover:bg-slate-800 transition" title="حذف العهدة">
+                    <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                </button>
+            `;
+        }
+
+        actionsHtml += '</div>';
+
+        let attachLink = '';
+        if (item.receipt_file_path) {
+            attachLink = `
+                <a href="${item.receipt_file_path}" target="_blank" class="inline-flex items-center gap-1 text-[10px] text-emerald-400 hover:underline mr-1" title="عرض المرفق">
+                    <i data-lucide="paperclip" class="w-3 h-3"></i>
+                    <span>مرفق</span>
+                </a>
+            `;
+        }
+
+        html += `
+            <tr class="hover:bg-slate-800/40 transition">
+                <td class="p-3.5 text-center">
+                    <span class="font-mono font-bold text-amber-400 text-xs block">${escapeHtml(item.request_number || 'CUST')}</span>
+                    ${item.receipt_voucher_no ? `<span class="text-[9px] text-slate-500 font-mono block">سند: ${escapeHtml(item.receipt_voucher_no)}</span>` : ''}
+                </td>
+                <td class="p-3.5">
+                    <div class="font-bold text-white text-xs">${escapeHtml(item.employee_name)}</div>
+                    ${item.approved_by ? `<div class="text-[9px] text-slate-500">الاعتماد: ${escapeHtml(item.approved_by)}</div>` : ''}
+                </td>
+                <td class="p-3.5">
+                    <div class="font-bold text-xs">${projName}</div>
+                    ${projCode}
+                </td>
+                <td class="p-3.5 max-w-xs">
+                    <div class="text-slate-200 text-xs line-clamp-2" title="${escapeHtml(item.purpose)}">${escapeHtml(item.purpose)}</div>
+                    ${attachLink}
+                </td>
+                <td class="p-3.5 text-left font-mono font-bold text-amber-400 text-xs whitespace-nowrap">
+                    ${reqAmountFormatted}
+                </td>
+                <td class="p-3.5 text-left font-mono font-bold text-emerald-400 text-xs whitespace-nowrap">
+                    <div>${disAmountFormatted}</div>
+                    ${item.disbursed_amount > 0 ? `
+                        <div class="text-[10px] ${Math.max(0, item.disbursed_amount - (item.spent_amount || 0)) > 0 ? 'text-amber-400 font-bold' : 'text-slate-500'} font-normal mt-0.5 font-mono">
+                            المتبقي: ${formatCurrency(Math.max(0, item.disbursed_amount - (item.spent_amount || 0)))}
+                        </div>
+                    ` : ''}
+                </td>
+                <td class="p-3.5 text-center font-mono text-[11px] text-slate-400 whitespace-nowrap">
+                    <div>${escapeHtml(item.request_date || '-')}</div>
+                    ${item.disbursed_date ? `<div class="text-[9px] text-emerald-400">صرف: ${item.disbursed_date}</div>` : ''}
+                </td>
+                <td class="p-3.5 text-center whitespace-nowrap">
+                    ${statusBadge}
+                </td>
+                <td class="p-3.5 text-center whitespace-nowrap">
+                    ${actionsHtml}
+                </td>
+            </tr>
+        `;
+    });
+
+    tbody.innerHTML = html;
+    initLucide();
+}
+
+function initCustodyRequestModal() {
+    const editIdEl = document.getElementById('custody-req-edit-id');
+    if (editIdEl) editIdEl.value = '';
+    const titleEl = document.getElementById('custody-req-modal-title');
+    if (titleEl) titleEl.textContent = 'رفع طلب عهدة نقدية جديدة';
+    const subTitleEl = document.getElementById('custody-req-modal-subtitle');
+    if (subTitleEl) subTitleEl.textContent = 'يقدم للمدير المالي للاعتماد والصرف';
+    const btnTextEl = document.getElementById('custody-req-btn-text');
+    if (btnTextEl) btnTextEl.textContent = 'إرسال الطلب للاعتماد';
+
+    const empInput = document.getElementById('custody-req-employee');
+    const dateInput = document.getElementById('custody-req-date');
+    const projSelect = document.getElementById('custody-req-project');
+    const amtInput = document.getElementById('custody-req-amount');
+    const purpInput = document.getElementById('custody-req-purpose');
+    const notesInput = document.getElementById('custody-req-notes');
+    const fileInput = document.getElementById('custody-req-file');
+
+    if (empInput) empInput.value = (currentUser && currentUser.name) ? currentUser.name : '';
+    if (dateInput) dateInput.value = new Date().toISOString().split('T')[0];
+    if (amtInput) amtInput.value = '';
+    if (purpInput) purpInput.value = '';
+    if (notesInput) notesInput.value = '';
+    if (fileInput) fileInput.value = '';
+
+    if (projSelect) {
+        let opts = '<option value="">مصروف عام / إداري (بدون مشروع)</option>';
+        (allProjectsList || []).forEach(p => {
+            opts += `<option value="${p.id}">${escapeHtml(p.name)} (${p.code || 'PRJ'})</option>`;
+        });
+        projSelect.innerHTML = opts;
+    }
+}
+
+async function openEditCustodyModal(id) {
+    let item = allCustodyRequests.find(r => r.id === id);
+    if (!item) {
+        try {
+            const res = await fetch(`/api/custody/${id}`);
+            const data = await res.json();
+            if (data.custody) item = data.custody;
+        } catch (e) {
+            console.error('Error fetching custody for edit:', e);
+        }
+    }
+    if (!item) {
+        showToast('تعذر العثور على بيانات العهدة', 'error');
+        return;
+    }
+
+    const editIdEl = document.getElementById('custody-req-edit-id');
+    if (editIdEl) editIdEl.value = item.id;
+    const titleEl = document.getElementById('custody-req-modal-title');
+    if (titleEl) titleEl.textContent = `تعديل بيانات العهدة ${item.request_number || '#' + item.id}`;
+    const subTitleEl = document.getElementById('custody-req-modal-subtitle');
+    if (subTitleEl) subTitleEl.textContent = 'تعديل تفاصيل العهدة وحفظ التغييرات';
+    const btnTextEl = document.getElementById('custody-req-btn-text');
+    if (btnTextEl) btnTextEl.textContent = 'تحديث وحفظ التعديلات';
+
+    const empInput = document.getElementById('custody-req-employee');
+    const dateInput = document.getElementById('custody-req-date');
+    const projSelect = document.getElementById('custody-req-project');
+    const amtInput = document.getElementById('custody-req-amount');
+    const purpInput = document.getElementById('custody-req-purpose');
+    const notesInput = document.getElementById('custody-req-notes');
+    const fileInput = document.getElementById('custody-req-file');
+
+    if (empInput) empInput.value = item.employee_name || '';
+    if (dateInput) dateInput.value = item.request_date || '';
+    if (amtInput) amtInput.value = item.amount || '';
+    if (purpInput) purpInput.value = item.purpose || '';
+    if (notesInput) notesInput.value = item.notes || '';
+    if (fileInput) fileInput.value = '';
+
+    if (projSelect) {
+        let opts = '<option value="">مصروف عام / إداري (بدون مشروع)</option>';
+        (allProjectsList || []).forEach(p => {
+            const isSel = (item.project_id && String(p.id) === String(item.project_id)) ? 'selected' : '';
+            opts += `<option value="${p.id}" ${isSel}>${escapeHtml(p.name)} (${p.code || 'PRJ'})</option>`;
+        });
+        projSelect.innerHTML = opts;
+    }
+
+    openModal('custody-request-modal');
+}
+
+async function submitCustodyRequest(e) {
+    e.preventDefault();
+    const btn = document.getElementById('btn-submit-custody');
+    if (btn) btn.disabled = true;
+
+    try {
+        const editId = document.getElementById('custody-req-edit-id')?.value;
+        const formData = new FormData();
+        formData.append('employee_name', document.getElementById('custody-req-employee')?.value || '');
+        formData.append('project_id', document.getElementById('custody-req-project')?.value || '');
+        formData.append('amount', document.getElementById('custody-req-amount')?.value || '0');
+        formData.append('request_date', document.getElementById('custody-req-date')?.value || '');
+        formData.append('purpose', document.getElementById('custody-req-purpose')?.value || '');
+        formData.append('notes', document.getElementById('custody-req-notes')?.value || '');
+
+        const fileInput = document.getElementById('custody-req-file');
+        if (fileInput && fileInput.files && fileInput.files[0]) {
+            formData.append('attachment', fileInput.files[0]);
+        }
+
+        const url = editId ? `/api/custody/${editId}` : '/api/custody';
+        const method = editId ? 'PUT' : 'POST';
+
+        const res = await fetch(url, {
+            method: method,
+            body: formData
+        });
+        const data = await res.json();
+
+        if (res.ok && (data.success || !data.error)) {
+            showToast(data.message || (editId ? 'تم تحديث بيانات العهدة بنجاح' : 'تم رفع طلب العهدة بنجاح، بانتظار اعتماد المدير المالي'), 'success');
+            closeModal('custody-request-modal');
+            const editIdEl = document.getElementById('custody-req-edit-id');
+            if (editIdEl) editIdEl.value = '';
+            await loadCustody();
+        } else {
+            showToast(data.error || 'فشل في حفظ طلب العهدة', 'error');
+        }
+    } catch (err) {
+        console.error('Error submitting custody request:', err);
+        showToast('حدث خطأ أثناء إرسال طلب العهدة', 'error');
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+}
+
+async function approveCustodyRequest(id) {
+    if (!isFinancialManager()) {
+        showToast('عفواً، اعتماد طلبات العهد محصور حصرياً على المدير المالي', 'error');
+        return;
+    }
+
+    if (!confirm('هل أنت متأكد من اعتماد طلب العهدة؟ سيصبح الطلب معتمداً وجاهزاً للصرف.')) {
+        return;
+    }
+
+    try {
+        const approverName = (currentUser && currentUser.name) ? `${currentUser.name} (المدير المالي)` : 'ابوالنصر البغدادي (المدير المالي)';
+        const res = await fetch(`/api/custody/${id}/approve`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ approved_by: approverName })
+        });
+        const data = await res.json();
+
+        if (res.ok) {
+            showToast(data.message || 'تم اعتماد طلب العهدة بنجاح', 'success');
+            await loadCustody();
+        } else {
+            showToast(data.error || 'فشل في اعتماد الطلب', 'error');
+        }
+    } catch (err) {
+        console.error('Error approving custody:', err);
+        showToast('حدث خطأ أثناء اعتماد طلب العهدة', 'error');
+    }
+}
+
+function openCustodyRejectModal(id) {
+    if (!isFinancialManager()) {
+        showToast('عفواً، رفض أو اعتماد طلبات العهد من صلاحيات المدير المالي', 'error');
+        return;
+    }
+    const idInput = document.getElementById('custody-reject-id');
+    const reasonInput = document.getElementById('custody-reject-reason');
+    if (idInput) idInput.value = id;
+    if (reasonInput) reasonInput.value = '';
+    openModal('custody-reject-modal');
+}
+
+async function submitCustodyRejection(e) {
+    e.preventDefault();
+    const id = document.getElementById('custody-reject-id')?.value;
+    const reason = document.getElementById('custody-reject-reason')?.value || '';
+
+    try {
+        const rejecterName = (currentUser && currentUser.name) ? `${currentUser.name} (المدير المالي)` : 'ابوالنصر البغدادي (المدير المالي)';
+        const res = await fetch(`/api/custody/${id}/reject`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                rejected_by: rejecterName,
+                rejection_notes: reason
+            })
+        });
+        const data = await res.json();
+
+        if (res.ok) {
+            showToast(data.message || 'تم رفض طلب العهدة وتحديث الحالة', 'info');
+            closeModal('custody-reject-modal');
+            await loadCustody();
+        } else {
+            showToast(data.error || 'فشل في رفض الطلب', 'error');
+        }
+    } catch (err) {
+        console.error('Error rejecting custody:', err);
+        showToast('حدث خطأ أثناء رفض الطلب', 'error');
+    }
+}
+
+function openCustodyDisburseModal(id) {
+    if (!isFinancialManager()) {
+        showToast('عفواً، تسجيل صرف العهد من صلاحيات المدير المالي', 'error');
+        return;
+    }
+
+    const item = allCustodyRequests.find(r => r.id === id);
+    if (!item) return;
+
+    document.getElementById('custody-disburse-id').value = id;
+    document.getElementById('custody-disburse-num').textContent = item.request_number || 'CUST';
+    document.getElementById('custody-disburse-emp').textContent = item.employee_name || '-';
+    document.getElementById('custody-disburse-proj').textContent = item.project_name || 'عام / إداري';
+    document.getElementById('custody-disburse-req-amount').textContent = formatCurrency(item.amount) + ' ر.س';
+    document.getElementById('custody-disburse-purpose').textContent = item.purpose || '-';
+
+    document.getElementById('custody-disburse-amount').value = item.amount;
+    document.getElementById('custody-disburse-date').value = new Date().toISOString().split('T')[0];
+    document.getElementById('custody-disburse-method').value = 'نقدي';
+    document.getElementById('custody-disburse-voucher').value = '';
+    document.getElementById('custody-disburse-notes').value = '';
+    document.getElementById('custody-record-expense').checked = Boolean(item.project_id);
+
+    const fileInput = document.getElementById('custody-disburse-file');
+    if (fileInput) fileInput.value = '';
+
+    openModal('custody-disburse-modal');
+}
+
+async function submitCustodyDisbursement(e) {
+    e.preventDefault();
+    const id = document.getElementById('custody-disburse-id')?.value;
+    const amount = document.getElementById('custody-disburse-amount')?.value;
+    const date = document.getElementById('custody-disburse-date')?.value;
+    const method = document.getElementById('custody-disburse-method')?.value;
+    const voucher = document.getElementById('custody-disburse-voucher')?.value;
+    const notes = document.getElementById('custody-disburse-notes')?.value;
+    const recordExpense = document.getElementById('custody-record-expense')?.checked;
+    const disburserName = (currentUser && currentUser.name) ? `${currentUser.name} (المدير المالي)` : 'ابوالنصر البغدادي (المدير المالي)';
+
+    try {
+        const formData = new FormData();
+        formData.append('disbursed_amount', amount);
+        formData.append('disbursed_date', date);
+        formData.append('payment_method', method);
+        formData.append('receipt_voucher_no', voucher);
+        formData.append('disbursement_notes', notes);
+        formData.append('record_as_expense', recordExpense ? 'true' : 'false');
+        formData.append('disbursed_by', disburserName);
+
+        const fileInput = document.getElementById('custody-disburse-file');
+        if (fileInput && fileInput.files && fileInput.files[0]) {
+            formData.append('receipt_file', fileInput.files[0]);
+        }
+
+        const res = await fetch(`/api/custody/${id}/disburse`, {
+            method: 'POST',
+            body: formData
+        });
+        const data = await res.json();
+
+        if (res.ok) {
+            showToast(data.message || 'تم تسجيل صرف العهدة بنجاح', 'success');
+            closeModal('custody-disburse-modal');
+            await loadCustody();
+            if (recordExpense && typeof loadExpenses === 'function') {
+                loadExpenses();
+            }
+        } else {
+            showToast(data.error || 'فشل في تسجيل الصرف', 'error');
+        }
+    } catch (err) {
+        console.error('Error disbursing custody:', err);
+        showToast('حدث خطأ أثناء تسجيل صرف العهدة', 'error');
+    }
+}
+
+function openCustodySettleModal(id) {
+    const item = allCustodyRequests.find(r => r.id === id);
+    if (!item) return;
+
+    document.getElementById('custody-settle-id').value = id;
+    document.getElementById('custody-settle-num').textContent = item.request_number || 'CUST';
+    document.getElementById('custody-settle-emp').textContent = item.employee_name || '-';
+    const disAmt = item.disbursed_amount || item.amount;
+    document.getElementById('custody-settle-disbursed-disp').textContent = formatCurrency(disAmt) + ' ر.س';
+
+    document.getElementById('custody-settle-spent').value = disAmt;
+    document.getElementById('custody-settle-returned').value = '0.00';
+    document.getElementById('custody-settle-date').value = new Date().toISOString().split('T')[0];
+    document.getElementById('custody-settle-notes').value = '';
+
+    openModal('custody-settle-modal');
+}
+
+function recalcCustodySettlement() {
+    const id = document.getElementById('custody-settle-id')?.value;
+    const item = allCustodyRequests.find(r => String(r.id) === String(id));
+    if (!item) return;
+
+    const disAmt = parseFloat(item.disbursed_amount || item.amount) || 0;
+    const spentAmt = parseFloat(document.getElementById('custody-settle-spent')?.value) || 0;
+    const returned = Math.max(0, disAmt - spentAmt);
+    const returnedInput = document.getElementById('custody-settle-returned');
+    if (returnedInput) returnedInput.value = returned.toFixed(2);
+}
+
+async function submitCustodySettlement(e) {
+    e.preventDefault();
+    const id = document.getElementById('custody-settle-id')?.value;
+    const spent = document.getElementById('custody-settle-spent')?.value;
+    const returned = document.getElementById('custody-settle-returned')?.value;
+    const date = document.getElementById('custody-settle-date')?.value;
+    const notes = document.getElementById('custody-settle-notes')?.value;
+    const settledByName = (currentUser && currentUser.name) ? `${currentUser.name} (المدير المالي)` : 'ابوالنصر البغدادي (المدير المالي)';
+
+    try {
+        const res = await fetch(`/api/custody/${id}/settle`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                spent_amount: spent,
+                returned_amount: returned,
+                settlement_date: date,
+                settlement_notes: notes,
+                settled_by: settledByName
+            })
+        });
+        const data = await res.json();
+
+        if (res.ok) {
+            showToast(data.message || 'تمت تصفية العهدة وإغلاق حسابها بنجاح', 'success');
+            closeModal('custody-settle-modal');
+            await loadCustody();
+        } else {
+            showToast(data.error || 'فشل في تسوية العهدة', 'error');
+        }
+    } catch (err) {
+        console.error('Error settling custody:', err);
+        showToast('حدث خطأ أثناء تصفية العهدة', 'error');
+    }
+}
+
+async function deleteCustodyRequest(id) {
+    const item = allCustodyRequests.find(r => r.id === id);
+    const itemNum = item ? (item.request_number || `#${id}`) : `#${id}`;
+    const spentAmt = item ? (parseFloat(item.spent_amount) || 0) : 0;
+
+    let deleteExpenses = false;
+    if (spentAmt > 0) {
+        const choice = confirm(`تنبيه مالي:\nالعهدة ${itemNum} مسجل عليها فواتير ومصروفات بمبلغ (${formatCurrency(spentAmt)} ر.س).\n\n• اضغط (موافق OK) لحذف العهدة مع حذف كافة الفواتير المرتبطة بها نهائياً.\n• اضغط (إلغاء Cancel) للإلغاء والتراجع.`);
+        if (!choice) return;
+        deleteExpenses = true;
+    } else {
+        if (!confirm(`هل أنت متأكد من رغبتك في حذف طلب العهدة ${itemNum} نهائياً؟`)) return;
+    }
+
+    try {
+        const url = `/api/custody/${id}${deleteExpenses ? '?delete_expenses=1' : ''}`;
+        const res = await fetch(url, { method: 'DELETE' });
+        const data = await res.json();
+        if (res.ok && (data.success || !data.error)) {
+            showToast(data.message || 'تم حذف طلب العهدة بنجاح', 'info');
+            await loadCustody();
+            if (typeof loadExpenses === 'function') loadExpenses();
+            if (typeof loadDashboard === 'function') loadDashboard();
+        } else {
+            showToast(data.error || 'فشل في حذف الطلب', 'error');
+        }
+    } catch (err) {
+        console.error('Error deleting custody:', err);
+        showToast('حدث خطأ أثناء الحذف', 'error');
+    }
+}
+
+function printCustodyVoucher(id) {
+    const item = allCustodyRequests.find(r => r.id === id);
+    if (!item) return;
+
+    const printDate = new Date().toLocaleDateString('ar-EG', { year: 'numeric', month: 'long', day: 'numeric' });
+    const isDisbursed = item.status === 'disbursed' || item.status === 'settled';
+    const docTitle = isDisbursed ? 'سند صرف عهدة نقدية' : 'إشعار طلب واعتماد عهدة نقدية';
+
+    const voucherHtml = `
+    <!DOCTYPE html>
+    <html dir="rtl" lang="ar">
+    <head>
+        <meta charset="UTF-8">
+        <title>${docTitle} - ${escapeHtml(item.request_number)}</title>
+        <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+        <style>
+            @page { size: A5 landscape; margin: 10mm; }
+            body { font-family: 'Cairo', system-ui, sans-serif; background: #fff; color: #0f172a; padding: 10px; margin: 0; font-size: 11px; }
+            .box { border: 2px solid #0f172a; border-radius: 8px; padding: 15px; }
+            .header { display: flex; justify-content: space-between; border-bottom: 2px solid #0f172a; padding-bottom: 8px; margin-bottom: 12px; }
+            .company { font-size: 16px; font-weight: 900; }
+            .sub { font-size: 10px; color: #059669; font-weight: bold; }
+            .badge { display: inline-block; background: #0f172a; color: #fff; font-weight: 800; padding: 3px 12px; border-radius: 4px; font-size: 13px; margin-top: 4px; }
+            .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+            .row { display: flex; justify-content: space-between; padding: 4px 6px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 4px; }
+            .label { color: #64748b; font-weight: 600; }
+            .val { font-weight: 800; color: #0f172a; }
+            .amount-box { background: #ecfdf5; border: 1.5px solid #059669; border-radius: 6px; padding: 8px 12px; margin-bottom: 12px; text-align: center; }
+            .amount-val { font-size: 18px; font-weight: 900; font-family: monospace; color: #059669; }
+            .sigs { display: flex; justify-content: space-between; margin-top: 25px; text-align: center; font-weight: 700; }
+            .sig-col { width: 30%; }
+            .sig-line { margin-top: 35px; border-top: 1px dotted #64748b; padding-top: 4px; font-size: 9px; }
+            .no-print { text-align: center; margin-bottom: 10px; }
+            .btn { background: #059669; color: #fff; border: none; padding: 6px 16px; font-size: 12px; font-weight: bold; border-radius: 4px; cursor: pointer; }
+            @media print { .no-print { display: none; } body { padding: 0; } }
+        </style>
+    </head>
+    <body>
+        <div class="no-print">
+            <button class="btn" onclick="window.print()">🖨️ اضغط لطباعة السند</button>
+        </div>
+        <div class="box">
+            <div class="header">
+                <div>
+                    <div class="company">شركة مقاولات السجيني العامة</div>
+                    <div class="sub">إدارة الرقابة المالية والعهد النثرية</div>
+                    <div class="badge">${docTitle}</div>
+                </div>
+                <div style="text-align: left; font-size: 10px;">
+                    <div>رقم السند: <strong style="font-family: monospace;">${escapeHtml(item.request_number)}</strong></div>
+                    <div>تاريخ السند: <strong>${escapeHtml(item.disbursed_date || item.request_date)}</strong></div>
+                    <div>تاريخ الطباعة: ${printDate}</div>
+                </div>
+            </div>
+
+            <div class="grid">
+                <div class="row"><span class="label">يُصرف إلى الموظف:</span><span class="val">${escapeHtml(item.employee_name)}</span></div>
+                <div class="row"><span class="label">المشروع التابع له:</span><span class="val">${escapeHtml(item.project_name || 'مصروف عام / إداري')}</span></div>
+                <div class="row"><span class="label">طريقة الصرف:</span><span class="val">${escapeHtml(item.payment_method || 'نقدي')}</span></div>
+                <div class="row"><span class="label">رقم المرجع / الإشعار:</span><span class="val font-mono">${escapeHtml(item.receipt_voucher_no || '-')}</span></div>
+            </div>
+
+            <div class="amount-box">
+                <div style="font-size: 10px; color: #047857; font-weight: bold; margin-bottom: 2px;">المبلغ المصروف المعتمد</div>
+                <div class="amount-val">${formatCurrency(item.disbursed_amount || item.amount)} ريال سعودي</div>
+            </div>
+
+            <div class="row" style="margin-bottom: 12px; background: #fff;">
+                <span class="label">الغرض وبيان الصرف:</span>
+                <span class="val" style="font-weight: 600;">${escapeHtml(item.purpose)}</span>
+            </div>
+
+            ${item.status === 'settled' ? `
+            <div style="background: #faf5ff; border: 1px solid #d8b4fe; border-radius: 4px; padding: 6px 10px; font-size: 10px; margin-bottom: 12px;">
+                <strong>بيان التصفية:</strong> تم استهلاك مبلغ (${formatCurrency(item.spent_amount)} ر.س) ورد مبلغ (${formatCurrency(item.returned_amount)} ر.س) بتاريخ ${escapeHtml(item.settlement_date || '-')}
+            </div>
+            ` : ''}
+
+            <div class="sigs">
+                <div class="sig-col">
+                    <div>مستلم العهدة (الموظف)</div>
+                    <div class="sig-line">التوقيع: ............................</div>
+                </div>
+                <div class="sig-col">
+                    <div>اعتماد الإدارة المالية</div>
+                    <div class="sig-line">التوقيع: ............................</div>
+                </div>
+                <div class="sig-col">
+                    <div>المدير العام / الختم</div>
+                    <div class="sig-line">الختم الرسمي: ......................</div>
+                </div>
+            </div>
+        </div>
+    </body>
+    </html>
+    `;
+
+    const printWin = window.open('', '_blank', 'width=800,height=600');
+    if (printWin) {
+        printWin.document.open();
+        printWin.document.write(voucherHtml);
+        printWin.document.close();
+        printWin.focus();
+        setTimeout(() => { printWin.print(); }, 500);
+    }
+}
+
+function printCustodyReport() {
+    if (!allCustodyRequests || allCustodyRequests.length === 0) {
+        showToast('لا توجد بيانات عهد للطباعة', 'warning');
+        return;
+    }
+
+    const printDate = new Date().toLocaleDateString('ar-EG', { year: 'numeric', month: 'long', day: 'numeric' });
+
+    let rowsHtml = '';
+    let totReq = 0, totDis = 0, totSpent = 0, totRet = 0;
+    allCustodyRequests.forEach((item, idx) => {
+        totReq += parseFloat(item.amount) || 0;
+        totDis += parseFloat(item.disbursed_amount) || 0;
+        totSpent += parseFloat(item.spent_amount) || 0;
+        totRet += parseFloat(item.returned_amount) || 0;
+
+        let st = item.status === 'pending' ? 'بانتظار الاعتماد' : (item.status === 'approved' ? 'معتمدة' : (item.status === 'disbursed' ? 'جارية' : (item.status === 'settled' ? 'مصفاة' : 'مرفوضة')));
+
+        rowsHtml += `
+            <tr>
+                <td style="text-align: center;">${idx + 1}</td>
+                <td style="font-family: monospace; font-weight: bold;">${escapeHtml(item.request_number)}</td>
+                <td><strong>${escapeHtml(item.employee_name)}</strong></td>
+                <td>${escapeHtml(item.project_name || 'عام')}</td>
+                <td>${escapeHtml(item.purpose)}</td>
+                <td style="text-align: left; font-family: monospace;">${formatCurrency(item.amount)}</td>
+                <td style="text-align: left; font-family: monospace; font-weight: bold; color: #059669;">${item.disbursed_amount > 0 ? formatCurrency(item.disbursed_amount) : '-'}</td>
+                <td style="text-align: center;">${escapeHtml(item.request_date)}</td>
+                <td style="text-align: center; font-weight: bold;">${st}</td>
+            </tr>
+        `;
+    });
+
+    const reportHtml = `
+    <!DOCTYPE html>
+    <html dir="rtl" lang="ar">
+    <head>
+        <meta charset="UTF-8">
+        <title>كشف حصر العهد النثرية ومصروفات الموظفين</title>
+        <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+        <style>
+            @page { size: A4 landscape; margin: 10mm; }
+            body { font-family: 'Cairo', system-ui, sans-serif; background: #fff; color: #0f172a; padding: 10px; margin: 0; font-size: 10px; }
+            .header { display: flex; justify-content: space-between; border-bottom: 2px solid #0f172a; padding-bottom: 8px; margin-bottom: 12px; }
+            .title { font-size: 16px; font-weight: 900; }
+            table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 9.5px; }
+            th, td { border: 1px solid #cbd5e1; padding: 4px 6px; text-align: right; }
+            th { background: #1e293b; color: #fff; font-weight: bold; }
+            tfoot tr td { background: #f1f5f9; font-weight: 900; font-size: 10px; }
+            tr:nth-child(even) { background: #f8fafc; }
+            .no-print { text-align: center; margin-bottom: 10px; }
+            .btn { background: #059669; color: #fff; border: none; padding: 6px 18px; font-size: 12px; font-weight: bold; border-radius: 4px; cursor: pointer; }
+            @media print { .no-print { display: none; } }
+        </style>
+    </head>
+    <body>
+        <div class="no-print">
+            <button class="btn" onclick="window.print()">🖨️ طباعة الكشف</button>
+        </div>
+        <div class="header">
+            <div>
+                <div class="title">شركة مقاولات السجيني العامة</div>
+                <div style="font-size: 10px; color: #059669; font-weight: bold;">تقرير كشف حصر العهد النثرية ومصروفات الموظفين</div>
+            </div>
+            <div style="text-align: left; font-size: 10px;">
+                <div>تاريخ التقرير: ${printDate}</div>
+                <div>إجمالي العهد: ${allCustodyRequests.length} عهدة</div>
+            </div>
+        </div>
+
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 25px; text-align: center;">م</th>
+                    <th style="width: 80px;">رقم الطلب</th>
+                    <th>الموظف</th>
+                    <th>المشروع</th>
+                    <th>الغرض والبيان</th>
+                    <th>المبلغ المطلوب</th>
+                    <th>المبلغ المنصرف</th>
+                    <th style="width: 70px; text-align: center;">تاريخ الطلب</th>
+                    <th style="width: 80px; text-align: center;">الحالة</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${rowsHtml}
+            </tbody>
+            <tfoot>
+                <tr>
+                    <td colspan="5" style="text-align: center;">الإجمالي العام</td>
+                    <td style="font-family: monospace; text-align: left;">${formatCurrency(totReq)}</td>
+                    <td style="font-family: monospace; text-align: left; color: #059669;">${formatCurrency(totDis)}</td>
+                    <td colspan="2"></td>
+                </tr>
+            </tfoot>
+        </table>
+
+        <div style="display: flex; justify-content: space-between; margin-top: 30px; text-align: center; font-weight: bold;">
+            <div style="width: 30%;">إعداد الإدارة المالية<div style="margin-top: 25px;">............................</div></div>
+            <div style="width: 30%;">المراجع الداخلي<div style="margin-top: 25px;">............................</div></div>
+            <div style="width: 30%;">اعتماد المدير العام<div style="margin-top: 25px;">............................</div></div>
+        </div>
+    </body>
+    </html>
+    `;
+
+    const printWin = window.open('', '_blank', 'width=1000,height=700');
+    if (printWin) {
+        printWin.document.open();
+        printWin.document.write(reportHtml);
+        printWin.document.close();
+        printWin.focus();
+        setTimeout(() => { printWin.print(); }, 500);
+    }
+}
+
+// ==========================================
+// CUSTODY DISBURSEMENT FOR EXPENSES (الصرف من العهدة)
+// ==========================================
+let activeCustodiesList = [];
+let currentViewedCustodyId = null;
+
+async function onExpensePaymentMethodChanged(selectedCustodyId = null) {
+    const payMethod = document.getElementById('expense-payment-method')?.value;
+    const container = document.getElementById('expense-custody-select-container');
+    if (!container) return;
+
+    if (payMethod === 'عهدة') {
+        container.classList.remove('hidden');
+        await loadActiveCustodiesDropdown(selectedCustodyId);
+    } else {
+        container.classList.add('hidden');
+        const cSelect = document.getElementById('expense-custody-id');
+        if (cSelect) cSelect.value = '';
+        const badge = document.getElementById('expense-custody-balance-badge');
+        if (badge) badge.classList.add('hidden');
+        const warn = document.getElementById('expense-custody-warning');
+        if (warn) warn.classList.add('hidden');
+        const info = document.getElementById('expense-custody-info');
+        if (info) info.classList.add('hidden');
+    }
+}
+
+async function loadActiveCustodiesDropdown(selectedId = null) {
+    const select = document.getElementById('expense-custody-id');
+    if (!select) return;
+
+    select.innerHTML = '<option value="">-- جارِ تحميل العهد المتاحة... --</option>';
+
+    try {
+        const res = await fetch('/api/custody/active');
+        const custodies = await res.json();
+        activeCustodiesList = Array.isArray(custodies) ? custodies : [];
+
+        if (activeCustodiesList.length === 0) {
+            select.innerHTML = '<option value="">⚠️ لا توجد عهد نشطة حالياً (يرجى رفع طلب عهدة واعتماده وصرفه أولاً)</option>';
+            return;
+        }
+
+        let opts = '<option value="">-- اختر العهدة المتاحة للخصم المباشر --</option>';
+        activeCustodiesList.forEach(c => {
+            const reqNo = c.request_number || `CUST-#${c.id}`;
+            const emp = c.employee_name;
+            const prj = c.project_name ? `${c.project_name}` : 'مصروف عام';
+            const bal = formatCurrency(c.remaining_balance != null ? c.remaining_balance : ((c.disbursed_amount || c.amount || 0) - (c.spent_amount || 0)));
+            const isSel = (selectedId && String(c.id) === String(selectedId)) ? 'selected' : '';
+            opts += `<option value="${c.id}" ${isSel} data-balance="${c.remaining_balance || 0}" data-employee="${escapeHtml(emp)}" data-project="${c.project_id || ''}">${reqNo} | ${emp} | (${prj}) — المتبقي: ${bal} ر.س</option>`;
+        });
+        select.innerHTML = opts;
+
+        if (selectedId) {
+            select.value = selectedId;
+            onExpenseCustodyChanged();
+        } else if (activeCustodiesList.length === 1) {
+            select.selectedIndex = 1;
+            onExpenseCustodyChanged();
+        }
+    } catch (err) {
+        console.error('Error loading active custodies:', err);
+        select.innerHTML = '<option value="">تعذر تحميل قائمة العهد</option>';
+    }
+}
+
+function onExpenseCustodyChanged() {
+    const select = document.getElementById('expense-custody-id');
+    const badge = document.getElementById('expense-custody-balance-badge');
+    const info = document.getElementById('expense-custody-info');
+    const empText = document.getElementById('expense-custody-emp-text');
+    const projText = document.getElementById('expense-custody-proj-text');
+    const warning = document.getElementById('expense-custody-warning');
+    const paidByInput = document.getElementById('expense-paid-by');
+    const projectSelect = document.getElementById('expense-project-id');
+
+    if (!select || !select.value) {
+        if (badge) badge.classList.add('hidden');
+        if (info) info.classList.add('hidden');
+        if (warning) warning.classList.add('hidden');
+        return;
+    }
+
+    const custodyId = select.value;
+    const custody = activeCustodiesList.find(c => String(c.id) === String(custodyId));
+    if (!custody) return;
+
+    const remaining = custody.remaining_balance != null ? custody.remaining_balance : ((custody.disbursed_amount || custody.amount || 0) - (custody.spent_amount || 0));
+
+    // Show balance badge
+    if (badge) {
+        badge.innerText = `الرصيد المتاح: ${formatCurrency(remaining)} ر.س`;
+        badge.classList.remove('hidden');
+    }
+
+    // Show info
+    if (info && empText && projText) {
+        empText.innerText = `صاحب العهدة: ${custody.employee_name}`;
+        projText.innerText = custody.project_name ? `المشروع: ${custody.project_name}` : 'مصروف عام';
+        info.classList.remove('hidden');
+    }
+
+    // Auto-fill paid-by if empty or contains previous custody label
+    if (paidByInput && (!paidByInput.value.trim() || paidByInput.value.includes('(من العهدة)'))) {
+        paidByInput.value = `${custody.employee_name} (من العهدة)`;
+    }
+
+    // Auto-align project if project not selected yet
+    if (custody.project_id && projectSelect && (!projectSelect.value || projectSelect.value === '')) {
+        projectSelect.value = custody.project_id;
+        if (typeof onExpenseProjectChanged === 'function') onExpenseProjectChanged();
+    }
+
+    // Check expense amount vs balance
+    validateExpenseAmountAgainstCustody();
+}
+
+function validateExpenseAmountAgainstCustody() {
+    const select = document.getElementById('expense-custody-id');
+    const warning = document.getElementById('expense-custody-warning');
+    const payMethod = document.getElementById('expense-payment-method')?.value;
+    if (!select || !warning || payMethod !== 'عهدة' || !select.value) {
+        if (warning) warning.classList.add('hidden');
+        return;
+    }
+
+    const custody = activeCustodiesList.find(c => String(c.id) === String(select.value));
+    if (!custody) return;
+
+    const amount = parseFloat(document.getElementById('expense-amount')?.value || 0);
+    const editId = document.getElementById('expense-edit-id')?.value;
+    
+    let allowableBalance = custody.remaining_balance != null ? custody.remaining_balance : ((custody.disbursed_amount || custody.amount || 0) - (custody.spent_amount || 0));
+    if (editId) {
+        allowableBalance += amount;
+    }
+
+    if (amount > allowableBalance && allowableBalance >= 0) {
+        warning.innerHTML = `<i data-lucide="alert-triangle" class="w-4 h-4 shrink-0"></i> <span>تنبيه مالي: مبلغ الفاتورة (${formatCurrency(amount)} ر.س) يتجاوز الرصيد المتاح في العهدة (${formatCurrency(allowableBalance)} ر.س)!</span>`;
+        warning.classList.remove('hidden');
+        if (typeof initLucide === 'function') initLucide();
+    } else {
+        warning.classList.add('hidden');
+    }
+}
+
+async function viewCustodyExpenses(custodyId) {
+    currentViewedCustodyId = custodyId;
+    const tbody = document.getElementById('custody-expenses-table-body');
+    const emptyState = document.getElementById('custody-expenses-empty');
+    if (!tbody) return;
+
+    tbody.innerHTML = '<tr><td colspan="7" class="p-4 text-center text-slate-500">جارِ تحميل الفواتير...</td></tr>';
+    if (emptyState) emptyState.classList.add('hidden');
+    openModal('custody-expenses-modal');
+
+    try {
+        const res = await fetch(`/api/custody/${custodyId}/expenses`);
+        const data = await res.json();
+        if (!res.ok || !data.custody) {
+            showToast('تعذر تحميل فواتير العهدة', 'error');
+            closeModal('custody-expenses-modal');
+            return;
+        }
+
+        const c = data.custody;
+        const expenses = data.expenses || [];
+        const disbursed = c.disbursed_amount || c.amount || 0;
+        const totalSpent = data.total_spent || 0;
+        const remaining = Math.max(0, disbursed - totalSpent);
+
+        // Update stats
+        const titleEl = document.getElementById('custody-expenses-modal-title');
+        if (titleEl) titleEl.innerText = `فواتير العهدة ${c.request_number} — ${c.employee_name}`;
+        
+        const subTitleEl = document.getElementById('custody-expenses-modal-subtitle');
+        if (subTitleEl) subTitleEl.innerText = `الغرض: ${c.purpose} | المشروع: ${c.project_name || 'عام'}`;
+
+        const disbEl = document.getElementById('cust-exp-disbursed');
+        if (disbEl) disbEl.innerText = `${formatCurrency(disbursed)} ر.س`;
+
+        const spentEl = document.getElementById('cust-exp-spent');
+        if (spentEl) spentEl.innerText = `${formatCurrency(totalSpent)} ر.س`;
+
+        const remEl = document.getElementById('cust-exp-remaining');
+        if (remEl) remEl.innerText = `${formatCurrency(remaining)} ر.س`;
+
+        const countEl = document.getElementById('cust-exp-count');
+        if (countEl) countEl.innerText = expenses.length.toString();
+
+        if (expenses.length === 0) {
+            tbody.innerHTML = '';
+            if (emptyState) emptyState.classList.remove('hidden');
+            return;
+        }
+
+        let html = '';
+        expenses.forEach(exp => {
+            const fileBtn = exp.invoice_file_path ? `
+                <button onclick="viewInvoice('${exp.invoice_file_path}', '${escapeHtml(exp.title)}')" class="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500 hover:text-white text-[10px] font-bold inline-flex items-center gap-1 transition">
+                    <i data-lucide="eye" class="w-3 h-3"></i>
+                    <span>عرض</span>
+                </button>
+            ` : '<span class="text-slate-600 text-[10px]">بدون مرفق</span>';
+
+            html += `
+                <tr class="hover:bg-slate-800/40 transition">
+                    <td class="p-2.5 font-mono text-slate-400 whitespace-nowrap text-xs">${escapeHtml(exp.expense_date)}</td>
+                    <td class="p-2.5 font-bold text-white text-xs">${escapeHtml(exp.title)}</td>
+                    <td class="p-2.5 text-slate-300 text-xs">${escapeHtml(exp.project_name || 'مصروف عام')}</td>
+                    <td class="p-2.5 text-xs text-slate-400">
+                        <span>${escapeHtml(exp.category || 'بند عام')}</span>
+                        ${exp.supplier_name ? `<span class="text-amber-400 font-bold block text-[10px]">• ${escapeHtml(exp.supplier_name)}</span>` : ''}
+                    </td>
+                    <td class="p-2.5 font-mono font-bold text-rose-400 text-left text-xs whitespace-nowrap">${formatCurrency(exp.amount)} ر.س</td>
+                    <td class="p-2.5 text-center whitespace-nowrap">${fileBtn}</td>
+                    <td class="p-2.5 text-center whitespace-nowrap">
+                        <div class="flex items-center justify-center gap-1">
+                            <button onclick="editCustodyExpense(${exp.id})" class="p-1 text-slate-400 hover:text-amber-400 rounded hover:bg-slate-750 transition" title="تعديل بيانات الفاتورة">
+                                <i data-lucide="edit-3" class="w-3.5 h-3.5"></i>
+                            </button>
+                            <button onclick="deleteCustodyExpense(${exp.id}, ${custodyId}, '${escapeHtml(exp.title || 'فاتورة')}', ${exp.amount})" class="p-1 text-slate-400 hover:text-rose-400 rounded hover:bg-slate-750 transition" title="حذف الفاتورة واسترجاع المبلغ للعهدة">
+                                <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+            `;
+        });
+        tbody.innerHTML = html;
+        if (typeof initLucide === 'function') initLucide();
+    } catch (err) {
+        console.error('Error fetching custody expenses:', err);
+        showToast('حدث خطأ أثناء تحميل فواتير العهدة', 'error');
+    }
+}
+
+function editCustodyExpense(expenseId) {
+    closeModal('custody-expenses-modal');
+    openEditExpenseModal(expenseId);
+}
+
+async function deleteCustodyExpense(expenseId, custodyId, title, amount) {
+    const formattedAmt = formatCurrency(amount);
+    const msg = `هل أنت متأكد من حذف الفاتورة "${title}" بمبلغ (${formattedAmt} ر.س)؟\n\nسيتم استرجاع المبلغ تلقائياً إلى رصيد العهدة وتحديث ميزانية المشروع.`;
+    if (!confirm(msg)) return;
+
+    try {
+        const res = await fetch(`/api/expenses/${expenseId}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (res.ok && (data.success || !data.error)) {
+            showToast('تم حذف الفاتورة واستعادة المبلغ لرصيد العهدة بنجاح', 'success');
+            await viewCustodyExpenses(custodyId);
+            await loadCustody();
+            if (typeof loadExpenses === 'function') loadExpenses();
+            if (typeof loadDashboard === 'function') loadDashboard();
+        } else {
+            showToast(data.error || 'فشل في حذف الفاتورة', 'error');
+        }
+    } catch (err) {
+        console.error('Error deleting custody expense:', err);
+        showToast('حدث خطأ أثناء حذف الفاتورة', 'error');
+    }
+}
+
+function openExpenseForCustody(custodyId = null) {
+    const targetId = custodyId || currentViewedCustodyId;
+    closeModal('custody-expenses-modal');
+    openModal('expense-modal');
+    resetExpenseModal();
+    setExpenseFormMode('general');
+    
+    const paySelect = document.getElementById('expense-payment-method');
+    if (paySelect) {
+        paySelect.value = 'عهدة';
+        onExpensePaymentMethodChanged(targetId);
+    }
 }
 
 

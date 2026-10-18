@@ -87,11 +87,13 @@ def get_dashboard_stats():
     cursor.execute("SELECT COUNT(*) FROM tasks WHERE status = 'todo'")
     todo_tasks = cursor.fetchone()[0]
 
-    # Subcontractors balance
-    cursor.execute('SELECT COALESCE(SUM(agreed_amount), 0), COALESCE(SUM(paid_amount), 0) FROM subcontractors')
-    sub_row = cursor.fetchone()
-    sub_total_agreed = sub_row[0]
-    sub_total_paid = sub_row[1]
+    # Subcontractors total paid
+    cursor.execute('SELECT COALESCE(SUM(amount), 0) FROM subcontractor_payments')
+    sub_payments_sum = cursor.fetchone()[0] or 0
+    cursor.execute('SELECT COALESCE(SUM(paid_amount), 0) FROM subcontractors')
+    sub_paid_fallback = cursor.fetchone()[0] or 0
+    sub_total_paid = max(sub_payments_sum, sub_paid_fallback)
+    sub_total_agreed = sub_total_paid
 
     # Client Payments & Milestones Collection stats
     cursor.execute('''
@@ -996,7 +998,7 @@ def approve_task(task_id):
                 'error': f'عفواً يا {approver_name}، بصفتك منفذ المهمة لا تملك صلاحية تعميدها! صلاحية التعميد محصورة حصرياً على من أسندها ({task_creator}).'
             }), 403
 
-        if approver_name != task_creator and approver_name not in ('فاروق محمد', 'المدير العام'):
+        if approver_name != task_creator and approver_name not in ('نواف سجيني', 'فاروق محمد', 'المدير العام'):
             conn.close()
             return jsonify({
                 'error': f'صلاحية التعميد محصورة على مُرسل المهمة ({task_creator}) فقط!'
@@ -1103,7 +1105,9 @@ def get_expenses():
                sq.quotation_number,
                sq.title AS quotation_title,
                sqi.item_name AS quotation_item_name,
-               sqi.unit AS quotation_item_unit
+               sqi.unit AS quotation_item_unit,
+               cust.request_number AS custody_request_number,
+               cust.employee_name AS custody_employee_name
         FROM expenses e
         JOIN projects p ON e.project_id = p.id
         LEFT JOIN project_phases ph ON e.phase_id = ph.id
@@ -1111,6 +1115,7 @@ def get_expenses():
         LEFT JOIN suppliers s ON e.supplier_id = s.id
         LEFT JOIN supplier_quotations sq ON e.quotation_id = sq.id
         LEFT JOIN supplier_quotation_items sqi ON e.quotation_item_id = sqi.id
+        LEFT JOIN custody_requests cust ON e.custody_id = cust.id
         WHERE 1=1
     '''
     params = []
@@ -1152,6 +1157,9 @@ def create_expense():
 
     raw_supplier = data.get('supplier_id')
     supplier_id = int(raw_supplier) if raw_supplier and raw_supplier not in ('', 'null', 'None') else None
+
+    raw_custody = data.get('custody_id')
+    custody_id = int(raw_custody) if raw_custody and str(raw_custody).strip() not in ('', 'null', 'None') else None
 
     raw_quotation = data.get('quotation_id')
     quotation_id = int(raw_quotation) if raw_quotation and raw_quotation not in ('', 'null', 'None') else None
@@ -1381,9 +1389,10 @@ def create_expense():
             supplier_id, quotation_id, quotation_item_id,
             item_quantity, unit_price, quoted_unit_price,
             price_variance, total_variance, has_price_increase,
-            items_json, payment_status, paid_amount, payment_date
+            items_json, payment_status, paid_amount, payment_date,
+            custody_id
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''', (
         project_id, phase_id, item_id, title, category, amount, 
         payment_method, paid_by, paid_to, expense_date, 
@@ -1392,9 +1401,25 @@ def create_expense():
         supplier_id, quotation_id, quotation_item_id,
         item_quantity, unit_price, quoted_unit_price,
         price_variance, total_variance, has_price_increase,
-        items_json_str, payment_status, paid_amount, payment_date
+        items_json_str, payment_status, paid_amount, payment_date,
+        custody_id
     ))
     expense_id = cursor.lastrowid
+
+    # If linked to an employee custody account, deduct expense from custody balance
+    if custody_id:
+        cursor.execute('''
+            UPDATE custody_requests
+            SET spent_amount = COALESCE(spent_amount, 0) + ?
+            WHERE id = ?
+        ''', (amount, custody_id))
+        cursor.execute('SELECT employee_name, request_number FROM custody_requests WHERE id = ?', (custody_id,))
+        c_emp_row = cursor.fetchone()
+        if c_emp_row:
+            cursor.execute('''
+                INSERT INTO notifications (project_id, type, title, message)
+                VALUES (?, 'custody', 'صرف فاتورة من العهدة', ?)
+            ''', (project_id, f"تم صرف الفاتورة '{title}' بمبلغ {amount:,.2f} ر.س خصماً من عهدة {c_emp_row['employee_name']} ({c_emp_row['request_number']})"))
 
     # Insert line items into expense_items table
     if items_data:
@@ -1487,7 +1512,9 @@ def get_single_expense(expense_id):
                sq.quotation_number,
                sq.title AS quotation_title,
                sqi.item_name AS quotation_item_name,
-               sqi.unit AS quotation_item_unit
+               sqi.unit AS quotation_item_unit,
+               cust.request_number AS custody_request_number,
+               cust.employee_name AS custody_employee_name
         FROM expenses e
         LEFT JOIN projects p ON e.project_id = p.id
         LEFT JOIN project_phases ph ON e.phase_id = ph.id
@@ -1495,6 +1522,7 @@ def get_single_expense(expense_id):
         LEFT JOIN suppliers s ON e.supplier_id = s.id
         LEFT JOIN supplier_quotations sq ON e.quotation_id = sq.id
         LEFT JOIN supplier_quotation_items sqi ON e.quotation_item_id = sqi.id
+        LEFT JOIN custody_requests cust ON e.custody_id = cust.id
         WHERE e.id = ?
     ''', (expense_id,))
     row = cursor.fetchone()
@@ -1545,6 +1573,12 @@ def update_expense(expense_id):
     # Suppliers & Pricing
     raw_supplier = data.get('supplier_id')
     supplier_id = int(raw_supplier) if raw_supplier and raw_supplier not in ('', 'null', 'None') else None
+
+    # Custody tracking
+    raw_custody = data.get('custody_id') if 'custody_id' in data else existing.get('custody_id')
+    custody_id = int(raw_custody) if raw_custody and str(raw_custody).strip() not in ('', 'null', 'None') else None
+    old_custody_id = existing.get('custody_id')
+    old_amount = float(existing.get('amount') or 0)
 
     raw_quotation = data.get('quotation_id')
     quotation_id = int(raw_quotation) if raw_quotation and raw_quotation not in ('', 'null', 'None') else None
@@ -1626,6 +1660,8 @@ def update_expense(expense_id):
         amount_without_tax = float(raw_amt_no_tax)
     elif items_data:
         amount_without_tax = round(total_items_amount, 2)
+    elif not is_tax_invoice and amount_str and amount_str not in ('', '0', 0):
+        amount_without_tax = float(amount_str)
     else:
         amount_without_tax = existing.get('amount_without_tax', 0.0)
 
@@ -1654,7 +1690,10 @@ def update_expense(expense_id):
             elif amount_without_tax > 0 and amount > 0 and tax_amount == 0:
                 tax_amount = round(amount - amount_without_tax, 2)
         else:
-            if amount_without_tax > 0:
+            if amount_str and amount_str not in ('', '0', 0):
+                amount = float(amount_str)
+                amount_without_tax = amount
+            elif amount_without_tax > 0:
                 amount = amount_without_tax
             else:
                 amount_without_tax = amount
@@ -1772,7 +1811,8 @@ def update_expense(expense_id):
             supplier_id = ?, quotation_id = ?, quotation_item_id = ?,
             item_quantity = ?, unit_price = ?, quoted_unit_price = ?,
             price_variance = ?, total_variance = ?, has_price_increase = ?,
-            items_json = ?, payment_status = ?, paid_amount = ?, payment_date = ?
+            items_json = ?, payment_status = ?, paid_amount = ?, payment_date = ?,
+            custody_id = ?
         WHERE id = ?
     ''', (
         project_id, phase_id, item_id, title, category, amount,
@@ -1783,8 +1823,20 @@ def update_expense(expense_id):
         item_quantity, unit_price, quoted_unit_price,
         price_variance, total_variance, has_price_increase,
         items_json_str, payment_status, paid_amount, payment_date,
+        custody_id,
         expense_id
     ))
+
+    # Adjust custody spent_amount if custody was/is involved
+    if old_custody_id and old_custody_id == custody_id:
+        diff = amount - old_amount
+        if abs(diff) > 0.001:
+            cursor.execute('UPDATE custody_requests SET spent_amount = MAX(0, COALESCE(spent_amount, 0) + ?) WHERE id = ?', (diff, custody_id))
+    elif old_custody_id != custody_id:
+        if old_custody_id:
+            cursor.execute('UPDATE custody_requests SET spent_amount = MAX(0, COALESCE(spent_amount, 0) - ?) WHERE id = ?', (old_amount, old_custody_id))
+        if custody_id:
+            cursor.execute('UPDATE custody_requests SET spent_amount = COALESCE(spent_amount, 0) + ? WHERE id = ?', (amount, custody_id))
 
     # If items provided, replace rows in expense_items
     if has_items_payload:
@@ -1814,21 +1866,96 @@ def update_expense(expense_id):
             VALUES (?, 'warning', '⚠️ تعديل فاتورة: رصد زيادة سعر عن عرض السعر!', ?)
         ''', (project_id, f"تم تعديل فاتورة المورد '{s_n}' بسعر {unit_price:,.2f} ر.س أعلى من المتفق عليه ({quoted_unit_price:,.2f} ر.س) بزيادة إجمالية {total_variance:,.2f} ر.س!"))
 
+    # If project changed, sync linked supplier_payments and subcontractor_payments
+    if project_id != existing.get('project_id'):
+        cursor.execute('UPDATE supplier_payments SET project_id = ? WHERE expense_id = ?', (project_id, expense_id))
+        cursor.execute('UPDATE subcontractor_payments SET project_id = ? WHERE expense_id = ?', (project_id, expense_id))
+
     conn.commit()
     conn.close()
+
+    return jsonify({'success': True, 'message': 'تم تحديث بيانات المصروف بنجاح', 'id': expense_id})
+
+@app.route('/api/expenses/<int:expense_id>/transfer', methods=['POST'])
+def transfer_expense_project(expense_id):
+    data = request.json or {}
+    new_project_id = data.get('new_project_id')
+    if not new_project_id:
+        return jsonify({'error': 'يرجى تحديد المشروع الجديد المحول إليه'}), 400
+
+    new_project_id = int(new_project_id)
+    new_phase_id = int(data['phase_id']) if data.get('phase_id') and str(data['phase_id']).strip() not in ('', 'null', 'None') else None
+    new_item_id = int(data['item_id']) if data.get('item_id') and str(data['item_id']).strip() not in ('', 'null', 'None') else None
+    transfer_notes = (data.get('notes') or '').strip()
+
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute('SELECT * FROM expenses WHERE id = ?', (expense_id,))
+    exp = cursor.fetchone()
+    if not exp:
+        conn.close()
+        return jsonify({'error': 'المصروف غير موجود'}), 404
+
+    exp = dict(exp)
+    old_project_id = exp['project_id']
+    if old_project_id == new_project_id:
+        conn.close()
+        return jsonify({'error': 'المصروف مسجل بالفعل على هذا المشروع'}), 400
+
+    cursor.execute('SELECT name FROM projects WHERE id = ?', (old_project_id,))
+    old_p_row = cursor.fetchone()
+    old_p_name = old_p_row[0] if old_p_row else f"#{old_project_id}"
+
+    cursor.execute('SELECT name FROM projects WHERE id = ?', (new_project_id,))
+    new_p_row = cursor.fetchone()
+    if not new_p_row:
+        conn.close()
+        return jsonify({'error': 'المشروع الجديد غير موجود'}), 404
+    new_p_name = new_p_row[0]
+
+    updated_notes = exp.get('notes') or ''
+    transfer_tag = f"[تم نقل المصروف من ({old_p_name}) إلى ({new_p_name})"
+    if transfer_notes:
+        transfer_tag += f" - السبب: {transfer_notes}"
+    transfer_tag += "]"
+    updated_notes = f"{updated_notes}\n{transfer_tag}".strip()
+
+    cursor.execute('''
+        UPDATE expenses
+        SET project_id = ?, phase_id = ?, item_id = ?, notes = ?
+        WHERE id = ?
+    ''', (new_project_id, new_phase_id, new_item_id, updated_notes, expense_id))
+
+    cursor.execute('UPDATE supplier_payments SET project_id = ? WHERE expense_id = ?', (new_project_id, expense_id))
+    cursor.execute('UPDATE subcontractor_payments SET project_id = ? WHERE expense_id = ?', (new_project_id, expense_id))
+
+    cursor.execute('''
+        INSERT INTO notifications (project_id, title, message, type)
+        VALUES (?, ?, ?, 'expense')
+    ''', (
+        new_project_id,
+        f"نقل مصروف: {exp['title']}",
+        f"تم نقل مصروف بقيمة {exp['amount']:,.2f} ر.س بنجاح من مشروع ({old_p_name}) إلى مشروع ({new_p_name})"
+    ))
+
+    conn.commit()
+    conn.close()
+
     return jsonify({
         'success': True,
-        'message': 'تم تحديث المصروف والفاتورة بنجاح',
-        'has_price_increase': bool(has_price_increase),
-        'price_variance': price_variance,
-        'total_variance': total_variance
+        'message': f'تم نقل المصروف بنجاح من مشروع ({old_p_name}) إلى مشروع ({new_p_name})',
+        'old_project_id': old_project_id,
+        'new_project_id': new_project_id,
+        'old_project_name': old_p_name,
+        'new_project_name': new_p_name
     })
 
 @app.route('/api/expenses/<int:expense_id>', methods=['DELETE'])
 def delete_expense(expense_id):
     conn = database.get_db_connection()
     cursor = conn.cursor()
-    cursor.execute('SELECT invoice_file_path, project_id, title, amount FROM expenses WHERE id = ?', (expense_id,))
+    cursor.execute('SELECT invoice_file_path, project_id, title, amount, custody_id FROM expenses WHERE id = ?', (expense_id,))
     row = cursor.fetchone()
     if not row:
         conn.close()
@@ -1838,6 +1965,7 @@ def delete_expense(expense_id):
     proj_id = row[1]
     title = row[2]
     amt = row[3]
+    custody_id = row[4]
 
     if file_path:
         local_p = os.path.join(BASE_DIR, file_path.lstrip('/'))
@@ -1846,6 +1974,14 @@ def delete_expense(expense_id):
                 os.remove(local_p)
             except Exception:
                 pass
+
+    # If expense was deducted from a custody account, return amount to custody balance
+    if custody_id:
+        cursor.execute('''
+            UPDATE custody_requests
+            SET spent_amount = MAX(0, COALESCE(spent_amount, 0) - ?)
+            WHERE id = ?
+        ''', (amt, custody_id))
 
     cursor.execute('DELETE FROM expense_items WHERE expense_id = ?', (expense_id,))
     cursor.execute('DELETE FROM expenses WHERE id = ?', (expense_id,))
@@ -2570,21 +2706,18 @@ def get_subcontractors():
     conn = database.get_db_connection()
     cursor = conn.cursor()
 
+    base_query = '''
+        SELECT s.*, p.name AS project_name,
+               COALESCE((SELECT SUM(sp.amount) FROM subcontractor_payments sp WHERE sp.subcontractor_id = s.id), s.paid_amount, 0) AS total_paid,
+               COALESCE((SELECT COUNT(sp.id) FROM subcontractor_payments sp WHERE sp.subcontractor_id = s.id), 0) AS payments_count
+        FROM subcontractors s
+        LEFT JOIN projects p ON s.project_id = p.id
+    '''
+
     if project_id:
-        cursor.execute('''
-            SELECT s.*, p.name AS project_name
-            FROM subcontractors s
-            LEFT JOIN projects p ON s.project_id = p.id
-            WHERE s.project_id = ?
-            ORDER BY s.id DESC
-        ''', (project_id,))
+        cursor.execute(base_query + ' WHERE s.project_id = ? ORDER BY s.id DESC', (project_id,))
     else:
-        cursor.execute('''
-            SELECT s.*, p.name AS project_name
-            FROM subcontractors s
-            LEFT JOIN projects p ON s.project_id = p.id
-            ORDER BY s.id DESC
-        ''')
+        cursor.execute(base_query + ' ORDER BY s.id DESC')
 
     subs = [dict(row) for row in cursor.fetchall()]
     conn.close()
@@ -2623,7 +2756,11 @@ def add_subcontractor_payment(sub_id):
         data = request.form
 
     amount = float(data.get('amount', 0))
-    payment_type = data.get('payment_type', 'مستخلص')
+    if amount <= 0:
+        return jsonify({'error': 'المبلغ المصروف يجب أن يكون أكبر من صفر'}), 400
+
+    payment_type = data.get('payment_type', 'دفعة / مصروف')
+    payment_method = data.get('payment_method', 'نقدي')
     payment_date = data.get('payment_date') or datetime.now().strftime('%Y-%m-%d')
     notes = data.get('notes', '')
 
@@ -2635,7 +2772,16 @@ def add_subcontractor_payment(sub_id):
         conn.close()
         return jsonify({'error': 'المقاول غير موجود'}), 404
 
-    project_id = sub_row[0]
+    target_project_id = data.get('project_id') or sub_row[0]
+    if not target_project_id:
+        cursor.execute('SELECT id FROM projects ORDER BY id ASC LIMIT 1')
+        p_row = cursor.fetchone()
+        if p_row:
+            target_project_id = p_row[0]
+
+    if target_project_id:
+        target_project_id = int(target_project_id)
+
     sub_name = sub_row[1]
 
     receipt_file_path = None
@@ -2653,22 +2799,73 @@ def add_subcontractor_payment(sub_id):
 
     # Insert payment
     cursor.execute('''
-        INSERT INTO subcontractor_payments (subcontractor_id, project_id, amount, payment_date, payment_type, receipt_file_path, receipt_file_name, notes)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    ''', (sub_id, project_id, amount, payment_date, payment_type, receipt_file_path, receipt_file_name, notes))
+        INSERT INTO subcontractor_payments (subcontractor_id, project_id, amount, payment_date, payment_type, payment_method, receipt_file_path, receipt_file_name, notes)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (sub_id, target_project_id, amount, payment_date, payment_type, payment_method, receipt_file_path, receipt_file_name, notes))
+    subpay_id = cursor.lastrowid
 
     # Update paid amount in subcontractor
     cursor.execute('UPDATE subcontractors SET paid_amount = paid_amount + ? WHERE id = ?', (amount, sub_id))
 
     # Also automatically log this payment as an expense in the project!
-    cursor.execute('''
-        INSERT INTO expenses (project_id, title, category, amount, payment_method, paid_to, expense_date, invoice_file_path, invoice_file_name, notes)
-        VALUES (?, ?, 'عمالة ومقاولين باطن', ?, 'نقدي', ?, ?, ?, ?, ?)
-    ''', (project_id, f"{payment_type} - {sub_name}", amount, sub_name, payment_date, receipt_file_path, receipt_file_name, notes or 'سند صرف مقاول باطن'))
+    if target_project_id:
+        cursor.execute('''
+            INSERT INTO expenses (project_id, title, category, amount, payment_method, paid_to, expense_date, invoice_file_path, invoice_file_name, notes)
+            VALUES (?, ?, 'عمالة ومقاولين باطن', ?, ?, ?, ?, ?, ?, ?)
+        ''', (target_project_id, f"{payment_type} - {sub_name}", amount, payment_method, sub_name, payment_date, receipt_file_path, receipt_file_name, notes or 'سند صرف مقاول باطن'))
+        exp_id = cursor.lastrowid
+        cursor.execute('UPDATE subcontractor_payments SET expense_id = ? WHERE id = ?', (exp_id, subpay_id))
 
     conn.commit()
     conn.close()
-    return jsonify({'success': True, 'message': 'تم قيد الدفعة والمستخلص في حساب المقاول ومصاريف المشروع'})
+    return jsonify({'success': True, 'message': 'تم قيد المصروف في حساب المقاول وترحيله لمصاريف المشروع بنجاح'})
+
+@app.route('/api/subcontractors/<int:sub_id>/statement', methods=['GET'])
+def get_subcontractor_statement(sub_id):
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute('''
+        SELECT s.*, p.name AS default_project_name
+        FROM subcontractors s
+        LEFT JOIN projects p ON s.project_id = p.id
+        WHERE s.id = ?
+    ''', (sub_id,))
+    sub_row = cursor.fetchone()
+    if not sub_row:
+        conn.close()
+        return jsonify({'error': 'المقاول غير موجود'}), 404
+
+    subcontractor = dict(sub_row)
+
+    # All payments for this subcontractor with project details
+    cursor.execute('''
+        SELECT sp.*, p.name AS project_name, p.code AS project_code
+        FROM subcontractor_payments sp
+        LEFT JOIN projects p ON sp.project_id = p.id
+        WHERE sp.subcontractor_id = ?
+        ORDER BY sp.payment_date ASC, sp.id ASC
+    ''', (sub_id,))
+    payments = [dict(r) for r in cursor.fetchall()]
+
+    total_paid = sum(p['amount'] for p in payments) if payments else float(subcontractor.get('paid_amount', 0))
+    subcontractor['total_paid'] = total_paid
+    subcontractor['payments_count'] = len(payments)
+
+    # Group by project
+    projects_summary = {}
+    for p in payments:
+        p_name = p['project_name'] or 'مشروع عام'
+        projects_summary[p_name] = round(projects_summary.get(p_name, 0.0) + p['amount'], 2)
+
+    conn.close()
+    return jsonify({
+        'success': True,
+        'subcontractor': subcontractor,
+        'payments': payments,
+        'total_paid': total_paid,
+        'projects_summary': [{'project_name': k, 'total': v} for k, v in projects_summary.items()]
+    })
 
 @app.route('/api/subcontractors/<int:sub_id>', methods=['PUT'])
 def update_subcontractor(sub_id):
@@ -2878,32 +3075,115 @@ def receive_client_payment(payment_id):
         conn.close()
         return jsonify({'error': 'الدفعة غير موجودة'}), 404
         
-    received_amount = float(data.get('received_amount', row['amount_with_tax']))
+    received_amount = float(data.get('received_amount') or 0.0)
+    if received_amount <= 0:
+        conn.close()
+        return jsonify({'error': 'يرجى إدخال مبلغ تحصيل صحيح أكبر من الصفر'}), 400
+
     received_date = data.get('received_date') or datetime.now().strftime('%Y-%m-%d')
     payment_method = data.get('payment_method', 'تحويل بنكي')
-    receipt_voucher_no = data.get('receipt_voucher_no', '')
-    notes = data.get('notes', row['notes'] or '')
-    
-    is_fully_paid = received_amount >= row['amount_with_tax']
-    status = 'paid' if is_fully_paid else ('partially_paid' if received_amount > 0 else 'pending')
-    
+    receipt_voucher_no = data.get('receipt_voucher_no', '').strip()
+    notes = data.get('notes', '').strip()
+
+    project_id = row['project_id']
+    project_name = row['project_name']
+
+    # Fetch this payment and all subsequent pending/partially paid payments for this project
     cursor.execute('''
-        UPDATE client_payments SET
-            received_amount = ?, received_date = ?, is_received = ?,
-            status = ?, payment_method = ?, receipt_voucher_no = ?,
-            notes = ?
-        WHERE id = ?
-    ''', (received_amount, received_date, 1 if is_fully_paid else 0, status, payment_method, receipt_voucher_no, notes, payment_id))
-    
+        SELECT * FROM client_payments
+        WHERE project_id = ? AND (payment_number >= ? OR (payment_number = ? AND id >= ?))
+        ORDER BY payment_number ASC, due_date ASC, id ASC
+    ''', (project_id, row['payment_number'], row['payment_number'], payment_id))
+    chain_payments = [dict(r) for r in cursor.fetchall()]
+
+    remaining_cash = round(received_amount, 2)
+    allocations_details = []
+
+    for idx, cp in enumerate(chain_payments):
+        if remaining_cash <= 0:
+            break
+
+        total_due = float(cp.get('amount_with_tax') or 0.0)
+        curr_recv = float(cp.get('received_amount') or 0.0)
+        rem_needed = max(0.0, round(total_due - curr_recv, 2))
+
+        # If already fully paid and not the target payment, move to next
+        if rem_needed <= 0.01:
+            continue
+
+        if remaining_cash >= rem_needed:
+            alloc = rem_needed
+            new_recv = total_due
+            new_status = 'paid'
+            is_recv = 1
+            remaining_cash = round(remaining_cash - alloc, 2)
+        else:
+            alloc = remaining_cash
+            new_recv = round(curr_recv + alloc, 2)
+            new_status = 'partially_paid' if new_recv > 0 else 'pending'
+            is_recv = 0
+            remaining_cash = 0.0
+
+        # Build comprehensive transaction note
+        prev_notes = (cp.get('notes') or '').strip()
+        ref_txt = f" (مرجع: {receipt_voucher_no})" if receipt_voucher_no else ""
+        if cp['id'] == payment_id:
+            txn_note = f"سداد {alloc:,.2f} ر.س بتاريخ {received_date}{ref_txt}"
+            if notes:
+                txn_note += f" - {notes}"
+        else:
+            txn_note = f"فائض مرحل من دفعة ({row['milestone_name']}): {alloc:,.2f} ر.س بتاريخ {received_date}{ref_txt}"
+
+        combined_notes = f"{prev_notes} | {txn_note}".strip(' |') if prev_notes else txn_note
+
+        # Use new voucher no or keep existing
+        new_voucher = receipt_voucher_no if receipt_voucher_no else cp.get('receipt_voucher_no')
+
+        cursor.execute('''
+            UPDATE client_payments SET
+                received_amount = ?,
+                received_date = ?,
+                is_received = ?,
+                status = ?,
+                payment_method = ?,
+                receipt_voucher_no = ?,
+                notes = ?
+            WHERE id = ?
+        ''', (new_recv, received_date, is_recv, new_status, payment_method, new_voucher, combined_notes, cp['id']))
+
+        allocations_details.append({
+            'milestone_name': cp['milestone_name'],
+            'allocated': alloc,
+            'new_total_received': new_recv,
+            'is_fully_paid': (new_status == 'paid')
+        })
+
+    # If all existing milestones are paid and money still remains
+    surplus_msg = ""
+    if remaining_cash > 0:
+        surplus_msg = f" (متبقي فائض إضافي {remaining_cash:,.2f} ر.س تحت الحساب)"
+
+    if len(allocations_details) > 1:
+        details_txt = " + ".join([f"{a['milestone_name']} (+{a['allocated']:,.2f} ر.س)" for a in allocations_details])
+        resp_msg = f"تم تسجيل الحوالة بمبلغ {received_amount:,.2f} ر.س وتوزيعها: {details_txt}{surplus_msg}"
+    elif len(allocations_details) == 1:
+        a = allocations_details[0]
+        state_txt = "واكتمل سدادها بالكامل ✓" if a['is_fully_paid'] else f"وإجمالي المسدد منها أصبح {a['new_total_received']:,.2f} ر.س"
+        resp_msg = f"تم تسجيل سداد {received_amount:,.2f} ر.س لدفعة '{a['milestone_name']}' {state_txt}{surplus_msg}"
+    else:
+        resp_msg = f"تم استلام المبلغ {received_amount:,.2f} ر.س وفائض تحت الحساب بالكامل{surplus_msg}"
+
     # Notify team
     cursor.execute('''
         INSERT INTO notifications (project_id, type, title, message)
         VALUES (?, 'payment', 'تحصيل دفعة من العميل', ?)
-    ''', (row['project_id'], f"تم تحصيل {received_amount:,.2f} ر.س من العميل لمشروع '{row['project_name']}' - دفعة: {row['milestone_name']}"))
+    ''', (project_id, f"تحصيل {received_amount:,.2f} ر.س من العميل لمشروع '{project_name}' - {resp_msg}"))
     
     conn.commit()
     conn.close()
-    return jsonify({'success': True, 'message': f'تم تسجيل استلام الدفعة بمبلغ {received_amount:,.2f} ر.س بنجاح'})
+    return jsonify({'success': True, 'message': resp_msg})
+
+
 
 @app.route('/api/client-payments/<int:payment_id>', methods=['DELETE'])
 def delete_client_payment(payment_id):
@@ -2931,6 +3211,281 @@ def reset_client_payment(payment_id):
     conn.commit()
     conn.close()
     return jsonify({'success': True, 'message': 'تم إلغاء التحصيل وإعادة الدفعة لحالة الانتظار بنجاح'})
+
+@app.route('/api/client-payments/auto-allocate', methods=['POST'])
+def auto_allocate_client_payment():
+    data = request.json or {}
+    project_id = data.get('project_id')
+    amount_str = data.get('amount')
+    try:
+        amount = float(amount_str)
+    except (TypeError, ValueError):
+        amount = 0.0
+
+    if not project_id:
+        return jsonify({'error': 'يرجى تحديد المشروع المراد تسجيل السداد له'}), 400
+    if amount <= 0:
+        return jsonify({'error': 'يرجى إدخال مبلغ سداد صحيح أكبر من الصفر'}), 400
+
+    payment_date = data.get('payment_date') or datetime.now().strftime('%Y-%m-%d')
+    payment_method = data.get('payment_method', 'تحويل بنكي')
+    receipt_voucher_no = data.get('receipt_voucher_no') or f"REC-{datetime.now().strftime('%y%m%d%H%M')}"
+    received_by = data.get('received_by', '')
+    notes = data.get('notes', '')
+
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute('SELECT id, name, code, client_name FROM projects WHERE id = ?', (project_id,))
+    project = cursor.fetchone()
+    if not project:
+        conn.close()
+        return jsonify({'error': 'المشروع غير موجود'}), 404
+
+    cursor.execute('''
+        SELECT * FROM client_payments 
+        WHERE project_id = ? AND (is_received = 0 OR is_received IS NULL OR status != 'paid')
+        ORDER BY payment_number ASC, due_date ASC, id ASC
+    ''', (project_id,))
+    pending_payments = [dict(row) for row in cursor.fetchall()]
+
+    if not pending_payments:
+        conn.close()
+        return jsonify({
+            'error': f'لا توجد أقساط أو دفعات معلقة على مشروع "{project["name"]}" - العميل مسدد لجميع الدفعات المسجلة بالكامل!'
+        }), 400
+
+    remaining_cash = round(amount, 2)
+    allocations = []
+    fully_paid_count = 0
+    partially_paid_count = 0
+
+    for p in pending_payments:
+        if remaining_cash <= 0:
+            break
+
+        total_due = float(p.get('amount_with_tax') or 0.0)
+        curr_received = float(p.get('received_amount') or 0.0)
+        remaining_milestone = max(0.0, round(total_due - curr_received, 2))
+
+        if remaining_milestone <= 0.01:
+            continue
+
+        if remaining_cash >= remaining_milestone:
+            allocated = remaining_milestone
+            new_received = total_due
+            new_status = 'paid'
+            is_recv = 1
+            remaining_cash = round(remaining_cash - allocated, 2)
+            fully_paid_count += 1
+            rem_on_p = 0.0
+        else:
+            allocated = remaining_cash
+            new_received = round(curr_received + allocated, 2)
+            new_status = 'partially_paid'
+            is_recv = 0
+            rem_on_p = round(total_due - new_received, 2)
+            remaining_cash = 0.0
+            partially_paid_count += 1
+
+        alloc_notes = f"سداد آلي {allocated:,.2f} ر.س (سند {receipt_voucher_no})"
+        existing_notes = p.get('notes') or ''
+        combined_notes = f"{existing_notes} | {alloc_notes}".strip(' |') if existing_notes else alloc_notes
+
+        cursor.execute('''
+            UPDATE client_payments SET
+                received_amount = ?,
+                received_date = ?,
+                is_received = ?,
+                status = ?,
+                payment_method = ?,
+                receipt_voucher_no = COALESCE(?, receipt_voucher_no),
+                notes = ?
+            WHERE id = ?
+        ''', (new_received, payment_date, is_recv, new_status, payment_method, receipt_voucher_no, combined_notes, p['id']))
+
+        allocations.append({
+            'payment_id': p['id'],
+            'payment_number': p['payment_number'],
+            'milestone_name': p['milestone_name'],
+            'previous_received': curr_received,
+            'allocated_amount': allocated,
+            'new_received': new_received,
+            'total_due': total_due,
+            'remaining_due': rem_on_p,
+            'status': new_status,
+            'is_fully_paid': (new_status == 'paid')
+        })
+
+    allocated_total = round(amount - remaining_cash, 2)
+    surplus = round(remaining_cash, 2)
+
+    allocations_json_str = json.dumps(allocations, ensure_ascii=False)
+    cursor.execute('''
+        INSERT INTO client_receipt_vouchers (
+            project_id, voucher_number, amount, payment_date, payment_method, received_by, notes, allocations_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (project_id, receipt_voucher_no, amount, payment_date, payment_method, received_by, notes, allocations_json_str))
+    voucher_id = cursor.lastrowid
+
+    notif_msg = f"تم سداد مبلغ {amount:,.2f} ر.س لمشروع '{project['name']}': إغلاق {fully_paid_count} دفعة بالكامل، وسداد {partially_paid_count} دفعة جزئياً."
+    if surplus > 0:
+        notif_msg += f" (متبقي فائض {surplus:,.2f} ر.س تحت الحساب)"
+
+    cursor.execute('''
+        INSERT INTO notifications (project_id, type, title, message)
+        VALUES (?, 'payment', 'سداد وتوزيع آلي لدفعات العميل', ?)
+    ''', (project_id, notif_msg))
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({
+        'success': True,
+        'message': notif_msg,
+        'voucher_id': voucher_id,
+        'voucher_number': receipt_voucher_no,
+        'project_name': project['name'],
+        'allocated_total': allocated_total,
+        'surplus': surplus,
+        'fully_paid_count': fully_paid_count,
+        'partially_paid_count': partially_paid_count,
+        'allocations': allocations
+    })
+
+@app.route('/api/client-payments/auto-allocate-preview', methods=['GET', 'POST'])
+def auto_allocate_preview():
+    if request.method == 'POST':
+        data = request.json or {}
+        project_id = data.get('project_id')
+        amount_str = data.get('amount', 0)
+    else:
+        project_id = request.args.get('project_id')
+        amount_str = request.args.get('amount', 0)
+
+    try:
+        amount = float(amount_str)
+    except (TypeError, ValueError):
+        amount = 0.0
+
+    if not project_id:
+        return jsonify({'error': 'يرجى تحديد المشروع'}), 400
+
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute('SELECT id, name, code, client_name FROM projects WHERE id = ?', (project_id,))
+    project = cursor.fetchone()
+    if not project:
+        conn.close()
+        return jsonify({'error': 'المشروع غير موجود'}), 404
+
+    cursor.execute('''
+        SELECT * FROM client_payments 
+        WHERE project_id = ? AND (is_received = 0 OR is_received IS NULL OR status != 'paid')
+        ORDER BY payment_number ASC, due_date ASC, id ASC
+    ''', (project_id,))
+    pending_payments = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+
+    total_pending_amount = sum(max(0.0, float(p.get('amount_with_tax') or 0.0) - float(p.get('received_amount') or 0.0)) for p in pending_payments)
+
+    remaining_cash = round(amount, 2)
+    allocations = []
+    fully_paid_count = 0
+    partially_paid_count = 0
+
+    for p in pending_payments:
+        total_due = float(p.get('amount_with_tax') or 0.0)
+        curr_received = float(p.get('received_amount') or 0.0)
+        remaining_milestone = max(0.0, round(total_due - curr_received, 2))
+
+        if remaining_milestone <= 0.01:
+            continue
+
+        if remaining_cash <= 0:
+            allocations.append({
+                'payment_id': p['id'],
+                'payment_number': p['payment_number'],
+                'milestone_name': p['milestone_name'],
+                'previous_received': curr_received,
+                'allocated_amount': 0.0,
+                'new_received': curr_received,
+                'total_due': total_due,
+                'remaining_due': remaining_milestone,
+                'status': p.get('status', 'pending'),
+                'is_fully_paid': False,
+                'action': 'untouched'
+            })
+            continue
+
+        if remaining_cash >= remaining_milestone:
+            allocated = remaining_milestone
+            new_received = total_due
+            rem_on_p = 0.0
+            remaining_cash = round(remaining_cash - allocated, 2)
+            fully_paid_count += 1
+            action = 'full'
+        else:
+            allocated = remaining_cash
+            new_received = round(curr_received + allocated, 2)
+            rem_on_p = round(total_due - new_received, 2)
+            remaining_cash = 0.0
+            partially_paid_count += 1
+            action = 'partial'
+
+        allocations.append({
+            'payment_id': p['id'],
+            'payment_number': p['payment_number'],
+            'milestone_name': p['milestone_name'],
+            'previous_received': curr_received,
+            'allocated_amount': allocated,
+            'new_received': new_received,
+            'total_due': total_due,
+            'remaining_due': rem_on_p,
+            'status': 'paid' if action == 'full' else 'partially_paid',
+            'is_fully_paid': (action == 'full'),
+            'action': action
+        })
+
+    allocated_total = round(amount - remaining_cash, 2)
+    surplus = round(remaining_cash, 2)
+
+    return jsonify({
+        'success': True,
+        'project_id': project['id'],
+        'project_name': project['name'],
+        'total_pending_amount': round(total_pending_amount, 2),
+        'entered_amount': amount,
+        'allocated_total': allocated_total,
+        'surplus': surplus,
+        'fully_paid_count': fully_paid_count,
+        'partially_paid_count': partially_paid_count,
+        'allocations': allocations
+    })
+
+@app.route('/api/client-receipt-vouchers', methods=['GET'])
+def get_client_receipt_vouchers():
+    project_id = request.args.get('project_id')
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+
+    query = '''
+        SELECT crv.*, p.name AS project_name, p.code AS project_code, p.client_name
+        FROM client_receipt_vouchers crv
+        JOIN projects p ON crv.project_id = p.id
+        WHERE 1=1
+    '''
+    params = []
+    if project_id:
+        query += ' AND crv.project_id = ?'
+        params.append(project_id)
+
+    query += ' ORDER BY crv.payment_date DESC, crv.id DESC'
+    cursor.execute(query, params)
+    vouchers = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+    return jsonify({'success': True, 'vouchers': vouchers})
 
 # ----------------- CASH FLOW & LIQUIDITY FORECAST API -----------------
 @app.route('/api/cashflow', methods=['GET'])
@@ -3244,12 +3799,71 @@ def delete_document(doc_id):
     conn.close()
     return jsonify({'success': True, 'message': 'تم حذف المستند'})
 
+# ----------------- AUTHENTICATION API (تسجيل الدخول وكلمات المرور) -----------------
+@app.route('/api/auth/login', methods=['POST'])
+def auth_login():
+    data = request.get_json() or {}
+    identifier = (data.get('username') or '').strip()
+    password = (data.get('password') or '').strip()
+
+    if not identifier or not password:
+        return jsonify({'error': 'يرجى إدخال اسم المستخدم وكلمة المرور'}), 400
+
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT id, name, role, username, phone, email, status, password
+        FROM team_members
+        WHERE (LOWER(username) = LOWER(?) OR name = ? OR name LIKE ? OR email = ? OR (LOWER(?) = 'farouk' AND LOWER(username) = 'nawaf'))
+        LIMIT 1
+    ''', (identifier, identifier, f"%{identifier}%", identifier, identifier))
+    row = cursor.fetchone()
+    conn.close()
+
+    if not row:
+        return jsonify({'error': 'اسم المستخدم غير مسجل بالمنظومة'}), 401
+
+    user = dict(row)
+    if str(user.get('password', '123')) != str(password):
+        return jsonify({'error': 'كلمة المرور غير صحيحة، يرجى المحاولة مجدداً'}), 401
+
+    # Remove password before returning
+    del user['password']
+    return jsonify({'success': True, 'user': user})
+
+@app.route('/api/auth/change-password', methods=['POST'])
+def auth_change_password():
+    data = request.get_json() or {}
+    user_id = data.get('user_id')
+    current_password = (data.get('current_password') or '').strip()
+    new_password = (data.get('new_password') or '').strip()
+
+    if not user_id or not current_password or not new_password:
+        return jsonify({'error': 'جميع الحقول مطلوبة'}), 400
+
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT password FROM team_members WHERE id = ?', (user_id,))
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        return jsonify({'error': 'المستخدم غير موجود'}), 404
+
+    if str(row['password']) != str(current_password):
+        conn.close()
+        return jsonify({'error': 'كلمة المرور الحالية غير صحيحة'}), 400
+
+    cursor.execute('UPDATE team_members SET password = ? WHERE id = ?', (new_password, user_id))
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True, 'message': 'تم تغيير كلمة المرور بنجاح'})
+
 # ----------------- TEAM MEMBERS API -----------------
 @app.route('/api/team', methods=['GET'])
 def get_team():
     conn = database.get_db_connection()
     cursor = conn.cursor()
-    cursor.execute('SELECT * FROM team_members ORDER BY id ASC')
+    cursor.execute('SELECT id, name, role, phone, email, status, username FROM team_members ORDER BY id ASC')
     team = [dict(row) for row in cursor.fetchall()]
     conn.close()
     return jsonify(team)
@@ -3743,6 +4357,534 @@ def get_detailed_reports():
         'categories_summary': categories_summary,
         'subcontractors': subcontractors_data,
         'expenses': expenses_list
+    })
+
+# ==========================================
+# CUSTODY & PETTY CASH API (إدارة العهد النثرية وطلبات الصرف)
+# ==========================================
+
+@app.route('/api/custody', methods=['GET'])
+def get_custody_requests():
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+
+    status_filter = request.args.get('status')
+    project_id = request.args.get('project_id')
+    employee_name = request.args.get('employee_name')
+
+    query = '''
+        SELECT c.*, p.name as project_name, p.code as project_code
+        FROM custody_requests c
+        LEFT JOIN projects p ON c.project_id = p.id
+        WHERE 1=1
+    '''
+    params = []
+
+    if status_filter:
+        query += ' AND c.status = ?'
+        params.append(status_filter)
+    if project_id:
+        query += ' AND c.project_id = ?'
+        params.append(project_id)
+    if employee_name:
+        query += ' AND c.employee_name = ?'
+        params.append(employee_name)
+
+    query += '''
+        ORDER BY 
+            CASE 
+                WHEN c.status = 'pending' THEN 0 
+                WHEN c.status = 'approved' THEN 1 
+                WHEN c.status = 'disbursed' THEN 2 
+                ELSE 3 
+            END, 
+            c.id DESC
+    '''
+
+    cursor.execute(query, params)
+    rows = [dict(r) for r in cursor.fetchall()]
+
+    # Calculate summary metrics across all custody requests
+    cursor.execute('''
+        SELECT 
+            COUNT(*) as total_count,
+            COALESCE(SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END), 0) as pending_count,
+            COALESCE(SUM(CASE WHEN status = 'pending' THEN amount ELSE 0 END), 0) as pending_amount,
+            COALESCE(SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END), 0) as approved_count,
+            COALESCE(SUM(CASE WHEN status = 'approved' THEN amount ELSE 0 END), 0) as approved_amount,
+            COALESCE(SUM(CASE WHEN status = 'disbursed' THEN 1 ELSE 0 END), 0) as disbursed_count,
+            COALESCE(SUM(CASE WHEN status = 'disbursed' THEN disbursed_amount ELSE 0 END), 0) as total_disbursed_active,
+            COALESCE(SUM(CASE WHEN status = 'settled' THEN 1 ELSE 0 END), 0) as settled_count,
+            COALESCE(SUM(CASE WHEN status = 'settled' THEN spent_amount ELSE 0 END), 0) as total_settled_spent,
+            COALESCE(SUM(disbursed_amount), 0) as grand_total_disbursed
+        FROM custody_requests
+    ''')
+    stats_row = dict(cursor.fetchone())
+
+    conn.close()
+
+    return jsonify({
+        'requests': rows,
+        'summary': stats_row
+    })
+
+
+@app.route('/api/custody', methods=['POST'])
+def create_custody_request():
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+
+    if request.is_json:
+        data = request.get_json() or {}
+    else:
+        data = request.form.to_dict()
+
+    employee_name = data.get('employee_name', '').strip()
+    project_id = data.get('project_id')
+    amount = float(data.get('amount', 0))
+    purpose = data.get('purpose', '').strip()
+    request_date = data.get('request_date', datetime.now().strftime('%Y-%m-%d'))
+    approval_notes = data.get('notes', '').strip()
+
+    if not employee_name:
+        conn.close()
+        return jsonify({'error': 'اسم الموظف أو مقدم الطلب مطلوب'}), 400
+    if amount <= 0:
+        conn.close()
+        return jsonify({'error': 'المبلغ المطلوب يجب أن يكون أكبر من صفر'}), 400
+    if not purpose:
+        conn.close()
+        return jsonify({'error': 'الغرض من طلب العهدة مطلوب'}), 400
+
+    try:
+        project_id = int(project_id) if project_id else None
+    except (ValueError, TypeError):
+        project_id = None
+
+    # Generate sequential request_number
+    year_str = datetime.now().strftime('%Y')
+    cursor.execute('SELECT COUNT(*) FROM custody_requests')
+    count = cursor.fetchone()[0] + 1
+    request_number = f"CUST-{year_str}-{count:04d}"
+
+    # Handle optional receipt attachment
+    receipt_file_path = None
+    receipt_file_name = None
+    if 'attachment' in request.files:
+        file = request.files['attachment']
+        if file and file.filename and allowed_file(file.filename):
+            receipt_file_name = secure_filename(file.filename)
+            unique_name = f"custody_{uuid.uuid4().hex[:8]}_{receipt_file_name}"
+            file_path = os.path.join(app.config['UPLOAD_FOLDER'], unique_name)
+            file.save(file_path)
+            receipt_file_path = f"/uploads/{unique_name}"
+
+    cursor.execute('''
+        INSERT INTO custody_requests (
+            request_number, employee_name, project_id, amount, purpose,
+            request_date, status, approval_notes, receipt_file_path, receipt_file_name
+        ) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)
+    ''', (request_number, employee_name, project_id, amount, purpose, request_date, approval_notes, receipt_file_path, receipt_file_name))
+    custody_id = cursor.lastrowid
+
+    # Notification for Financial Manager
+    proj_name = 'مصروف عام / إداري'
+    if project_id:
+        cursor.execute('SELECT name FROM projects WHERE id = ?', (project_id,))
+        p_row = cursor.fetchone()
+        if p_row:
+            proj_name = p_row[0]
+
+    cursor.execute('''
+        INSERT INTO notifications (project_id, type, title, message)
+        VALUES (?, 'custody', 'طلب عهدة جديد ينتظر الاعتماد', ?)
+    ''', (project_id, f"رفع {employee_name} طلب عهدة برقم {request_number} بمبلغ {amount:,.2f} ر.س لمشروع '{proj_name}' - الغرض: {purpose}"))
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({
+        'message': 'تم رفع طلب العهدة بنجاح، وهو الآن في انتظار اعتماد المدير المالي',
+        'id': custody_id,
+        'request_number': request_number
+    }), 201
+
+
+@app.route('/api/custody/<int:custody_id>/approve', methods=['POST'])
+def approve_custody_request(custody_id):
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute('SELECT * FROM custody_requests WHERE id = ?', (custody_id,))
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        return jsonify({'error': 'طلب العهدة غير موجود'}), 404
+
+    data = request.get_json() or {}
+    approved_by = data.get('approved_by', 'ابوالنصر البغدادي (المدير المالي)')
+    approval_notes = data.get('approval_notes', '').strip()
+    now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+    cursor.execute('''
+        UPDATE custody_requests
+        SET status = 'approved',
+            approved_by = ?,
+            approved_at = ?,
+            approval_notes = COALESCE(NULLIF(?, ''), approval_notes)
+        WHERE id = ?
+    ''', (approved_by, now_str, approval_notes, custody_id))
+
+    cursor.execute('''
+        INSERT INTO notifications (project_id, type, title, message)
+        VALUES (?, 'custody', 'تم اعتماد طلب العهدة', ?)
+    ''', (row['project_id'], f"قام {approved_by} باعتماد طلب العهدة {row['request_number']} بمبلغ {row['amount']:,.2f} ر.س للموظف {row['employee_name']} (جاهز للصرف)"))
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({'message': 'تم اعتماد طلب العهدة بنجاح وهو جاهز للصرف'})
+
+
+@app.route('/api/custody/<int:custody_id>/reject', methods=['POST'])
+def reject_custody_request(custody_id):
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute('SELECT * FROM custody_requests WHERE id = ?', (custody_id,))
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        return jsonify({'error': 'طلب العهدة غير موجود'}), 404
+
+    data = request.get_json() or {}
+    rejected_by = data.get('rejected_by', 'ابوالنصر البغدادي (المدير المالي)')
+    rejection_notes = data.get('rejection_notes', '').strip()
+    now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+    cursor.execute('''
+        UPDATE custody_requests
+        SET status = 'rejected',
+            approved_by = ?,
+            approved_at = ?,
+            approval_notes = ?
+        WHERE id = ?
+    ''', (rejected_by, now_str, rejection_notes, custody_id))
+
+    cursor.execute('''
+        INSERT INTO notifications (project_id, type, title, message)
+        VALUES (?, 'custody', 'تم رفض طلب العهدة', ?)
+    ''', (row['project_id'], f"تم رفض طلب العهدة {row['request_number']} للموظف {row['employee_name']}. سبب الرفض: {rejection_notes or 'لم يتم توضيح سبب'}"))
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({'message': 'تم رفض طلب العهدة وتحديث الحالة'})
+
+
+@app.route('/api/custody/<int:custody_id>/disburse', methods=['POST'])
+def disburse_custody(custody_id):
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute('SELECT * FROM custody_requests WHERE id = ?', (custody_id,))
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        return jsonify({'error': 'طلب العهدة غير موجود'}), 404
+
+    if request.is_json:
+        data = request.get_json() or {}
+    else:
+        data = request.form.to_dict()
+
+    disbursed_amount = float(data.get('disbursed_amount', row['amount']))
+    disbursed_date = data.get('disbursed_date', datetime.now().strftime('%Y-%m-%d'))
+    payment_method = data.get('payment_method', 'نقدي')
+    disbursed_by = data.get('disbursed_by', 'ابوالنصر البغدادي (المدير المالي)')
+    receipt_voucher_no = data.get('receipt_voucher_no', '').strip()
+    disbursement_notes = data.get('disbursement_notes', '').strip()
+    record_as_expense = str(data.get('record_as_expense', 'false')).lower() in ('true', '1', 'yes')
+
+    # Receipt file upload if provided
+    receipt_file_path = row['receipt_file_path']
+    receipt_file_name = row['receipt_file_name']
+    if 'receipt_file' in request.files:
+        file = request.files['receipt_file']
+        if file and file.filename and allowed_file(file.filename):
+            receipt_file_name = secure_filename(file.filename)
+            unique_name = f"custody_disburse_{uuid.uuid4().hex[:8]}_{receipt_file_name}"
+            file_path = os.path.join(app.config['UPLOAD_FOLDER'], unique_name)
+            file.save(file_path)
+            receipt_file_path = f"/uploads/{unique_name}"
+
+    cursor.execute('''
+        UPDATE custody_requests
+        SET status = 'disbursed',
+            disbursed_amount = ?,
+            disbursed_date = ?,
+            payment_method = ?,
+            disbursed_by = ?,
+            receipt_voucher_no = ?,
+            disbursement_notes = ?,
+            receipt_file_path = ?,
+            receipt_file_name = ?
+        WHERE id = ?
+    ''', (disbursed_amount, disbursed_date, payment_method, disbursed_by,
+          receipt_voucher_no, disbursement_notes, receipt_file_path, receipt_file_name, custody_id))
+
+    # Optional: Automatically insert into project expenses table
+    if record_as_expense and row['project_id']:
+        cursor.execute('''
+            INSERT INTO expenses (
+                project_id, title, category, amount, payment_method,
+                paid_by, paid_to, expense_date, notes, is_tax_invoice,
+                tax_rate, amount_without_tax, tax_amount, payment_status,
+                paid_amount, payment_date, custody_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0.0, ?, 0.0, 'paid', ?, ?, ?)
+        ''', (
+            row['project_id'],
+            f"عهدة منصرفة - {row['employee_name']} ({row['purpose']})",
+            'نثريات وإداريات',
+            disbursed_amount,
+            'عهدة',
+            disbursed_by,
+            row['employee_name'],
+            disbursed_date,
+            f"سند صرف عهدة رقم {row['request_number']} - {receipt_voucher_no}",
+            disbursed_amount,
+            disbursed_amount,
+            disbursed_date,
+            custody_id
+        ))
+
+    cursor.execute('''
+        INSERT INTO notifications (project_id, type, title, message)
+        VALUES (?, 'custody', 'تم صرف العهدة للموظف', ?)
+    ''', (row['project_id'], f"تم صرف العهدة {row['request_number']} للموظف {row['employee_name']} بمبلغ {disbursed_amount:,.2f} ر.س ({payment_method}) بواسطة {disbursed_by}"))
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({'message': f'تم تسجيل صرف العهدة بنجاح بمبلغ {disbursed_amount:,.2f} ر.س'})
+
+
+@app.route('/api/custody/<int:custody_id>/settle', methods=['POST'])
+def settle_custody(custody_id):
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute('SELECT * FROM custody_requests WHERE id = ?', (custody_id,))
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        return jsonify({'error': 'طلب العهدة غير موجود'}), 404
+
+    if request.is_json:
+        data = request.get_json() or {}
+    else:
+        data = request.form.to_dict()
+
+    disbursed = float(row['disbursed_amount'] or row['amount'])
+    spent_amount = float(data.get('spent_amount', disbursed))
+    returned_amount = float(data.get('returned_amount', max(0.0, disbursed - spent_amount)))
+    settlement_date = data.get('settlement_date', datetime.now().strftime('%Y-%m-%d'))
+    settlement_notes = data.get('settlement_notes', '').strip()
+    settled_by = data.get('settled_by', 'ابوالنصر البغدادي (المدير المالي)')
+
+    cursor.execute('''
+        UPDATE custody_requests
+        SET status = 'settled',
+            spent_amount = ?,
+            returned_amount = ?,
+            settlement_date = ?,
+            settlement_notes = ?,
+            settled_by = ?
+        WHERE id = ?
+    ''', (spent_amount, returned_amount, settlement_date, settlement_notes, settled_by, custody_id))
+
+    cursor.execute('''
+        INSERT INTO notifications (project_id, type, title, message)
+        VALUES (?, 'custody', 'تمت تصفية العهدة وإغلاقها', ?)
+    ''', (row['project_id'], f"تمت تصفية العهدة {row['request_number']} للموظف {row['employee_name']} (المصروف: {spent_amount:,.2f} ر.س - المسترد للخزينة: {returned_amount:,.2f} ر.س)"))
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({'message': 'تمت تصفية العهدة وإغلاق حسابها بنجاح'})
+
+
+@app.route('/api/custody/<int:custody_id>', methods=['GET'])
+def get_single_custody_request(custody_id):
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT c.*, p.name as project_name, p.code as project_code,
+               (COALESCE(c.disbursed_amount, c.amount) - COALESCE(c.spent_amount, 0)) as remaining_balance
+        FROM custody_requests c
+        LEFT JOIN projects p ON c.project_id = p.id
+        WHERE c.id = ?
+    ''', (custody_id,))
+    row = cursor.fetchone()
+    conn.close()
+    if not row:
+        return jsonify({'error': 'طلب العهدة غير موجود'}), 404
+    cust_dict = dict(row)
+    return jsonify({'success': True, 'custody': cust_dict, **cust_dict})
+
+
+@app.route('/api/custody/<int:custody_id>', methods=['PUT'])
+def update_custody_request(custody_id):
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute('SELECT * FROM custody_requests WHERE id = ?', (custody_id,))
+    existing = cursor.fetchone()
+    if not existing:
+        conn.close()
+        return jsonify({'error': 'طلب العهدة غير موجود'}), 404
+
+    existing = dict(existing)
+    if request.is_json:
+        data = request.get_json() or {}
+    else:
+        data = request.form.to_dict()
+
+    employee_name = data.get('employee_name', existing['employee_name']).strip()
+    raw_proj = data.get('project_id')
+    project_id = int(raw_proj) if raw_proj and str(raw_proj).strip() not in ('', 'null', 'None') else None
+    amount = float(data.get('amount', existing['amount']))
+    purpose = data.get('purpose', existing['purpose']).strip()
+    request_date = data.get('request_date', existing['request_date'])
+    notes = data.get('notes', existing.get('approval_notes', ''))
+    status = data.get('status', existing['status'])
+    payment_method = data.get('payment_method', existing.get('payment_method', 'نقدي'))
+
+    raw_disbursed = data.get('disbursed_amount')
+    disbursed_amount = float(raw_disbursed) if raw_disbursed is not None and str(raw_disbursed).strip() != '' else existing.get('disbursed_amount', 0)
+
+    cursor.execute('''
+        UPDATE custody_requests
+        SET employee_name = ?,
+            project_id = ?,
+            amount = ?,
+            purpose = ?,
+            request_date = ?,
+            approval_notes = ?,
+            status = ?,
+            payment_method = ?,
+            disbursed_amount = ?
+        WHERE id = ?
+    ''', (employee_name, project_id, amount, purpose, request_date, notes, status, payment_method, disbursed_amount, custody_id))
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({'success': True, 'message': 'تم تحديث بيانات العهدة بنجاح'})
+
+
+@app.route('/api/custody/<int:custody_id>', methods=['DELETE'])
+def delete_custody_request(custody_id):
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute('SELECT * FROM custody_requests WHERE id = ?', (custody_id,))
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        return jsonify({'error': 'طلب العهدة غير موجود'}), 404
+
+    # Check for linked expenses
+    cursor.execute('SELECT id, invoice_file_path FROM expenses WHERE custody_id = ?', (custody_id,))
+    linked_expenses = cursor.fetchall()
+
+    delete_expenses = request.args.get('delete_expenses') in ('1', 'true', True)
+
+    if delete_expenses and linked_expenses:
+        for exp in linked_expenses:
+            exp_id = exp[0]
+            f_path = exp[1]
+            if f_path:
+                local_p = os.path.join(BASE_DIR, f_path.lstrip('/'))
+                if os.path.exists(local_p):
+                    try:
+                        os.remove(local_p)
+                    except Exception:
+                        pass
+            cursor.execute('DELETE FROM expense_items WHERE expense_id = ?', (exp_id,))
+        cursor.execute('DELETE FROM expenses WHERE custody_id = ?', (custody_id,))
+    else:
+        cursor.execute('UPDATE expenses SET custody_id = NULL WHERE custody_id = ?', (custody_id,))
+
+    cursor.execute('DELETE FROM custody_requests WHERE id = ?', (custody_id,))
+    conn.commit()
+    conn.close()
+
+    msg = f"تم حذف طلب العهدة {row['request_number']} بنجاح"
+    if linked_expenses:
+        if delete_expenses:
+            msg += f" مع حذف كافة الفواتير التابعة لها ({len(linked_expenses)} فاتورة)."
+        else:
+            msg += f" مع فك ارتباط {len(linked_expenses)} فاتورة والإبقاء عليها كمصروفات."
+
+    return jsonify({'success': True, 'message': msg})
+
+
+@app.route('/api/custody/active', methods=['GET'])
+def get_active_custodies():
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT c.*, p.name as project_name, p.code as project_code,
+               (COALESCE(c.disbursed_amount, c.amount) - COALESCE(c.spent_amount, 0)) as remaining_balance
+        FROM custody_requests c
+        LEFT JOIN projects p ON c.project_id = p.id
+        WHERE c.status IN ('disbursed', 'approved')
+        ORDER BY c.id DESC
+    ''')
+    rows = [dict(r) for r in cursor.fetchall()]
+    conn.close()
+    return jsonify(rows)
+
+
+@app.route('/api/custody/<int:custody_id>/expenses', methods=['GET'])
+def get_custody_expenses(custody_id):
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT c.*, p.name as project_name, p.code as project_code
+        FROM custody_requests c
+        LEFT JOIN projects p ON c.project_id = p.id
+        WHERE c.id = ?
+    ''', (custody_id,))
+    cust_row = cursor.fetchone()
+    if not cust_row:
+        conn.close()
+        return jsonify({'error': 'العهدة غير موجودة'}), 404
+
+    custody = dict(cust_row)
+
+    cursor.execute('''
+        SELECT e.*, p.name as project_name, p.code as project_code, s.name as supplier_name
+        FROM expenses e
+        LEFT JOIN projects p ON e.project_id = p.id
+        LEFT JOIN suppliers s ON e.supplier_id = s.id
+        WHERE e.custody_id = ?
+        ORDER BY e.expense_date DESC, e.id DESC
+    ''', (custody_id,))
+    expenses = [dict(r) for r in cursor.fetchall()]
+
+    total_spent = sum(float(x.get('amount') or 0) for x in expenses)
+    disbursed = float(custody.get('disbursed_amount') or custody.get('amount') or 0)
+    remaining = max(0.0, disbursed - total_spent)
+
+    conn.close()
+    return jsonify({
+        'custody': custody,
+        'expenses': expenses,
+        'count': len(expenses),
+        'total_spent': total_spent,
+        'remaining_balance': remaining
     })
 
 if __name__ == '__main__':

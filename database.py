@@ -347,6 +347,7 @@ def init_db():
         amount REAL NOT NULL,
         payment_date TEXT NOT NULL,
         payment_type TEXT NOT NULL DEFAULT 'مستخلص', -- مستخلص, دفعة إنجاز, يوميات, سلفة
+        payment_method TEXT NOT NULL DEFAULT 'نقدي',
         receipt_file_path TEXT,
         receipt_file_name TEXT,
         notes TEXT,
@@ -355,6 +356,13 @@ def init_db():
         FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
     )
     ''')
+
+    cursor.execute('PRAGMA table_info(subcontractor_payments)')
+    subpay_cols = [r[1] for r in cursor.fetchall()]
+    if 'payment_method' not in subpay_cols:
+        cursor.execute("ALTER TABLE subcontractor_payments ADD COLUMN payment_method TEXT DEFAULT 'نقدي'")
+    if 'expense_id' not in subpay_cols:
+        cursor.execute("ALTER TABLE subcontractor_payments ADD COLUMN expense_id INTEGER")
 
     # Client Payments & Milestones (دفعات واستحقاقات العميل)
     cursor.execute('''
@@ -384,6 +392,23 @@ def init_db():
     )
     ''')
 
+    # Client Receipt Vouchers (سندات قبض دفعات العملاء - للتسديد والتوزيع التلقائي)
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS client_receipt_vouchers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        project_id INTEGER NOT NULL,
+        voucher_number TEXT,
+        amount REAL NOT NULL,
+        payment_date TEXT NOT NULL,
+        payment_method TEXT NOT NULL DEFAULT 'تحويل بنكي',
+        received_by TEXT,
+        notes TEXT,
+        allocations_json TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+    )
+    ''')
+
     # Project Documents & Blueprints (المخططات والتراخيص)
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS documents (
@@ -408,9 +433,24 @@ def init_db():
         role TEXT NOT NULL, -- مدير مشاريع, مهندس موقع, محاسب مالي, مشرف تنفيذ, مدير عام
         phone TEXT,
         email TEXT,
-        status TEXT DEFAULT 'active'
+        status TEXT DEFAULT 'active',
+        username TEXT,
+        password TEXT DEFAULT '123'
     )
     ''')
+
+    cursor.execute('PRAGMA table_info(team_members)')
+    tm_cols = [r[1] for r in cursor.fetchall()]
+    if 'username' not in tm_cols:
+        cursor.execute('ALTER TABLE team_members ADD COLUMN username TEXT')
+    if 'password' not in tm_cols:
+        cursor.execute('ALTER TABLE team_members ADD COLUMN password TEXT DEFAULT "123"')
+
+    # Backfill default usernames & passwords
+    cursor.execute('UPDATE team_members SET username = "baghdadi", password = COALESCE(password, "123") WHERE id = 1 AND (username IS NULL OR username = "")')
+    cursor.execute('UPDATE team_members SET username = "jihad", password = COALESCE(password, "123") WHERE id = 2 AND (username IS NULL OR username = "")')
+    cursor.execute('UPDATE team_members SET name = "نواف سجيني", username = "nawaf", email = "nawaf@segieny.sa", password = COALESCE(password, "123") WHERE id = 3 OR username = "farouk" OR name = "فاروق محمد"')
+    cursor.execute('UPDATE team_members SET password = "123" WHERE password IS NULL OR password = ""')
 
     # Notifications / Alerts
     cursor.execute('''
@@ -444,6 +484,45 @@ def init_db():
     )
     ''')
 
+    # Custody Requests & Petty Cash (إدارة العهد النثرية وطلبات الصرف للموظفين)
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS custody_requests (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        request_number TEXT UNIQUE,
+        employee_name TEXT NOT NULL,
+        employee_id INTEGER,
+        project_id INTEGER,
+        amount REAL NOT NULL,
+        purpose TEXT NOT NULL,
+        request_date TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending', -- pending, approved, rejected, disbursed, settled
+        approved_by TEXT,
+        approved_at TIMESTAMP,
+        approval_notes TEXT,
+        disbursed_amount REAL DEFAULT 0,
+        disbursed_date TEXT,
+        payment_method TEXT DEFAULT 'نقدي', -- نقدي, تحويل بنكي, شيك
+        disbursed_by TEXT,
+        disbursement_notes TEXT,
+        receipt_voucher_no TEXT,
+        receipt_file_path TEXT,
+        receipt_file_name TEXT,
+        spent_amount REAL DEFAULT 0,
+        returned_amount REAL DEFAULT 0,
+        settlement_date TEXT,
+        settlement_notes TEXT,
+        settled_by TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL,
+        FOREIGN KEY (employee_id) REFERENCES team_members(id) ON DELETE SET NULL
+    )
+    ''')
+
+    cursor.execute('PRAGMA table_info(expenses)')
+    exp_cols = [r[1] for r in cursor.fetchall()]
+    if 'custody_id' not in exp_cols:
+        cursor.execute('ALTER TABLE expenses ADD COLUMN custody_id INTEGER REFERENCES custody_requests(id) ON DELETE SET NULL')
+
     conn.commit()
 
     # Seed initial data if empty
@@ -459,7 +538,7 @@ def seed_demo_data(cursor):
     team = [
         ('ابوالنصر البغدادي', 'المدير المالي', '0501234567', 'baghdadi@segieny.sa'),
         ('مهندس جهاد', 'مدير المشاريع', '0552345678', 'jihad@segieny.sa'),
-        ('فاروق محمد', 'المدير العام', '0503334455', 'farouk@segieny.sa'),
+        ('نواف سجيني', 'المدير العام', '0503334455', 'nawaf@segieny.sa'),
     ]
     cursor.executemany('INSERT INTO team_members (name, role, phone, email) VALUES (?, ?, ?, ?)', team)
 

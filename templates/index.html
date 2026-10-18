@@ -64,6 +64,95 @@
 </head>
 <body class="bg-slate-900 text-slate-100 font-cairo antialiased min-h-screen flex flex-col selection:bg-emerald-500 selection:text-white overflow-x-hidden">
 
+    <!-- ========================================== -->
+    <!-- AUTHENTICATION / LOGIN SCREEN OVERLAY -->
+    <!-- ========================================== -->
+    <div id="auth-screen" class="fixed inset-0 z-50 bg-slate-950 flex items-center justify-center p-4 overflow-y-auto">
+        <div class="w-full max-w-md bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-2xl shadow-emerald-950/40 space-y-6 relative overflow-hidden animate-scaleUp">
+            
+            <!-- Glow background decorative effect -->
+            <div class="absolute -top-20 -right-20 w-44 h-44 bg-emerald-500/15 rounded-full blur-3xl pointer-events-none"></div>
+            <div class="absolute -bottom-20 -left-20 w-44 h-44 bg-amber-500/15 rounded-full blur-3xl pointer-events-none"></div>
+
+            <!-- Header & Branding -->
+            <div class="text-center space-y-3">
+                <div class="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-tr from-emerald-600 to-teal-500 shadow-lg shadow-emerald-900/50 p-3 mx-auto">
+                    <img src="/static/images/logo-white.png" alt="SGCC Logo" class="h-10 w-auto object-contain">
+                </div>
+                <div>
+                    <h2 class="text-2xl font-black text-white tracking-tight">شركة السجيني للمقاولات</h2>
+                    <p class="text-xs text-emerald-400 font-semibold mt-0.5">المنظومة الرقمية لإدارة المشاريع والمصروفات</p>
+                </div>
+                <div class="pt-2 border-t border-slate-800">
+                    <span class="text-xs text-slate-400 font-medium">تسجيل الدخول للوصول إلى لوحة التحكم</span>
+                </div>
+            </div>
+
+            <!-- Error Alert Box -->
+            <div id="login-error-alert" class="hidden p-3 rounded-xl bg-rose-500/15 border border-rose-500/40 text-rose-300 text-xs font-bold flex items-center gap-2">
+                <i data-lucide="alert-circle" class="w-4 h-4 text-rose-400 shrink-0"></i>
+                <span id="login-error-msg">بيانات الدخول غير صحيحة</span>
+            </div>
+
+            <!-- Login Form -->
+            <form id="login-form" onsubmit="handleLoginSubmit(event)" class="space-y-4">
+                <!-- Username -->
+                <div class="space-y-1.5">
+                    <label class="block text-xs font-bold text-slate-300">اسم المستخدم:</label>
+                    <div class="relative">
+                        <div class="absolute inset-y-0 right-0 pr-3.5 flex items-center pointer-events-none text-slate-500">
+                            <i data-lucide="user" class="w-4 h-4"></i>
+                        </div>
+                        <input type="text" id="login-username" required placeholder="اسم المستخدم (مثال: baghdadi أو jihad أو nawaf)" class="w-full bg-slate-950/80 border border-slate-750 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 rounded-xl pr-10 pl-3 py-2.5 text-sm text-white placeholder-slate-500 outline-none transition">
+                    </div>
+                </div>
+
+                <!-- Password -->
+                <div class="space-y-1.5">
+                    <label class="block text-xs font-bold text-slate-300">كلمة المرور:</label>
+                    <div class="relative">
+                        <div class="absolute inset-y-0 right-0 pr-3.5 flex items-center pointer-events-none text-slate-500">
+                            <i data-lucide="lock" class="w-4 h-4"></i>
+                        </div>
+                        <input type="password" id="login-password" required placeholder="••••••••" class="w-full bg-slate-950/80 border border-slate-750 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 rounded-xl pr-10 pl-10 py-2.5 text-sm text-white placeholder-slate-500 outline-none transition">
+                        <button type="button" onclick="toggleLoginPasswordVisibility()" class="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-500 hover:text-slate-300 transition" title="إظهار/إخفاء كلمة المرور">
+                            <i data-lucide="eye" id="login-eye-icon" class="w-4 h-4"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Submit Button -->
+                <button type="submit" id="btn-login-submit" class="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-sm flex items-center justify-center gap-2 shadow-lg shadow-emerald-950/50 transition">
+                    <i data-lucide="log-in" class="w-4 h-4"></i>
+                    <span id="login-btn-text">تسجيل الدخول للمنظومة</span>
+                </button>
+            </form>
+
+            <!-- Quick accounts guide for team members -->
+            <div class="p-3.5 bg-slate-950/60 rounded-2xl border border-slate-800/80 space-y-2">
+                <span class="text-[11px] font-bold text-slate-400 block">حسابات فريق العمل المسجلة:</span>
+                <div class="grid grid-cols-3 gap-1.5 text-center text-[10px]">
+                    <button type="button" onclick="prefillLogin('baghdadi', '123')" class="p-2 rounded-xl bg-slate-800/60 hover:bg-slate-800 text-slate-300 border border-slate-750/60 transition truncate">
+                        <strong class="text-white block truncate">ابوالنصر</strong>
+                        <span class="text-emerald-400 font-mono text-[9px]">baghdadi</span>
+                    </button>
+                    <button type="button" onclick="prefillLogin('jihad', '123')" class="p-2 rounded-xl bg-slate-800/60 hover:bg-slate-800 text-slate-300 border border-slate-750/60 transition truncate">
+                        <strong class="text-white block truncate">م. جهاد</strong>
+                        <span class="text-amber-400 font-mono text-[9px]">jihad</span>
+                    </button>
+                    <button type="button" onclick="prefillLogin('nawaf', '123')" class="p-2 rounded-xl bg-slate-800/60 hover:bg-slate-800 text-slate-300 border border-slate-750/60 transition truncate">
+                        <strong class="text-white block truncate">نواف سجيني</strong>
+                        <span class="text-purple-400 font-mono text-[9px]">nawaf</span>
+                    </button>
+                </div>
+                <div class="text-[10px] text-slate-500 text-center pt-1.5 border-t border-slate-800/50">
+                    كلمة المرور الافتراضية للجميع: <span class="font-mono text-emerald-400 font-bold">123</span>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
     <!-- Top Navigation Header (Two-tier clean responsive layout) -->
     <header class="sticky top-0 z-40 bg-slate-900/95 backdrop-blur-md border-b border-slate-800 shadow-xl">
         <!-- Top Tier: Brand & Executive Actions -->
@@ -99,7 +188,7 @@
                         <span id="lang-toggle-text">English</span>
                     </button>
 
-                    <!-- Active User Switcher -->
+                    <!-- Active User Menu & Logout -->
                     <div class="relative">
                         <button onclick="toggleUserMenu()" class="p-1.5 sm:pr-2.5 sm:pl-2.5 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-200 border border-slate-700 flex items-center gap-2 transition">
                             <div class="w-7 h-7 rounded-full bg-emerald-600 flex items-center justify-center text-xs font-black text-white relative shrink-0">
@@ -112,22 +201,28 @@
                             </div>
                             <i data-lucide="chevron-down" class="w-3 h-3 text-slate-400"></i>
                         </button>
-                        <div id="user-menu" class="hidden absolute left-0 mt-2 w-64 rounded-2xl bg-slate-850 border border-slate-700 shadow-2xl p-2 z-50 animate-fadeIn">
-                            <div class="px-3 py-2 border-b border-slate-750 mb-1">
-                                <span data-i18n="switch_user_title" class="text-[11px] font-bold text-slate-300 block">تبديل حساب الموظف (اليوزر):</span>
-                                <p data-i18n="switch_user_desc" class="text-[10px] text-slate-500">اختر موظفاً لتجربة المحادثات والصلاحيات باسمه</p>
+                        <div id="user-menu" class="hidden absolute left-0 mt-2 w-64 rounded-2xl bg-slate-850 border border-slate-700 shadow-2xl p-2 z-50 animate-fadeIn space-y-1">
+                            <div class="px-3 py-2 border-b border-slate-750">
+                                <span id="menu-user-name" class="text-xs font-bold text-white block">ابوالنصر البغدادي</span>
+                                <span id="menu-user-role" class="text-[10px] text-emerald-400 block font-semibold">المدير المالي</span>
+                                <span id="menu-user-username" class="text-[9px] text-slate-400 font-mono block mt-0.5">@baghdadi</span>
                             </div>
-                            <div id="user-switch-list" class="space-y-1 max-h-56 overflow-y-auto">
-                                <!-- Populated by JS -->
-                            </div>
-                            <div class="pt-2 mt-2 border-t border-slate-750">
-                                <a href="/api/system/backup" download class="w-full px-2.5 py-1.5 rounded-xl bg-slate-800/80 hover:bg-slate-750 text-amber-400 text-[11px] font-bold flex items-center justify-between transition border border-amber-500/20 shadow-sm" title="تحميل ملف قاعدة البيانات كاملاً على جهازك">
-                                    <span class="flex items-center gap-1.5">
-                                        <i data-lucide="hard-drive-download" class="w-3.5 h-3.5"></i>
-                                        <span>نسخة احتياطية (Backup)</span>
-                                    </span>
-                                    <i data-lucide="download" class="w-3 h-3 text-slate-400"></i>
-                                </a>
+                            <button type="button" onclick="openChangePasswordModal()" class="w-full text-right px-3 py-2 rounded-xl text-xs font-semibold text-slate-300 hover:bg-slate-800 hover:text-white flex items-center gap-2 transition">
+                                <i data-lucide="key-round" class="w-3.5 h-3.5 text-amber-400"></i>
+                                <span>تغيير كلمة المرور</span>
+                            </button>
+                            <a href="/api/system/backup" download class="w-full px-3 py-2 rounded-xl text-xs font-semibold text-slate-300 hover:bg-slate-800 hover:text-white flex items-center justify-between transition">
+                                <span class="flex items-center gap-2">
+                                    <i data-lucide="hard-drive-download" class="w-3.5 h-3.5 text-emerald-400"></i>
+                                    <span>نسخة احتياطية (Backup)</span>
+                                </span>
+                                <i data-lucide="download" class="w-3 h-3 text-slate-400"></i>
+                            </a>
+                            <div class="pt-1 border-t border-slate-750">
+                                <button type="button" onclick="logoutUser()" class="w-full text-right px-3 py-2 rounded-xl text-xs font-bold text-rose-400 hover:bg-rose-500/10 flex items-center gap-2 transition">
+                                    <i data-lucide="log-out" class="w-3.5 h-3.5"></i>
+                                    <span>تسجيل الخروج</span>
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -140,9 +235,17 @@
                             <i data-lucide="chevron-down" class="w-3 h-3"></i>
                         </button>
                         <div id="quick-menu" class="hidden absolute left-0 mt-2 w-56 rounded-xl bg-slate-800 border border-slate-700 shadow-2xl p-1.5 z-50 animate-fadeIn">
+                            <button onclick="openAutoAllocateModal(); toggleQuickMenu()" class="w-full text-right px-3 py-2.5 rounded-lg text-sm font-medium hover:bg-emerald-600/20 hover:text-emerald-400 flex items-center gap-2.5 transition">
+                                <i data-lucide="sparkles" class="w-4 h-4 text-emerald-400"></i>
+                                <span>سداد وتوزيع دفعة عميل (تلقائي)</span>
+                            </button>
                             <button onclick="openModal('expense-modal'); toggleQuickMenu()" class="w-full text-right px-3 py-2.5 rounded-lg text-sm font-medium hover:bg-emerald-600/20 hover:text-emerald-400 flex items-center gap-2.5 transition">
                                 <i data-lucide="receipt" class="w-4 h-4 text-emerald-400"></i>
                                 <span data-i18n="quick_add_expense">تسجيل مصروف مع فاتورة</span>
+                            </button>
+                            <button onclick="openModal('custody-request-modal'); toggleQuickMenu()" class="w-full text-right px-3 py-2.5 rounded-lg text-sm font-medium hover:bg-amber-600/20 hover:text-amber-400 flex items-center gap-2.5 transition">
+                                <i data-lucide="hand-coins" class="w-4 h-4 text-amber-400"></i>
+                                <span>طلب عهدة نقدية للمشروع</span>
                             </button>
                             <button onclick="openModal('task-modal'); toggleQuickMenu()" class="w-full text-right px-3 py-2.5 rounded-lg text-sm font-medium hover:bg-amber-600/20 hover:text-amber-400 flex items-center gap-2.5 transition">
                                 <i data-lucide="check-square" class="w-4 h-4 text-amber-400"></i>
@@ -215,6 +318,11 @@
                     <button onclick="switchTab('subcontractors')" id="nav-subcontractors" class="nav-tab shrink-0 px-3.5 py-1.5 sm:py-2 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-2 text-slate-300 hover:text-white transition-all">
                         <i data-lucide="users" class="w-4 h-4"></i>
                         <span data-i18n="nav_subcontractors">مقاولو الباطن</span>
+                    </button>
+                    <button onclick="switchTab('custody')" id="nav-custody" class="nav-tab shrink-0 px-3.5 py-1.5 sm:py-2 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-2 text-slate-300 hover:text-white transition-all">
+                        <i data-lucide="hand-coins" class="w-4 h-4 text-amber-400"></i>
+                        <span data-i18n="nav_custody">العهد النثرية</span>
+                        <span id="badge-custody-pending" class="px-1.5 py-0.2 text-[10px] rounded-full bg-amber-500/20 text-amber-400 font-bold hidden">0</span>
                     </button>
                     <button onclick="switchTab('documents')" id="nav-documents" class="nav-tab shrink-0 px-3.5 py-1.5 sm:py-2 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-2 text-slate-300 hover:text-white transition-all">
                         <i data-lucide="folder-archive" class="w-4 h-4"></i>
@@ -321,15 +429,15 @@
                     <div class="absolute -bottom-6 -left-6 w-24 h-24 bg-amber-500/5 rounded-full blur-xl pointer-events-none"></div>
                 </div>
 
-                <!-- Card 4: Subcontractor Balance -->
+                <!-- Card 4: Subcontractors Total Paid -->
                 <div class="bg-gradient-to-br from-slate-800 to-slate-850 p-6 rounded-2xl border border-slate-700/80 shadow-lg relative overflow-hidden group hover:border-blue-500/40 transition-all">
                     <div class="flex items-center justify-between">
                         <div>
-                            <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">مستحقات مقاولي الباطن</p>
+                            <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">إجمالي المنصرف لمقاولي الباطن</p>
                             <h3 id="stat-subcontractor-balance" class="text-2xl font-black text-blue-400 mt-1">0 ر.س</h3>
                             <p class="text-xs text-blue-300 mt-2 flex items-center gap-1">
                                 <i data-lucide="credit-card" class="w-3.5 h-3.5"></i>
-                                <span>متبقي صرف مستخلصات</span>
+                                <span>دفعات ومصاريف منصرفة</span>
                             </p>
                         </div>
                         <div class="w-13 h-13 rounded-2xl bg-blue-500/10 border border-blue-500/30 flex items-center justify-center p-3 text-blue-400 group-hover:scale-110 transition-transform">
@@ -631,13 +739,18 @@
                     <div>
                         <label class="text-[11px] text-slate-400 block mb-1">بند الصرف (التصنيف):</label>
                         <select id="expense-filter-category" onchange="loadExpenses()" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white">
-                            <option value="">جميع البنود</option>
+                            <option value="">جميع البنود والتصنيفات</option>
+                            <option value="تجهيز موقع">تجهيز موقع (هدم، تسوير، لوحات، لوازم)</option>
+                            <option value="رواتب وأجور">رواتب وأجور (مهندسين وإداريين وعمالة)</option>
+                            <option value="بدلات ومكافآت">بدلات ومكافآت وحوافز موقع</option>
+                            <option value="إيجارات وتشغيل">إيجارات ومعدات وسيارات تشغيلية</option>
+                            <option value="نثريات وضيافة">نثريات وضيافة ومصاريف موقع</option>
                             <option value="مواد بناء">مواد بناء (حديد، أسمنت، طوب، رمل...)</option>
                             <option value="عمالة ومقاولين باطن">عمالة ومقاولين باطن (يوميات ومستخلصات)</option>
                             <option value="معدات وآليات">معدات وآليات (أوناش، حفارات، خلاطات)</option>
                             <option value="محروقات ونقل">محروقات ونقل وتشوينات</option>
                             <option value="تراخيص وتأمينات">تراخيص وموافقات وتأمينات</option>
-                            <option value="نثريات وإداريات">نثريات وضيافة ومصاريف مكتب</option>
+                            <option value="إداريات ومكتب">إداريات ومطبوعات ومكتب</option>
                         </select>
                     </div>
                     <div>
@@ -716,6 +829,176 @@
             <!-- Subcontractors Grid -->
             <div id="subcontractors-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 <!-- Populated by JS -->
+            </div>
+
+        </div>
+
+        <!-- ========================================== -->
+        <!-- TAB: CUSTODY & PETTY CASH (العهد النثرية وطلبات الصرف للموظفين) -->
+        <!-- ========================================== -->
+        <div id="tab-custody" class="tab-content hidden space-y-6">
+            
+            <!-- Header & Action Buttons -->
+            <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 bg-slate-850 p-5 rounded-2xl border border-slate-800">
+                <div class="space-y-1">
+                    <div class="flex items-center gap-2.5">
+                        <div class="p-2.5 rounded-xl bg-amber-500/20 text-amber-400">
+                            <i data-lucide="hand-coins" class="w-6 h-6"></i>
+                        </div>
+                        <div>
+                            <h2 class="text-2xl font-black text-white">إدارة العهد النثرية ومصروفات الموظفين</h2>
+                            <p class="text-xs text-slate-400">رفع طلبات العهد الميدانية، اعتماد المدير المالي، تسجيل الصرف الفعلي، والتسوية والتصفية</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="flex items-center gap-2 w-full sm:w-auto">
+                    <button onclick="openModal('custody-request-modal')" class="flex-1 sm:flex-none px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-amber-950/40 transition">
+                        <i data-lucide="plus-circle" class="w-4 h-4"></i>
+                        <span>رفع طلب عهدة جديد</span>
+                    </button>
+                    <button onclick="loadCustody()" class="px-3 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-300 hover:text-white text-xs font-bold flex items-center gap-1.5 transition" title="تحديث البيانات">
+                        <i data-lucide="rotate-cw" class="w-4 h-4"></i>
+                    </button>
+                    <button onclick="printCustodyReport()" class="px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-300 hover:text-white text-xs font-bold flex items-center gap-1.5 transition">
+                        <i data-lucide="printer" class="w-4 h-4"></i>
+                        <span class="hidden sm:inline">طباعة كشف العهد</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- KPI Cards Strip -->
+            <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <!-- Card 1: Active Disbursed Custody -->
+                <div class="bg-slate-850 p-4 rounded-2xl border border-slate-800 flex items-center justify-between">
+                    <div class="space-y-1">
+                        <span class="text-xs font-bold text-slate-400 block">رصيد العهد الجارية (النشطة)</span>
+                        <span id="custody-kpi-active" class="text-xl font-black text-emerald-400 font-mono">0.00 ر.س</span>
+                        <span id="custody-kpi-active-count" class="text-[10px] text-slate-500 block">0 عهدة قيد التشغيل</span>
+                    </div>
+                    <div class="p-3 rounded-xl bg-emerald-500/10 text-emerald-400">
+                        <i data-lucide="wallet" class="w-6 h-6"></i>
+                    </div>
+                </div>
+
+                <!-- Card 2: Pending Approval -->
+                <div class="bg-slate-850 p-4 rounded-2xl border border-slate-800 flex items-center justify-between">
+                    <div class="space-y-1">
+                        <span class="text-xs font-bold text-slate-400 block">بانتظار اعتماد المدير المالي</span>
+                        <span id="custody-kpi-pending" class="text-xl font-black text-amber-400 font-mono">0.00 ر.س</span>
+                        <span id="custody-kpi-pending-count" class="text-[10px] text-amber-400/80 block">0 طلب معلق</span>
+                    </div>
+                    <div class="p-3 rounded-xl bg-amber-500/10 text-amber-400">
+                        <i data-lucide="clock" class="w-6 h-6"></i>
+                    </div>
+                </div>
+
+                <!-- Card 3: Approved - Ready for Disburse -->
+                <div class="bg-slate-850 p-4 rounded-2xl border border-slate-800 flex items-center justify-between">
+                    <div class="space-y-1">
+                        <span class="text-xs font-bold text-slate-400 block">معتمدة (جاهزة للصرف)</span>
+                        <span id="custody-kpi-approved" class="text-xl font-black text-blue-400 font-mono">0.00 ر.س</span>
+                        <span id="custody-kpi-approved-count" class="text-[10px] text-blue-400/80 block">0 طلب جاهز للصرف</span>
+                    </div>
+                    <div class="p-3 rounded-xl bg-blue-500/10 text-blue-400">
+                        <i data-lucide="check-circle-2" class="w-6 h-6"></i>
+                    </div>
+                </div>
+
+                <!-- Card 4: Grand Disbursed / Settled -->
+                <div class="bg-slate-850 p-4 rounded-2xl border border-slate-800 flex items-center justify-between">
+                    <div class="space-y-1">
+                        <span class="text-xs font-bold text-slate-400 block">إجمالي العهد المنصرفة</span>
+                        <span id="custody-kpi-total-disbursed" class="text-xl font-black text-purple-400 font-mono">0.00 ر.س</span>
+                        <span id="custody-kpi-settled-count" class="text-[10px] text-slate-500 block">0 عهدة تمت تصفيتها</span>
+                    </div>
+                    <div class="p-3 rounded-xl bg-purple-500/10 text-purple-400">
+                        <i data-lucide="badge-percent" class="w-6 h-6"></i>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Role Notice Banner for Financial Manager / Team -->
+            <div id="custody-role-banner" class="bg-slate-850/80 p-3.5 rounded-xl border border-slate-800 flex items-center justify-between gap-3 text-xs">
+                <div class="flex items-center gap-2">
+                    <i data-lucide="shield-check" class="w-4 h-4 text-emerald-400 shrink-0"></i>
+                    <span class="text-slate-300">
+                        الحساب الحالي: <strong id="custody-current-user-badge" class="text-white">ابوالنصر البغدادي (المدير المالي)</strong> —
+                        <span id="custody-permission-desc" class="text-emerald-400 font-semibold">تملك صلاحية الاعتماد وصرف العهد</span>
+                    </span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span class="text-[11px] text-slate-500 hidden sm:inline">يحق لجميع أفراد الفريق رفع طلبات العهد، ويعتمدها ويصرفها المدير المالي</span>
+                </div>
+            </div>
+
+            <!-- Search & Filters Strip -->
+            <div class="bg-slate-850 p-4 rounded-xl border border-slate-800 space-y-3">
+                <!-- Status Tabs Filter -->
+                <div class="flex items-center gap-1.5 overflow-x-auto pb-1 border-b border-slate-800 text-xs">
+                    <button onclick="setCustodyStatusFilter('')" id="custody-filter-all" class="custody-filter-btn px-3 py-1.5 rounded-lg font-bold bg-amber-500/20 text-amber-400 transition">
+                        الكل (<span id="custody-count-all">0</span>)
+                    </button>
+                    <button onclick="setCustodyStatusFilter('pending')" id="custody-filter-pending" class="custody-filter-btn px-3 py-1.5 rounded-lg font-bold text-slate-400 hover:text-white transition">
+                        ⏳ بانتظار الاعتماد (<span id="custody-count-pending">0</span>)
+                    </button>
+                    <button onclick="setCustodyStatusFilter('approved')" id="custody-filter-approved" class="custody-filter-btn px-3 py-1.5 rounded-lg font-bold text-slate-400 hover:text-white transition">
+                        ✅ معتمدة بانتظار الصرف (<span id="custody-count-approved">0</span>)
+                    </button>
+                    <button onclick="setCustodyStatusFilter('disbursed')" id="custody-filter-disbursed" class="custody-filter-btn px-3 py-1.5 rounded-lg font-bold text-slate-400 hover:text-white transition">
+                        💵 تم الصرف (جارية) (<span id="custody-count-disbursed">0</span>)
+                    </button>
+                    <button onclick="setCustodyStatusFilter('settled')" id="custody-filter-settled" class="custody-filter-btn px-3 py-1.5 rounded-lg font-bold text-slate-400 hover:text-white transition">
+                        📁 مصفاة ومغلقة (<span id="custody-count-settled">0</span>)
+                    </button>
+                    <button onclick="setCustodyStatusFilter('rejected')" id="custody-filter-rejected" class="custody-filter-btn px-3 py-1.5 rounded-lg font-bold text-slate-400 hover:text-white transition">
+                        ❌ مرفوضة (<span id="custody-count-rejected">0</span>)
+                    </button>
+                </div>
+
+                <!-- Secondary Filters: Project & Search -->
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div class="relative sm:col-span-2">
+                        <i data-lucide="search" class="w-4 h-4 text-slate-500 absolute right-3 top-1/2 -translate-y-1/2"></i>
+                        <input type="text" id="custody-search-input" oninput="applyCustodyFilters()" placeholder="بحث برقم الطلب، اسم الموظف، الغرض، أو المشروع..." class="w-full bg-slate-900 border border-slate-750 rounded-xl pr-9 pl-3 py-2 text-white text-xs focus:border-amber-500 outline-none">
+                    </div>
+                    <div>
+                        <select id="custody-project-filter" onchange="applyCustodyFilters()" class="w-full bg-slate-900 border border-slate-750 rounded-xl px-3 py-2 text-white text-xs focus:border-amber-500 outline-none">
+                            <option value="">جميع المشاريع</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Custody Requests Table -->
+            <div class="bg-slate-850 rounded-2xl border border-slate-800 overflow-hidden shadow-xl">
+                <div class="overflow-x-auto">
+                    <table class="w-full text-right border-collapse text-xs">
+                        <thead>
+                            <tr class="bg-slate-900/90 text-slate-300 border-b border-slate-800 font-bold">
+                                <th class="p-3.5 text-center">رقم الطلب</th>
+                                <th class="p-3.5">مقدم الطلب (الموظف)</th>
+                                <th class="p-3.5">المشروع</th>
+                                <th class="p-3.5">الغرض وبيان العهدة</th>
+                                <th class="p-3.5 text-left font-mono">المبلغ المطلوب</th>
+                                <th class="p-3.5 text-left font-mono">المبلغ المنصرف</th>
+                                <th class="p-3.5 text-center">تاريخ الطلب</th>
+                                <th class="p-3.5 text-center">حالة الطلب</th>
+                                <th class="p-3.5 text-center">الإجراءات</th>
+                            </tr>
+                        </thead>
+                        <tbody id="custody-table-body" class="divide-y divide-slate-800/60">
+                            <!-- Populated by JS -->
+                        </tbody>
+                    </table>
+                </div>
+                <!-- Empty State -->
+                <div id="custody-empty-state" class="hidden text-center py-12 px-4 space-y-3">
+                    <div class="w-12 h-12 rounded-full bg-slate-800 text-slate-500 flex items-center justify-center mx-auto">
+                        <i data-lucide="hand-coins" class="w-6 h-6"></i>
+                    </div>
+                    <p class="text-sm font-bold text-slate-300">لا توجد طلبات عهد مطابقة للفلاتر الحالية</p>
+                    <p class="text-xs text-slate-500">يمكن لأي عضو من فريق العمل رفع طلب عهدة نقدية للمشروع في أي وقت</p>
+                </div>
             </div>
 
         </div>
@@ -1835,8 +2118,28 @@
             <form id="expense-form" onsubmit="submitExpenseForm(event)" class="space-y-4 text-xs">
                 <input type="hidden" id="expense-edit-id" value="">
                 <input type="hidden" id="expense-remove-file" value="0">
+                <input type="hidden" id="expense-form-mode" value="general">
+
+                <!-- Mode Switcher: مصروف عام / رواتب vs فاتورة مورد ومواد -->
+                <div class="grid grid-cols-2 p-1 bg-slate-900 rounded-2xl border border-slate-750 gap-1.5 shadow-inner">
+                    <button type="button" id="tab-expense-mode-general" onclick="setExpenseFormMode('general')" class="flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl font-bold text-xs transition duration-200 bg-emerald-600 text-white shadow">
+                        <i data-lucide="wallet" class="w-4 h-4"></i>
+                        <span>مصروف عام / رواتب وتشغيل</span>
+                    </button>
+                    <button type="button" id="tab-expense-mode-supplier" onclick="setExpenseFormMode('supplier')" class="flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl font-bold text-xs transition duration-200 text-slate-400 hover:text-slate-200 hover:bg-slate-800">
+                        <i data-lucide="truck" class="w-4 h-4"></i>
+                        <span>فاتورة مورد ومواد</span>
+                    </button>
+                </div>
+
                 <div>
-                    <label class="block font-bold text-slate-300 mb-1">المشروع التابع له المصروف *</label>
+                    <div class="flex items-center justify-between mb-1">
+                        <label class="block font-bold text-slate-300">المشروع التابع له المصروف *</label>
+                        <span class="text-[10px] text-emerald-400 font-bold bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20 flex items-center gap-1">
+                            <i data-lucide="check-circle" class="w-3 h-3"></i>
+                            <span>صلاحية نقل المصروف لأي مشروع مفعلة</span>
+                        </span>
+                    </div>
                     <select id="expense-project-id" onchange="loadPhasesForExpenseModal(this.value)" required class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2.5 text-white focus:border-emerald-500 text-sm">
                         <!-- Populated by JS -->
                     </select>
@@ -1858,7 +2161,7 @@
                 </div>
 
                 <!-- Supplier & Quotation Price Comparison Zone -->
-                <div class="p-3.5 bg-slate-800/90 rounded-xl border border-amber-500/30 space-y-3">
+                <div id="expense-supplier-zone" class="hidden p-3.5 bg-slate-800/90 rounded-xl border border-amber-500/30 space-y-3">
                     <div class="flex items-center justify-between">
                         <label class="font-bold text-amber-400 text-xs flex items-center gap-1.5">
                             <i data-lucide="truck" class="w-4 h-4 text-amber-400"></i>
@@ -1940,7 +2243,7 @@
                 </div>
 
                 <!-- Multi-Line Items Section (جدول بنود وأصناف الفاتورة المتعددة) -->
-                <div class="p-3.5 bg-slate-800/90 rounded-xl border border-slate-700/80 space-y-3">
+                <div id="expense-items-zone" class="hidden p-3.5 bg-slate-800/90 rounded-xl border border-slate-700/80 space-y-3">
                     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-750">
                         <div>
                             <label class="font-bold text-slate-200 text-xs flex items-center gap-1.5">
@@ -2049,20 +2352,52 @@
                 </div>
 
                 <div>
-                    <label class="block font-bold text-slate-300 mb-1">بند الصرف (التصنيف) *</label>
-                    <select id="expense-category" required class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2.5 text-white focus:border-emerald-500 text-sm">
-                        <option value="مواد بناء">مواد بناء (حديد، أسمنت، خرسانة، طوب/بلك)</option>
-                        <option value="عمالة ومقاولين باطن">عمالة ومقاولين باطن (يوميات ومستخلصات)</option>
-                        <option value="معدات وآليات">معدات وآليات (أوناش، سقالات، حفار)</option>
-                        <option value="محروقات ونقل">محروقات ونقل وتشوينات</option>
-                        <option value="تراخيص وتأمينات">تراخيص وتأمينات وهندسي</option>
-                        <option value="نثريات وإداريات">نثريات وضيافة ومصاريف موقع</option>
-                    </select>
+                    <div class="flex items-center justify-between mb-1">
+                        <label class="block font-bold text-slate-300">بند الصرف (التصنيف) *</label>
+                        <button type="button" onclick="toggleCustomExpenseCategoryInput()" class="text-[11px] text-emerald-400 hover:text-emerald-300 font-semibold flex items-center gap-1 transition">
+                            <i data-lucide="plus-circle" class="w-3.5 h-3.5"></i>
+                            <span>+ كتابة مسمى تصنيف جديد</span>
+                        </button>
+                    </div>
+                    <div id="expense-category-select-wrapper">
+                        <select id="expense-category" onchange="onExpenseCategoryChanged(this.value)" required class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2.5 text-white focus:border-emerald-500 text-sm">
+                            <option value="رواتب وأجور">رواتب وأجور (رواتب مهندسين وإداريين وعمالة محملة ع المشروع)</option>
+                            <option value="بدلات ومكافآت">بدلات ومكافآت وحوافز موقع</option>
+                            <option value="إيجارات وتشغيل">إيجارات ومعدات وسيارات تشغيلية</option>
+                            <option value="نثريات وضيافة">نثريات وضيافة ومصاريف موقع</option>
+                            <option value="مواد بناء">مواد بناء (حديد، أسمنت، خرسانة، طوب/بلك)</option>
+                            <option value="عمالة ومقاولين باطن">عمالة ومقاولين باطن (يوميات ومستخلصات)</option>
+                            <option value="معدات وآليات">معدات وآليات (أوناش، سقالات، حفار)</option>
+                            <option value="محروقات ونقل">محروقات ونقل وتشوينات</option>
+                            <option value="تراخيص وتأمينات">تراخيص وتأمينات ورسوم رسمية</option>
+                            <option value="إداريات ومكتب">إداريات ومطبوعات ومصاريف مكتب</option>
+                            <option value="__custom__">➕ كتابة مسمى / تصنيف مخصص آخر...</option>
+                        </select>
+                    </div>
+
+                    <!-- Custom Category Input Box -->
+                    <div id="expense-custom-category-box" class="hidden mt-2 p-2.5 bg-slate-900 border border-emerald-500/40 rounded-xl space-y-1.5">
+                        <div class="flex items-center justify-between">
+                            <span class="text-[11px] text-emerald-400 font-bold flex items-center gap-1">
+                                <i data-lucide="edit-3" class="w-3.5 h-3.5"></i>
+                                <span>مسمى بند المصروف المخصص:</span>
+                            </span>
+                            <button type="button" onclick="cancelCustomExpenseCategory()" class="text-[10px] text-slate-400 hover:text-slate-200">
+                                إلغاء والعودة للقائمة
+                            </button>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <input type="text" id="expense-custom-category-input" placeholder="اكتب مسمى التصنيف بحرية (مثال: رواتب شهر مايو، حراسة أمنية، صيانة دورية...)" class="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-white text-xs focus:border-emerald-500">
+                            <button type="button" onclick="confirmCustomExpenseCategory()" class="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shrink-0">
+                                اعتماد وتطبيق
+                            </button>
+                        </div>
+                    </div>
                 </div>
 
                 <div>
                     <label class="block font-bold text-slate-300 mb-1">بيان المصروف بالتفصيل *</label>
-                    <input type="text" id="expense-title" required placeholder="مثال: توريد 20 طن حديد سابك لزوم خرسانة السقف" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2.5 text-white focus:border-emerald-500 text-sm">
+                    <input type="text" id="expense-title" required placeholder="مثال: رواتب مهندسي وعمالة المشروع لشهر مايو، عهدة مصاريف..." class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2.5 text-white focus:border-emerald-500 text-sm">
                 </div>
 
                 <div class="grid grid-cols-1 sm:grid-cols-4 gap-3">
@@ -2080,11 +2415,12 @@
                     </div>
                     <div id="expense-payment-method-container">
                         <label class="block font-bold text-slate-300 mb-1">طريقة الدفع</label>
-                        <select id="expense-payment-method" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white text-xs">
+                        <select id="expense-payment-method" onchange="onExpensePaymentMethodChanged()" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white text-xs">
                             <option value="تحويل بنكي">تحويل بنكي / سريع (سداد)</option>
                             <option value="مدى">بطاقة مدى / إلكتروني</option>
                             <option value="شيك">شيك مصرفي</option>
-                            <option value="نقدي">نقدي (كاش / عهدة)</option>
+                            <option value="نقدي">نقدي (كاش الخزينة)</option>
+                            <option value="عهدة">عهدة (خصم من عهدة مستلمة لموظف)</option>
                             <option value="آجل">آجل / استحقاق لاحق</option>
                         </select>
                     </div>
@@ -2093,8 +2429,30 @@
                         <input type="text" id="expense-paid-by" placeholder="مثال: م. سلطان الشمري" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white text-xs">
                     </div>
                     <div>
-                        <label class="block font-bold text-slate-300 mb-1">المدفوع له (المورد/المقاول)</label>
-                        <input type="text" id="expense-paid-to" placeholder="مثال: مصنع السويس" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white text-xs">
+                        <label id="expense-paid-to-label" class="block font-bold text-slate-300 mb-1">المدفوع له / المستفيد</label>
+                        <input type="text" id="expense-paid-to" placeholder="مثال: اسم الموظف، العهدة، المستحق" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white text-xs">
+                    </div>
+                </div>
+
+                <!-- Custody Deduction Selection Panel (يظهر عند اختيار طريقة الدفع: عهدة) -->
+                <div id="expense-custody-select-container" class="hidden p-3.5 bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-slate-900 border border-amber-500/30 rounded-xl space-y-2.5">
+                    <div class="flex items-center justify-between">
+                        <label class="block font-bold text-amber-300 text-xs flex items-center gap-1.5">
+                            <i data-lucide="wallet" class="w-4 h-4 text-amber-400"></i>
+                            <span>اختر العهدة المطلوب الخصم المباشر منها *</span>
+                        </label>
+                        <span id="expense-custody-balance-badge" class="px-2 py-0.5 rounded text-[11px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 hidden font-mono"></span>
+                    </div>
+                    <select id="expense-custody-id" onchange="onExpenseCustodyChanged()" class="w-full bg-slate-900 border border-amber-500/40 focus:border-amber-400 rounded-xl px-3 py-2 text-white text-xs">
+                        <option value="">-- جارِ تحميل العهد المتاحة للخصم... --</option>
+                    </select>
+                    <div id="expense-custody-info" class="text-[11px] text-slate-400 flex items-center justify-between hidden">
+                        <span id="expense-custody-emp-text"></span>
+                        <span id="expense-custody-proj-text" class="text-amber-400 font-medium"></span>
+                    </div>
+                    <div id="expense-custody-warning" class="text-[11px] text-rose-400 font-bold hidden flex items-center gap-1.5 bg-rose-500/10 p-2 rounded-lg border border-rose-500/20">
+                        <i data-lucide="alert-triangle" class="w-4 h-4 shrink-0"></i>
+                        <span>تنبيه: مبلغ الفاتورة يتجاوز الرصيد المتبقي في هذه العهدة!</span>
                     </div>
                 </div>
 
@@ -2159,6 +2517,81 @@
                     <button type="submit" id="btn-save-expense" class="px-6 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold flex items-center gap-2 shadow-lg shadow-emerald-950/40">
                         <i data-lucide="save" class="w-4 h-4"></i>
                         <span id="expense-btn-submit-text">حفظ المصروف والفاتورة</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 1B. TRANSFER EXPENSE MODAL (نقل مصروف لمشروع آخر) -->
+    <div id="transfer-expense-modal" class="modal-overlay hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+        <div class="bg-slate-850 rounded-2xl border border-slate-750 w-full max-w-lg shadow-2xl p-6 space-y-5 animate-scaleUp">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-750">
+                <div class="flex items-center gap-2.5">
+                    <div class="p-2.5 rounded-xl bg-emerald-500/20 text-emerald-400">
+                        <i data-lucide="arrow-right-left" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-black text-lg text-white">نقل مصروف إلى مشروع آخر</h3>
+                        <p class="text-xs text-slate-400">تحويل قيد وتكلفة المصروف بالكامل إلى مشروع جديد</p>
+                    </div>
+                </div>
+                <button onclick="closeModal('transfer-expense-modal')" class="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <!-- Expense Summary Card -->
+            <div class="bg-slate-900/90 border border-slate-750 rounded-xl p-4 space-y-2 text-xs">
+                <div class="flex items-center justify-between">
+                    <span class="text-slate-400">بيان المصروف:</span>
+                    <strong id="transfer-exp-title" class="text-white text-sm"></strong>
+                </div>
+                <div class="flex items-center justify-between">
+                    <span class="text-slate-400">المبلغ الإجمالي:</span>
+                    <strong id="transfer-exp-amount" class="text-rose-400 font-mono text-sm"></strong>
+                </div>
+                <div class="flex items-center justify-between pt-2 border-t border-slate-800">
+                    <span class="text-slate-400">المشروع الحالي:</span>
+                    <span id="transfer-exp-current-project" class="text-amber-400 font-bold"></span>
+                </div>
+            </div>
+
+            <form id="transfer-expense-form" onsubmit="submitTransferExpenseForm(event)" class="space-y-4 text-xs">
+                <input type="hidden" id="transfer-exp-id">
+
+                <div>
+                    <label class="block font-bold text-slate-300 mb-1">المشروع الجديد المحول إليه المصروف *</label>
+                    <select id="transfer-exp-new-project-id" onchange="loadPhasesForTransferModal(this.value)" required class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2.5 text-white font-bold text-sm focus:border-emerald-500">
+                        <!-- Populated by JS -->
+                    </select>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                        <label class="block font-bold text-slate-300 mb-1">المرحلة في المشروع الجديد (اختياري)</label>
+                        <select id="transfer-exp-phase-id" onchange="loadItemsForTransferModal(this.value)" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white text-xs">
+                            <option value="">-- عام للمشروع (بدون مرحلة) --</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block font-bold text-slate-300 mb-1">بند الأعمال (اختياري)</label>
+                        <select id="transfer-exp-item-id" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white text-xs">
+                            <option value="">-- عام للمرحلة --</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block font-bold text-slate-300 mb-1">سبب أو بيان النقل (اختياري)</label>
+                    <textarea id="transfer-exp-notes" rows="2" placeholder="مثال: تم التوريد لمشروع آخر / خطأ في تسجيل الموقع..." class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white text-xs"></textarea>
+                </div>
+
+                <div class="flex items-center justify-end gap-3 pt-3 border-t border-slate-750">
+                    <button type="button" onclick="closeModal('transfer-expense-modal')" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold">إلغاء</button>
+                    <button type="submit" id="btn-submit-transfer-expense" class="px-6 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold flex items-center gap-2 shadow-lg shadow-emerald-950/40">
+                        <i data-lucide="arrow-right-left" class="w-4 h-4"></i>
+                        <span>تأكيد نقل المصروف للمشروع الجديد</span>
                     </button>
                 </div>
             </form>
@@ -2441,22 +2874,17 @@
                     </div>
                 </div>
 
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                        <label class="block font-bold text-slate-300 mb-1">المشروع المخصص له</label>
-                        <select id="sub-project-id" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2.5 text-white text-sm">
-                            <!-- Populated -->
-                        </select>
-                    </div>
-                    <div>
-                        <label class="block font-bold text-slate-300 mb-1">إجمالي قيمة الاتفاق (ر.س)</label>
-                        <input type="number" step="0.01" id="sub-agreed-amount" placeholder="0" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2.5 text-white text-sm font-bold text-blue-400">
-                    </div>
+                <div>
+                    <label class="block font-bold text-slate-300 mb-1">المشروع الأساسي / الافتراضي (اختياري)</label>
+                    <select id="sub-project-id" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2.5 text-white text-sm">
+                        <!-- Populated -->
+                    </select>
+                    <input type="hidden" id="sub-agreed-amount" value="0">
                 </div>
 
                 <div>
-                    <label class="block font-bold text-slate-300 mb-1">ملاحظات العقد أو شروط الصرف</label>
-                    <textarea id="sub-notes" rows="2" placeholder="مستخلصات حسب المتر المسطح، خصم تأمين..." class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white"></textarea>
+                    <label class="block font-bold text-slate-300 mb-1">ملاحظات أو طبيعة الأعمال والبنود</label>
+                    <textarea id="sub-notes" rows="2" placeholder="ملاحظات الحساب، أسعار البنود، شروط الدفع..." class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white"></textarea>
                 </div>
 
                 <div class="flex items-center justify-end gap-3 pt-3 border-t border-slate-750">
@@ -2470,7 +2898,7 @@
         </div>
     </div>
 
-    <!-- 5. SUBCONTRACTOR PAYMENT / مستخلص MODAL -->
+    <!-- 5. SUBCONTRACTOR PAYMENT / صرف مصروف لمقاول MODAL -->
     <div id="sub-payment-modal" class="modal-overlay hidden fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
         <div class="bg-slate-850 rounded-2xl border border-slate-750 w-full max-w-lg shadow-2xl p-6 space-y-5 animate-scaleUp">
             <div class="flex items-center justify-between pb-3 border-b border-slate-750">
@@ -2479,8 +2907,8 @@
                         <i data-lucide="badge-dollar-sign" class="w-5 h-5"></i>
                     </div>
                     <div>
-                        <h3 class="font-black text-lg text-white">صرف مستخلص / دفعة لمقاول</h3>
-                        <p id="sub-pay-target-name" class="text-xs text-emerald-400"></p>
+                        <h3 class="font-black text-lg text-white">صرف دفعة / مصروف لمقاول باطن</h3>
+                        <p id="sub-pay-target-name" class="text-xs text-emerald-400 font-bold"></p>
                     </div>
                 </div>
                 <button onclick="closeModal('sub-payment-modal')" class="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800">
@@ -2491,45 +2919,101 @@
             <form id="sub-payment-form" onsubmit="submitSubPaymentForm(event)" class="space-y-4 text-xs">
                 <input type="hidden" id="sub-pay-id">
 
+                <!-- 1. المشروع المستهدف -->
+                <div>
+                    <label class="block font-bold text-slate-300 mb-1">المشروع المستهدف للصرف عليه *</label>
+                    <select id="sub-pay-project-id" required class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2.5 text-white text-sm font-semibold focus:border-emerald-500">
+                        <!-- Populated by JS -->
+                    </select>
+                </div>
+
+                <!-- 2. المبلغ وطريقة الدفع -->
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                         <label class="block font-bold text-slate-300 mb-1">المبلغ المصروف (ر.س) *</label>
-                        <input type="number" step="0.01" id="sub-pay-amount" required placeholder="0" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2.5 text-white font-bold text-emerald-400 text-sm">
+                        <input type="number" step="0.01" id="sub-pay-amount" required placeholder="0.00" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2.5 text-white font-black text-emerald-400 text-sm focus:border-emerald-500">
                     </div>
                     <div>
-                        <label class="block font-bold text-slate-300 mb-1">نوع الدفعة</label>
-                        <select id="sub-pay-type" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2.5 text-white text-sm">
-                            <option value="مستخلص جاري">مستخلص جاري عن أعمال</option>
-                            <option value="سلفة / دفعة نقدية">سلفة نقدية</option>
-                            <option value="مستخلص ختامي">مستخلص ختامي وتصفية</option>
+                        <label class="block font-bold text-slate-300 mb-1">طريقة الصرف</label>
+                        <select id="sub-pay-method" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2.5 text-white text-sm">
+                            <option value="نقدي">نقدي (كاش / عهدة)</option>
+                            <option value="تحويل بنكي">تحويل بنكي</option>
+                            <option value="شيك">شيك بنكي</option>
                         </select>
                     </div>
                 </div>
 
-                <div>
-                    <label class="block font-bold text-slate-300 mb-1">تاريخ الصرف</label>
-                    <input type="date" id="sub-pay-date" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white">
+                <!-- 3. نوع الصرف وتاريخ الصرف -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block font-bold text-slate-300 mb-1">نوع المصروف / الدفعة</label>
+                        <select id="sub-pay-type" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2.5 text-white text-sm">
+                            <option value="دفعة أعمال">دفعة أعمال وإنجاز</option>
+                            <option value="مستخلص أعمال">مستخلص جاري عن أعمال</option>
+                            <option value="سلفة نقدية">سلفة نقدية تحت الحساب</option>
+                            <option value="يوميات عمالة">يوميات عمالة وموقع</option>
+                            <option value="تصفية نهائية">تصفية نهائية</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block font-bold text-slate-300 mb-1">تاريخ الصرف *</label>
+                        <input type="date" id="sub-pay-date" required class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white text-sm">
+                    </div>
                 </div>
 
-                <!-- Receipt Upload -->
+                <!-- 4. سند القبض / الإيصال -->
                 <div>
-                    <label class="block font-bold text-slate-300 mb-1">إرفاق سند القبض / الإيصال الموقع</label>
+                    <label class="block font-bold text-slate-300 mb-1">إرفاق سند القبض / الإيصال الموقع (اختياري)</label>
                     <input type="file" id="sub-pay-receipt-file" accept="image/*,application/pdf" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-slate-300 text-xs">
                 </div>
 
+                <!-- 5. ملاحظات الصرف -->
                 <div>
-                    <label class="block font-bold text-slate-300 mb-1">ملاحظات الصرف والبنود المستلمة</label>
-                    <textarea id="sub-pay-notes" rows="2" placeholder="عن صب سقف كذا، بعد خصم تأمينات..." class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white"></textarea>
+                    <label class="block font-bold text-slate-300 mb-1">بيان المصروف والبنود المنفذة</label>
+                    <textarea id="sub-pay-notes" rows="2" placeholder="عن صب سقف، تركيب حديد، دفعة من أعمال السباكة بالمشروع..." class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white"></textarea>
                 </div>
 
                 <div class="flex items-center justify-end gap-3 pt-3 border-t border-slate-750">
                     <button type="button" onclick="closeModal('sub-payment-modal')" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold">إلغاء</button>
                     <button type="submit" class="px-6 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold flex items-center gap-2">
                         <i data-lucide="check-check" class="w-4 h-4"></i>
-                        <span>قيد المستخلص وترحيل المصروف</span>
+                        <span>قيد المصروف وترحيله للمشروع</span>
                     </button>
                 </div>
             </form>
+        </div>
+    </div>
+
+    <!-- 5B. SUBCONTRACTOR STATEMENT / كشف حساب مقاول باطن MODAL -->
+    <div id="subcontractor-statement-modal" class="modal-overlay hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-6">
+        <div class="bg-slate-900 rounded-2xl border border-slate-750 w-full max-w-4xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden animate-scaleUp">
+            <!-- Modal Header / Actions -->
+            <div class="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-850">
+                <div class="flex items-center gap-3">
+                    <div class="p-2.5 rounded-xl bg-blue-500/20 text-blue-400">
+                        <i data-lucide="file-spreadsheet" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-black text-lg text-white" id="sub-stmt-title">كشف حساب مقاول باطن</h3>
+                        <p class="text-xs text-slate-400" id="sub-stmt-subtitle">تقرير مالي رسمي وتفصيل حركات الصرف</p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button onclick="printCurrentSubcontractorStatement()" class="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs flex items-center gap-2 shadow-lg transition">
+                        <i data-lucide="printer" class="w-4 h-4"></i>
+                        <span>طباعة كشف الحساب</span>
+                    </button>
+                    <button onclick="closeModal('subcontractor-statement-modal')" class="text-slate-400 hover:text-white p-2 rounded-xl hover:bg-slate-800 transition">
+                        <i data-lucide="x" class="w-5 h-5"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Printable Report Body -->
+            <div class="flex-1 overflow-y-auto p-6 bg-slate-900" id="sub-statement-print-area">
+                <!-- Injected via JavaScript renderSubcontractorStatementModal -->
+                <div id="sub-statement-content" class="space-y-6"></div>
+            </div>
         </div>
     </div>
 
@@ -2746,10 +3230,16 @@
                         <h4 class="text-xs font-bold text-slate-200">جدول استحقاقات ودفعات العميل المعتمدة</h4>
                         <p class="text-[11px] text-slate-400">متابعة الدفعات المستحقة طبقاً لمراحل التنفيذ وتسجيل سندات القبض والتحصيل</p>
                     </div>
-                    <button onclick="openAddClientPaymentModal()" class="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs flex items-center gap-1.5 shadow-lg shadow-amber-950/30">
-                        <i data-lucide="plus-circle" class="w-4 h-4"></i>
-                        <span>إضافة دفعة جديدة</span>
-                    </button>
+                    <div class="flex items-center gap-2">
+                        <button type="button" onclick="openAutoAllocateModalForCurrentProject()" class="px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-lg shadow-emerald-950/40 border border-emerald-400/30">
+                            <i data-lucide="sparkles" class="w-4 h-4 text-emerald-200"></i>
+                            <span>سداد تلقائي (توزيع على الأقساط)</span>
+                        </button>
+                        <button onclick="openAddClientPaymentModal()" class="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs flex items-center gap-1.5 shadow-lg shadow-amber-950/30">
+                            <i data-lucide="plus-circle" class="w-4 h-4"></i>
+                            <span>إضافة دفعة جديدة</span>
+                        </button>
+                    </div>
                 </div>
 
                 <div class="overflow-x-auto rounded-xl border border-slate-750">
@@ -3144,16 +3634,25 @@
                     </select>
                 </div>
 
-                <div class="bg-slate-900/90 p-3 rounded-xl border border-slate-750 space-y-1">
+                <div class="bg-slate-900/90 p-3 rounded-xl border border-slate-750 space-y-1.5 text-xs">
                     <div class="flex items-center justify-between">
-                        <span class="text-slate-400">إجمالي المبلغ المستحق (شامل الضريبة):</span>
+                        <span class="text-slate-400">إجمالي قيمة الدفعة (شامل الضريبة):</span>
                         <span id="rec-total-due" class="font-bold text-white">0 ر.س</span>
+                    </div>
+                    <div class="flex items-center justify-between pt-1 border-t border-slate-800">
+                        <span class="text-slate-400">المحصل سابقاً منها:</span>
+                        <span id="rec-already-received" class="font-bold text-blue-400">0 ر.س</span>
+                    </div>
+                    <div class="flex items-center justify-between pt-1 border-t border-slate-800">
+                        <span class="text-slate-400">المتبقي المطلوب على هذه الدفعة:</span>
+                        <span id="rec-remaining-due" class="font-black text-amber-400 font-mono">0 ر.س</span>
                     </div>
                 </div>
 
                 <div>
-                    <label class="block font-bold text-emerald-400 mb-1">المبلغ المحصل فعلياً (ر.س) *</label>
+                    <label class="block font-bold text-emerald-400 mb-1">مبلغ الحوالة / السداد الحالي (ر.س) *</label>
                     <input type="number" step="0.01" id="rec-amount" required placeholder="0.00" class="w-full bg-slate-800 border border-emerald-500 rounded-xl px-3.5 py-2.5 text-emerald-400 font-black text-base">
+                    <p class="text-[11px] text-slate-400 mt-1">💡 يمكنك إدخال أي مبلغ - إذا تجاوز المتبقي سيتم ترحيل الفائض تلقائياً للدفعة القادمة.</p>
                 </div>
 
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -3186,6 +3685,114 @@
                     <button type="submit" class="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold flex items-center gap-1.5 shadow-lg shadow-emerald-950/40">
                         <i data-lucide="check" class="w-4 h-4"></i>
                         <span>تأكيد تسجيل التحصيل</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- AUTO ALLOCATE PAYMENT MODAL (تسجيل سداد وتوزيع آلي على الأقساط) -->
+    <div id="auto-allocate-payment-modal" class="modal-overlay hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+        <div class="bg-slate-850 rounded-2xl border border-emerald-500/40 w-full max-w-xl shadow-2xl p-6 space-y-4 animate-scaleUp max-h-[90vh] flex flex-col">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-750 shrink-0">
+                <div class="flex items-center gap-2.5">
+                    <div class="p-2.5 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-500 text-white shadow-lg shadow-emerald-950/40">
+                        <i data-lucide="sparkles" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-black text-lg text-white">سداد مالي وتوزيع تلقائي على الأقساط</h3>
+                        <p class="text-xs text-emerald-400">سجل المبلغ المستلم وسيقوم النظام بتسوية الدفعات المستحقة آلياً</p>
+                    </div>
+                </div>
+                <button onclick="closeModal('auto-allocate-payment-modal')" class="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <form id="auto-allocate-payment-form" onsubmit="submitAutoAllocatePaymentForm(event)" class="space-y-4 text-xs overflow-y-auto pr-1 flex-1">
+                <!-- Project Selector -->
+                <div>
+                    <label class="block font-bold text-slate-300 mb-1">المشروع / العميل *</label>
+                    <select id="auto-alloc-project-id" onchange="onAutoAllocProjectChange()" required class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2.5 text-white font-bold text-xs focus:border-emerald-500 outline-none">
+                        <!-- Populated by JS -->
+                    </select>
+                </div>
+
+                <!-- Balance Summary Banner -->
+                <div id="auto-alloc-summary-banner" class="p-3 rounded-xl bg-slate-900 border border-slate-750 flex items-center justify-between text-xs">
+                    <div>
+                        <span class="text-slate-400 block text-[11px]">إجمالي الأقساط المستحقة:</span>
+                        <span id="auto-alloc-total-due" class="font-black text-rose-400 text-sm">0 ر.س</span>
+                    </div>
+                    <div class="text-left">
+                        <span class="text-slate-400 block text-[11px]">عدد الدفعات المعلقة:</span>
+                        <span id="auto-alloc-due-count" class="font-bold text-amber-400 text-sm">0 دفعة</span>
+                    </div>
+                </div>
+
+                <!-- Amount Input with big styling -->
+                <div>
+                    <label class="block font-bold text-emerald-400 mb-1 text-xs">المبلغ المستلم من العميل (ر.س) *</label>
+                    <div class="relative">
+                        <input type="number" step="0.01" min="1" id="auto-alloc-amount" oninput="triggerAutoAllocPreview()" required placeholder="اكتب المبلغ هنا (مثال: 50000)" class="w-full bg-slate-900 border-2 border-emerald-500 rounded-xl px-4 py-3 text-emerald-400 font-black text-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/30">
+                        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-emerald-500/70 font-bold text-xs">
+                            ر.س
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Date, Method, Voucher in grid -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                        <label class="block font-bold text-slate-300 mb-1">تاريخ التحصيل *</label>
+                        <input type="date" id="auto-alloc-date" required class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white text-xs">
+                    </div>
+                    <div>
+                        <label class="block font-bold text-slate-300 mb-1">طريقة الدفع</label>
+                        <select id="auto-alloc-method" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white text-xs">
+                            <option value="تحويل بنكي">تحويل بنكي</option>
+                            <option value="نقدي">نقدي</option>
+                            <option value="شيك مصدق">شيك مصدق</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                        <label class="block font-bold text-slate-300 mb-1">رقم السند / المرجع البنكي</label>
+                        <input type="text" id="auto-alloc-voucher-no" placeholder="مثال: سند قبض 1052 أو تحويل الراجحي" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white text-xs">
+                    </div>
+                    <div>
+                        <label class="block font-bold text-slate-300 mb-1">المستلم / المسؤول</label>
+                        <input type="text" id="auto-alloc-received-by" placeholder="اسم المستلم" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white text-xs">
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block font-bold text-slate-300 mb-1">ملاحظات التحصيل</label>
+                    <textarea id="auto-alloc-notes" rows="2" placeholder="أي ملاحظات حول التحصيل..." class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white text-xs"></textarea>
+                </div>
+
+                <!-- Live Allocation Preview Section -->
+                <div class="space-y-2 pt-2 border-t border-slate-750">
+                    <div class="flex items-center justify-between">
+                        <span class="font-bold text-slate-200 text-xs flex items-center gap-1.5">
+                            <i data-lucide="eye" class="w-3.5 h-3.5 text-emerald-400"></i>
+                            <span>معاينة التسوية الفورية (كيف سيتم توزيع المبلغ؟)</span>
+                        </span>
+                        <span id="auto-alloc-preview-badge" class="text-[10px] text-slate-400">أدخل المبلغ لعرض التوزيع</span>
+                    </div>
+
+                    <div id="auto-alloc-preview-container" class="rounded-xl border border-slate-750 bg-slate-900/80 p-3 max-h-48 overflow-y-auto space-y-2">
+                        <p class="text-center text-slate-500 py-3 text-xs">اختر المشروع واكتب المبلغ ليظهر لك التوزيع الآلي للأقساط فوراً</p>
+                    </div>
+                </div>
+
+                <div class="flex items-center justify-end gap-3 pt-3 border-t border-slate-750 shrink-0">
+                    <button type="button" onclick="closeModal('auto-allocate-payment-modal')" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold">إلغاء</button>
+                    <button type="submit" id="btn-submit-auto-alloc" class="px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black flex items-center gap-2 shadow-lg shadow-emerald-950/50">
+                        <i data-lucide="check-check" class="w-4 h-4"></i>
+                        <span>تأكيد السداد وتحديث الأقساط</span>
                     </button>
                 </div>
             </form>
@@ -3684,6 +4291,382 @@
         </div>
     </div>
 
+    <!-- 9. CHANGE PASSWORD MODAL -->
+    <div id="change-password-modal" class="modal-overlay hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+        <div class="bg-slate-900 border border-slate-750 rounded-3xl w-full max-w-md shadow-2xl p-6 space-y-5 animate-scaleUp">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+                <div class="flex items-center gap-2.5">
+                    <div class="p-2 rounded-xl bg-amber-500/20 text-amber-400">
+                        <i data-lucide="key-round" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-bold text-white text-base">تغيير كلمة المرور</h3>
+                        <p class="text-[11px] text-slate-400">تحديث كلمة المرور لحسابك الشخصي</p>
+                    </div>
+                </div>
+                <button type="button" onclick="closeModal('change-password-modal')" class="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <form id="change-password-form" onsubmit="handleChangePasswordSubmit(event)" class="space-y-4">
+                <div class="space-y-1">
+                    <label class="block text-xs font-bold text-slate-300">كلمة المرور الحالية:</label>
+                    <input type="password" id="cp-current" required placeholder="••••••••" class="w-full bg-slate-950 border border-slate-750 focus:border-emerald-500 rounded-xl px-3.5 py-2 text-sm text-white outline-none">
+                </div>
+                <div class="space-y-1">
+                    <label class="block text-xs font-bold text-slate-300">كلمة المرور الجديدة:</label>
+                    <input type="password" id="cp-new" required minlength="3" placeholder="••••••••" class="w-full bg-slate-950 border border-slate-750 focus:border-emerald-500 rounded-xl px-3.5 py-2 text-sm text-white outline-none">
+                </div>
+                <div class="space-y-1">
+                    <label class="block text-xs font-bold text-slate-300">تأكيد كلمة المرور الجديدة:</label>
+                    <input type="password" id="cp-confirm" required minlength="3" placeholder="••••••••" class="w-full bg-slate-950 border border-slate-750 focus:border-emerald-500 rounded-xl px-3.5 py-2 text-sm text-white outline-none">
+                </div>
+
+                <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
+                    <button type="button" onclick="closeModal('change-password-modal')" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-300 text-xs font-bold transition">إلغاء</button>
+                    <button type="submit" class="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 transition">
+                        <i data-lucide="check" class="w-4 h-4"></i>
+                        <span>حفظ كلمة المرور</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- CUSTODY MODALS (مودالات إدارة العهد النثرية) -->
+    <!-- ========================================== -->
+
+    <!-- CUSTODY MODAL 1: NEW CUSTODY REQUEST -->
+    <div id="custody-request-modal" class="modal-overlay hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+        <div class="bg-slate-900 rounded-2xl border border-slate-750 w-full max-w-lg shadow-2xl overflow-hidden animate-scaleUp">
+            <div class="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-850">
+                <div class="flex items-center gap-2.5">
+                    <div class="p-2 rounded-xl bg-amber-500/20 text-amber-400">
+                        <i data-lucide="hand-coins" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h3 id="custody-req-modal-title" class="text-base font-black text-white">رفع طلب عهدة نقدية جديدة</h3>
+                        <p id="custody-req-modal-subtitle" class="text-xs text-slate-400">يقدم للمدير المالي للاعتماد والصرف</p>
+                    </div>
+                </div>
+                <button onclick="closeModal('custody-request-modal')" class="text-slate-400 hover:text-white p-1">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+            <form id="custody-request-form" onsubmit="submitCustodyRequest(event)" class="p-6 space-y-4">
+                <input type="hidden" id="custody-req-edit-id" value="">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div class="space-y-1">
+                        <label class="block text-xs font-bold text-slate-300">مقدم الطلب (الموظف): <span class="text-rose-400">*</span></label>
+                        <input type="text" id="custody-req-employee" required placeholder="اسم الموظف أو المهندس" class="w-full bg-slate-950 border border-slate-750 focus:border-amber-500 rounded-xl px-3 py-2 text-xs text-white outline-none">
+                    </div>
+                    <div class="space-y-1">
+                        <label class="block text-xs font-bold text-slate-300">المشروع التابع له:</label>
+                        <select id="custody-req-project" class="w-full bg-slate-950 border border-slate-750 focus:border-amber-500 rounded-xl px-3 py-2 text-xs text-white outline-none">
+                            <option value="">مصروف عام / إداري (بدون مشروع)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div class="space-y-1">
+                        <label class="block text-xs font-bold text-slate-300">المبلغ المطلوب (ر.س): <span class="text-rose-400">*</span></label>
+                        <input type="number" id="custody-req-amount" required step="0.01" min="1" placeholder="0.00" class="w-full bg-slate-950 border border-slate-750 focus:border-amber-500 rounded-xl px-3 py-2 text-xs text-white font-mono outline-none">
+                    </div>
+                    <div class="space-y-1">
+                        <label class="block text-xs font-bold text-slate-300">تاريخ الطلب: <span class="text-rose-400">*</span></label>
+                        <input type="date" id="custody-req-date" required class="w-full bg-slate-950 border border-slate-750 focus:border-amber-500 rounded-xl px-3 py-2 text-xs text-white outline-none">
+                    </div>
+                </div>
+
+                <div class="space-y-1">
+                    <label class="block text-xs font-bold text-slate-300">الغرض وبيان صرف العهدة: <span class="text-rose-400">*</span></label>
+                    <textarea id="custody-req-purpose" required rows="3" placeholder="اذكر بالتفصيل الغرض من طلب العهدة (مثل: شراء مواد سباكة طارئة، سداد رسوم نقل، مصاريف ضيافة وعمالة الموقع...)" class="w-full bg-slate-950 border border-slate-750 focus:border-amber-500 rounded-xl p-3 text-xs text-white outline-none resize-none"></textarea>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div class="space-y-1">
+                        <label class="block text-xs font-bold text-slate-300">ملاحظات إضافية:</label>
+                        <input type="text" id="custody-req-notes" placeholder="أي تفاصيل أخرى..." class="w-full bg-slate-950 border border-slate-750 focus:border-amber-500 rounded-xl px-3 py-2 text-xs text-white outline-none">
+                    </div>
+                    <div class="space-y-1">
+                        <label class="block text-xs font-bold text-slate-300">مرفق أو مسوغ صرف (اختياري):</label>
+                        <input type="file" id="custody-req-file" class="w-full text-xs text-slate-400 file:mr-2 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-slate-800 file:text-slate-300 hover:file:bg-slate-750">
+                    </div>
+                </div>
+
+                <div class="flex items-center justify-end gap-2 pt-3 border-t border-slate-800">
+                    <button type="button" onclick="closeModal('custody-request-modal')" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-300 text-xs font-bold transition">إلغاء</button>
+                    <button type="submit" id="btn-submit-custody" class="px-5 py-2 rounded-xl bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-white text-xs font-bold flex items-center gap-1.5 shadow-lg shadow-amber-950/50 transition">
+                        <i data-lucide="send" class="w-4 h-4"></i>
+                        <span id="custody-req-btn-text">إرسال الطلب للاعتماد</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- CUSTODY MODAL 2: DISBURSE CUSTODY -->
+    <div id="custody-disburse-modal" class="modal-overlay hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+        <div class="bg-slate-900 rounded-2xl border border-slate-750 w-full max-w-lg shadow-2xl overflow-hidden animate-scaleUp">
+            <div class="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-850">
+                <div class="flex items-center gap-2.5">
+                    <div class="p-2 rounded-xl bg-emerald-500/20 text-emerald-400">
+                        <i data-lucide="wallet" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-base font-black text-white">تسجيل صرف العهدة للموظف</h3>
+                        <p class="text-xs text-slate-400">اعتماد وصرف المبلغ المالي نقداً أو بتحويل بنكي</p>
+                    </div>
+                </div>
+                <button onclick="closeModal('custody-disburse-modal')" class="text-slate-400 hover:text-white p-1">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+            <form id="custody-disburse-form" onsubmit="submitCustodyDisbursement(event)" class="p-6 space-y-4">
+                <input type="hidden" id="custody-disburse-id">
+
+                <div class="p-3 bg-slate-950/80 rounded-xl border border-slate-800 space-y-1 text-xs">
+                    <div class="flex justify-between">
+                        <span class="text-slate-400">طلب رقم: <strong id="custody-disburse-num" class="text-amber-400 font-mono"></strong></span>
+                        <span class="text-slate-400">الموظف: <strong id="custody-disburse-emp" class="text-white"></strong></span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-slate-400">المشروع: <strong id="custody-disburse-proj" class="text-white"></strong></span>
+                        <span class="text-slate-400">المبلغ المطلوب: <strong id="custody-disburse-req-amount" class="text-emerald-400 font-mono"></strong></span>
+                    </div>
+                    <p class="text-[11px] text-slate-500 pt-1 border-t border-slate-850 truncate">الغرض: <span id="custody-disburse-purpose"></span></p>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div class="space-y-1">
+                        <label class="block text-xs font-bold text-slate-300">المبلغ المنصرف فعلياً (ر.س): <span class="text-rose-400">*</span></label>
+                        <input type="number" id="custody-disburse-amount" required step="0.01" min="1" class="w-full bg-slate-950 border border-slate-750 focus:border-emerald-500 rounded-xl px-3 py-2 text-xs text-white font-mono outline-none">
+                    </div>
+                    <div class="space-y-1">
+                        <label class="block text-xs font-bold text-slate-300">تاريخ الصرف: <span class="text-rose-400">*</span></label>
+                        <input type="date" id="custody-disburse-date" required class="w-full bg-slate-950 border border-slate-750 focus:border-emerald-500 rounded-xl px-3 py-2 text-xs text-white outline-none">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div class="space-y-1">
+                        <label class="block text-xs font-bold text-slate-300">طريقة الصرف: <span class="text-rose-400">*</span></label>
+                        <select id="custody-disburse-method" class="w-full bg-slate-950 border border-slate-750 focus:border-emerald-500 rounded-xl px-3 py-2 text-xs text-white outline-none">
+                            <option value="نقدي">نقدي (كاش)</option>
+                            <option value="تحويل بنكي">تحويل بنكي</option>
+                            <option value="شيك">شيك مصرفي</option>
+                        </select>
+                    </div>
+                    <div class="space-y-1">
+                        <label class="block text-xs font-bold text-slate-300">رقم سند الصرف / إشعار التحويل:</label>
+                        <input type="text" id="custody-disburse-voucher" placeholder="مثال: سند صرف #104 أو مرجع التحويل" class="w-full bg-slate-950 border border-slate-750 focus:border-emerald-500 rounded-xl px-3 py-2 text-xs text-white outline-none">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div class="space-y-1">
+                        <label class="block text-xs font-bold text-slate-300">إرفاق إشعار أو سند الصرف:</label>
+                        <input type="file" id="custody-disburse-file" class="w-full text-xs text-slate-400 file:mr-2 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-slate-800 file:text-slate-300 hover:file:bg-slate-750">
+                    </div>
+                    <div class="space-y-1">
+                        <label class="block text-xs font-bold text-slate-300">ملاحظات الصرف:</label>
+                        <input type="text" id="custody-disburse-notes" placeholder="ملاحظات المدير المالي..." class="w-full bg-slate-950 border border-slate-750 focus:border-emerald-500 rounded-xl px-3 py-2 text-xs text-white outline-none">
+                    </div>
+                </div>
+
+                <div class="p-3 bg-emerald-500/10 rounded-xl border border-emerald-500/20 flex items-center gap-2.5">
+                    <input type="checkbox" id="custody-record-expense" class="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 bg-slate-950 border-slate-750 cursor-pointer">
+                    <label for="custody-record-expense" class="text-xs text-slate-200 cursor-pointer select-none">
+                        تسجيل هذا الصرف تلقائياً في <strong>سجل مصاريف المشروع</strong> كبند عهدة
+                    </label>
+                </div>
+
+                <div class="flex items-center justify-end gap-2 pt-3 border-t border-slate-800">
+                    <button type="button" onclick="closeModal('custody-disburse-modal')" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-300 text-xs font-bold transition">إلغاء</button>
+                    <button type="submit" class="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-lg shadow-emerald-950/50 transition">
+                        <i data-lucide="check" class="w-4 h-4"></i>
+                        <span>تأكيد وتسجيل الصرف</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- CUSTODY MODAL 3: SETTLE CUSTODY -->
+    <div id="custody-settle-modal" class="modal-overlay hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+        <div class="bg-slate-900 rounded-2xl border border-slate-750 w-full max-w-lg shadow-2xl overflow-hidden animate-scaleUp">
+            <div class="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-850">
+                <div class="flex items-center gap-2.5">
+                    <div class="p-2 rounded-xl bg-purple-500/20 text-purple-400">
+                        <i data-lucide="calculator" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-base font-black text-white">تسوية وتصفية العهدة وإغلاقها</h3>
+                        <p class="text-xs text-slate-400">تسجيل المصروف الفعلي واسترداد المبلغ المتبقي للخزينة</p>
+                    </div>
+                </div>
+                <button onclick="closeModal('custody-settle-modal')" class="text-slate-400 hover:text-white p-1">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+            <form id="custody-settle-form" onsubmit="submitCustodySettlement(event)" class="p-6 space-y-4">
+                <input type="hidden" id="custody-settle-id">
+
+                <div class="p-3 bg-slate-950/80 rounded-xl border border-slate-800 space-y-1 text-xs">
+                    <div class="flex justify-between">
+                        <span class="text-slate-400">رقم العهدة: <strong id="custody-settle-num" class="text-amber-400 font-mono"></strong></span>
+                        <span class="text-slate-400">الموظف: <strong id="custody-settle-emp" class="text-white"></strong></span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-slate-400">المبلغ المنصرف للموظف:</span>
+                        <span id="custody-settle-disbursed-disp" class="text-emerald-400 font-bold font-mono text-sm"></span>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div class="space-y-1">
+                        <label class="block text-xs font-bold text-slate-300">المبلغ المستهلك فعلياً بالفواتير (ر.س): <span class="text-rose-400">*</span></label>
+                        <input type="number" id="custody-settle-spent" required step="0.01" min="0" oninput="recalcCustodySettlement()" class="w-full bg-slate-950 border border-slate-750 focus:border-purple-500 rounded-xl px-3 py-2 text-xs text-white font-mono outline-none">
+                    </div>
+                    <div class="space-y-1">
+                        <label class="block text-xs font-bold text-slate-300">المتبقي المردود للخزينة (ر.س):</label>
+                        <input type="number" id="custody-settle-returned" step="0.01" min="0" class="w-full bg-slate-950 border border-slate-750 rounded-xl px-3 py-2 text-xs text-emerald-400 font-mono outline-none">
+                    </div>
+                </div>
+
+                <div class="space-y-1">
+                    <label class="block text-xs font-bold text-slate-300">تاريخ التصفية:</label>
+                    <input type="date" id="custody-settle-date" required class="w-full bg-slate-950 border border-slate-750 focus:border-purple-500 rounded-xl px-3 py-2 text-xs text-white outline-none">
+                </div>
+
+                <div class="space-y-1">
+                    <label class="block text-xs font-bold text-slate-300">ملاحظات وبيان التصفية:</label>
+                    <textarea id="custody-settle-notes" rows="2" placeholder="تفاصيل الفواتير والمستندات المقدمة للتصفية..." class="w-full bg-slate-950 border border-slate-750 focus:border-purple-500 rounded-xl p-3 text-xs text-white outline-none resize-none"></textarea>
+                </div>
+
+                <div class="flex items-center justify-end gap-2 pt-3 border-t border-slate-800">
+                    <button type="button" onclick="closeModal('custody-settle-modal')" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-300 text-xs font-bold transition">إلغاء</button>
+                    <button type="submit" class="px-5 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-lg shadow-purple-950/50 transition">
+                        <i data-lucide="check-check" class="w-4 h-4"></i>
+                        <span>إتمام التصفية وإغلاق العهدة</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- CUSTODY MODAL 4: REJECT CUSTODY REQUEST -->
+    <div id="custody-reject-modal" class="modal-overlay hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+        <div class="bg-slate-900 rounded-2xl border border-slate-750 w-full max-w-md shadow-2xl overflow-hidden animate-scaleUp">
+            <div class="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-850">
+                <div class="flex items-center gap-2.5">
+                    <div class="p-2 rounded-xl bg-rose-500/20 text-rose-400">
+                        <i data-lucide="x-circle" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-base font-black text-white">رفض طلب العهدة</h3>
+                        <p class="text-xs text-slate-400">توضيح سبب الرفض لمقدم الطلب</p>
+                    </div>
+                </div>
+                <button onclick="closeModal('custody-reject-modal')" class="text-slate-400 hover:text-white p-1">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+            <form id="custody-reject-form" onsubmit="submitCustodyRejection(event)" class="p-6 space-y-4">
+                <input type="hidden" id="custody-reject-id">
+                <div class="space-y-1">
+                    <label class="block text-xs font-bold text-slate-300">سبب الرفض: <span class="text-rose-400">*</span></label>
+                    <textarea id="custody-reject-reason" required rows="3" placeholder="اكتب سبب عدم الموافقة على طلب العهدة..." class="w-full bg-slate-950 border border-slate-750 focus:border-rose-500 rounded-xl p-3 text-xs text-white outline-none resize-none"></textarea>
+                </div>
+                <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
+                    <button type="button" onclick="closeModal('custody-reject-modal')" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-300 text-xs font-bold transition">إلغاء</button>
+                    <button type="submit" class="px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold flex items-center gap-1.5 transition">
+                        <i data-lucide="x" class="w-4 h-4"></i>
+                        <span>تأكيد الرفض</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- CUSTODY MODAL 5: VIEW CUSTODY EXPENSES & INVOICES -->
+    <div id="custody-expenses-modal" class="modal-overlay hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+        <div class="bg-slate-900 rounded-2xl border border-slate-750 w-full max-w-4xl shadow-2xl overflow-hidden animate-scaleUp flex flex-col max-h-[90vh]">
+            <div class="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-850">
+                <div class="flex items-center gap-3">
+                    <div class="p-2.5 rounded-xl bg-amber-500/20 text-amber-400">
+                        <i data-lucide="receipt" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h3 id="custody-expenses-modal-title" class="text-base font-black text-white">الفواتير والمصروفات المسددة من العهدة</h3>
+                        <p id="custody-expenses-modal-subtitle" class="text-xs text-slate-400">كشف الفواتير المسجلة خصماً من رصيد هذه العهدة</p>
+                    </div>
+                </div>
+                <button onclick="closeModal('custody-expenses-modal')" class="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <!-- Summary KPI Strip -->
+            <div class="p-4 bg-slate-850/60 border-b border-slate-800 grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                <div class="bg-slate-900 p-2.5 rounded-xl border border-slate-800">
+                    <span class="text-slate-400 block text-[10px]">المبلغ المنصرف للعهدة</span>
+                    <span id="cust-exp-disbursed" class="text-sm font-black text-white font-mono">0.00 ر.س</span>
+                </div>
+                <div class="bg-slate-900 p-2.5 rounded-xl border border-slate-800">
+                    <span class="text-slate-400 block text-[10px]">إجمالي الفواتير المسددة</span>
+                    <span id="cust-exp-spent" class="text-sm font-black text-rose-400 font-mono">0.00 ر.س</span>
+                </div>
+                <div class="bg-slate-900 p-2.5 rounded-xl border border-slate-800">
+                    <span class="text-slate-400 block text-[10px]">الرصيد المتبقي بالعهدة</span>
+                    <span id="cust-exp-remaining" class="text-sm font-black text-emerald-400 font-mono">0.00 ر.س</span>
+                </div>
+                <div class="bg-slate-900 p-2.5 rounded-xl border border-slate-800">
+                    <span class="text-slate-400 block text-[10px]">عدد الفواتير</span>
+                    <span id="cust-exp-count" class="text-sm font-black text-amber-400 font-mono">0</span>
+                </div>
+            </div>
+
+            <!-- Invoices Table Container -->
+            <div class="p-4 overflow-y-auto flex-1">
+                <div class="overflow-x-auto">
+                    <table class="w-full text-right text-xs">
+                        <thead class="bg-slate-800/80 text-slate-300">
+                            <tr>
+                                <th class="p-2.5">التاريخ</th>
+                                <th class="p-2.5">بيان الفاتورة</th>
+                                <th class="p-2.5">المشروع</th>
+                                <th class="p-2.5">البند / المورد</th>
+                                <th class="p-2.5 text-left font-mono">المبلغ</th>
+                                <th class="p-2.5 text-center">المرفق</th>
+                                <th class="p-2.5 text-center">الإجراءات</th>
+                            </tr>
+                        </thead>
+                        <tbody id="custody-expenses-table-body" class="divide-y divide-slate-800">
+                            <!-- Populated by JS -->
+                        </tbody>
+                    </table>
+                </div>
+                <div id="custody-expenses-empty" class="hidden text-center py-8 text-slate-500 text-xs">
+                    لا توجد فواتير تم صرفها من هذه العهدة حتى الآن.
+                </div>
+            </div>
+
+            <div class="p-4 border-t border-slate-800 bg-slate-850 flex items-center justify-between">
+                <button type="button" onclick="openExpenseForCustody()" class="px-3 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs flex items-center gap-1.5 transition">
+                    <i data-lucide="plus" class="w-4 h-4"></i>
+                    <span>تسجيل فاتورة جديدة خصماً من هذه العهدة</span>
+                </button>
+                <button type="button" onclick="closeModal('custody-expenses-modal')" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white font-bold text-xs transition">
+                    إغلاق
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- 8. INVOICE IMAGE/PDF VIEWER LIGHTBOX -->
     <div id="lightbox-modal" class="modal-overlay hidden fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex items-center justify-center p-4" onclick="closeModal('lightbox-modal')">
         <div class="relative max-w-4xl max-h-[90vh] bg-slate-900 border border-slate-700 rounded-2xl p-4 shadow-2xl flex flex-col" onclick="event.stopPropagation()">
@@ -3713,7 +4696,7 @@
     </div>
 
     <!-- Scripts -->
-    <script src="/static/js/i18n.js?v=20261006_3"></script>
-    <script src="/static/js/app.js?v=20261006_5"></script>
+    <script src="/static/js/i18n.js?v=20261013_exp1"></script>
+    <script src="/static/js/app.js?v=20261013_exp1"></script>
 </body>
 </html>

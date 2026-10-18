@@ -3812,7 +3812,7 @@ def auth_login():
     conn = database.get_db_connection()
     cursor = conn.cursor()
     cursor.execute('''
-        SELECT id, name, role, username, phone, email, status, password
+        SELECT id, name, role, username, phone, email, status, password, COALESCE(permissions, 'all') AS permissions
         FROM team_members
         WHERE (LOWER(username) = LOWER(?) OR name = ? OR name LIKE ? OR email = ? OR (LOWER(?) = 'farouk' AND LOWER(username) = 'nawaf'))
         LIMIT 1
@@ -3826,6 +3826,16 @@ def auth_login():
     user = dict(row)
     if str(user.get('password', '123')) != str(password):
         return jsonify({'error': 'كلمة المرور غير صحيحة، يرجى المحاولة مجدداً'}), 401
+
+    # Check if user is Abu Al-Nasr / Admin
+    is_admin = bool(
+        user.get('id') == 1 or 
+        (user.get('username') and user['username'].lower() == 'baghdadi') or 
+        ('ابوالنصر' in (user.get('name') or ''))
+    )
+    user['is_admin'] = is_admin
+    if is_admin:
+        user['permissions'] = 'all'
 
     # Remove password before returning
     del user['password']
@@ -3858,34 +3868,165 @@ def auth_change_password():
     conn.close()
     return jsonify({'success': True, 'message': 'تم تغيير كلمة المرور بنجاح'})
 
-# ----------------- TEAM MEMBERS API -----------------
+# ----------------- TEAM MEMBERS API (إدارة الموظفين والصلاحيات) -----------------
 @app.route('/api/team', methods=['GET'])
 def get_team():
     conn = database.get_db_connection()
     cursor = conn.cursor()
-    cursor.execute('SELECT id, name, role, phone, email, status, username FROM team_members ORDER BY id ASC')
-    team = [dict(row) for row in cursor.fetchall()]
+    cursor.execute('''
+        SELECT id, name, role, phone, email, status, username, COALESCE(permissions, 'all') AS permissions 
+        FROM team_members 
+        ORDER BY id ASC
+    ''')
+    team = []
+    for row in cursor.fetchall():
+        m = dict(row)
+        m['is_admin'] = bool(
+            m['id'] == 1 or 
+            (m.get('username') and m['username'].lower() == 'baghdadi') or 
+            ('ابوالنصر' in (m.get('name') or ''))
+        )
+        team.append(m)
     conn.close()
     return jsonify(team)
 
 @app.route('/api/team', methods=['POST'])
 def add_team_member():
     data = request.json or {}
-    name = data.get('name')
-    role = data.get('role')
-    if not name or not role:
-        return jsonify({'error': 'اسم الموظف ودوره الوظيفي مطلوبان'}), 400
+    name = (data.get('name') or '').strip()
+    role = (data.get('role') or '').strip()
+    username = (data.get('username') or '').strip().lower()
+    password = (data.get('password') or '123').strip()
+    phone = (data.get('phone') or '').strip()
+    email = (data.get('email') or '').strip()
+    permissions = data.get('permissions')
+    
+    if isinstance(permissions, list):
+        permissions = ','.join(permissions)
+    elif not permissions:
+        permissions = 'all'
 
-    phone = data.get('phone', '')
-    email = data.get('email', '')
+    if not name:
+        return jsonify({'error': 'اسم الموظف مطلوب'}), 400
+    if not role:
+        role = 'موظف'
+    if not username:
+        import re, time
+        base = re.sub(r'[^a-zA-Z0-9]', '', name)
+        username = base.lower() if base else f"user_{int(time.time())}"
 
     conn = database.get_db_connection()
     cursor = conn.cursor()
-    cursor.execute('INSERT INTO team_members (name, role, phone, email) VALUES (?, ?, ?, ?)', (name, role, phone, email))
+
+    # Check if username exists
+    cursor.execute('SELECT id FROM team_members WHERE LOWER(username) = LOWER(?)', (username,))
+    if cursor.fetchone():
+        conn.close()
+        return jsonify({'error': f'اسم المستخدم "{username}" مستخدم بالفعل، يرجى اختيار اسم مستخدم آخر'}), 400
+
+    cursor.execute('''
+        INSERT INTO team_members (name, role, phone, email, status, username, password, permissions) 
+        VALUES (?, ?, ?, ?, 'active', ?, ?, ?)
+    ''', (name, role, phone, email, username, password, permissions))
     member_id = cursor.lastrowid
     conn.commit()
     conn.close()
-    return jsonify({'success': True, 'id': member_id, 'message': 'تم إضافة الموظف بنجاح'})
+    return jsonify({'success': True, 'id': member_id, 'message': f'تم إضافة الموظف {name} بنجاح'})
+
+@app.route('/api/team/<int:member_id>', methods=['PUT'])
+def update_team_member(member_id):
+    data = request.json or {}
+    name = (data.get('name') or '').strip()
+    role = (data.get('role') or '').strip()
+    username = (data.get('username') or '').strip().lower()
+    phone = (data.get('phone') or '').strip()
+    email = (data.get('email') or '').strip()
+    status = (data.get('status') or 'active').strip()
+    password = (data.get('password') or '').strip()
+    permissions = data.get('permissions')
+    
+    if isinstance(permissions, list):
+        permissions = ','.join(permissions)
+
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute('SELECT id, username, name FROM team_members WHERE id = ?', (member_id,))
+    existing = cursor.fetchone()
+    if not existing:
+        conn.close()
+        return jsonify({'error': 'الموظف غير موجود'}), 404
+
+    # Protect Abu Al-Nasr from losing admin status or deactivation
+    is_abu_alnasr = bool(
+        existing['id'] == 1 or 
+        (existing['username'] and existing['username'].lower() == 'baghdadi') or 
+        ('ابوالنصر' in (existing['name'] or ''))
+    )
+    if is_abu_alnasr:
+        status = 'active'
+        permissions = 'all'
+
+    # Check username uniqueness if changed
+    if username and username != (existing['username'] or '').lower():
+        cursor.execute('SELECT id FROM team_members WHERE LOWER(username) = LOWER(?) AND id != ?', (username, member_id))
+        if cursor.fetchone():
+            conn.close()
+            return jsonify({'error': f'اسم المستخدم "{username}" مستخدم بالفعل'}), 400
+
+    if password:
+        cursor.execute('''
+            UPDATE team_members
+            SET name = COALESCE(NULLIF(?, ''), name),
+                role = COALESCE(NULLIF(?, ''), role),
+                username = COALESCE(NULLIF(?, ''), username),
+                phone = ?,
+                email = ?,
+                status = ?,
+                password = ?,
+                permissions = COALESCE(?, permissions)
+            WHERE id = ?
+        ''', (name, role, username, phone, email, status, password, permissions, member_id))
+    else:
+        cursor.execute('''
+            UPDATE team_members
+            SET name = COALESCE(NULLIF(?, ''), name),
+                role = COALESCE(NULLIF(?, ''), role),
+                username = COALESCE(NULLIF(?, ''), username),
+                phone = ?,
+                email = ?,
+                status = ?,
+                permissions = COALESCE(?, permissions)
+            WHERE id = ?
+        ''', (name, role, username, phone, email, status, permissions, member_id))
+
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True, 'message': 'تم تحديث بيانات وصلاحيات الموظف بنجاح'})
+
+@app.route('/api/team/<int:member_id>', methods=['DELETE'])
+def delete_team_member(member_id):
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT id, name, username FROM team_members WHERE id = ?', (member_id,))
+    member = cursor.fetchone()
+    if not member:
+        conn.close()
+        return jsonify({'error': 'الموظف غير موجود'}), 404
+
+    is_abu_alnasr = bool(
+        member['id'] == 1 or 
+        (member['username'] and member['username'].lower() == 'baghdadi') or 
+        ('ابوالنصر' in (member['name'] or ''))
+    )
+    if is_abu_alnasr:
+        conn.close()
+        return jsonify({'error': 'لا يمكن حذف حساب المشرف العام (ابوالنصر)'}), 403
+
+    cursor.execute('DELETE FROM team_members WHERE id = ?', (member_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True, 'message': f'تم إزالة الموظف {member["name"]} بنجاح'})
 
 # ----------------- NOTIFICATIONS API -----------------
 @app.route('/api/notifications', methods=['GET'])

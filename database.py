@@ -445,12 +445,15 @@ def init_db():
         cursor.execute('ALTER TABLE team_members ADD COLUMN username TEXT')
     if 'password' not in tm_cols:
         cursor.execute('ALTER TABLE team_members ADD COLUMN password TEXT DEFAULT "123"')
+    if 'permissions' not in tm_cols:
+        cursor.execute('ALTER TABLE team_members ADD COLUMN permissions TEXT DEFAULT "all"')
 
-    # Backfill default usernames & passwords
-    cursor.execute('UPDATE team_members SET username = "baghdadi", password = COALESCE(password, "123") WHERE id = 1 AND (username IS NULL OR username = "")')
-    cursor.execute('UPDATE team_members SET username = "jihad", password = COALESCE(password, "123") WHERE id = 2 AND (username IS NULL OR username = "")')
-    cursor.execute('UPDATE team_members SET name = "نواف سجيني", username = "nawaf", email = "nawaf@segieny.sa", password = COALESCE(password, "123") WHERE id = 3 OR username = "farouk" OR name = "فاروق محمد"')
+    # Backfill default usernames, passwords & permissions
+    cursor.execute('UPDATE team_members SET username = "baghdadi", password = COALESCE(password, "123"), permissions = "all" WHERE id = 1 AND (username IS NULL OR username = "" OR permissions IS NULL OR permissions = "")')
+    cursor.execute('UPDATE team_members SET username = "jihad", password = COALESCE(password, "123"), permissions = COALESCE(permissions, "all") WHERE id = 2 AND (username IS NULL OR username = "")')
+    cursor.execute('UPDATE team_members SET name = "نواف سجيني", username = "nawaf", email = "nawaf@segieny.sa", password = COALESCE(password, "123"), permissions = COALESCE(permissions, "all") WHERE id = 3 OR username = "farouk" OR name = "فاروق محمد"')
     cursor.execute('UPDATE team_members SET password = "123" WHERE password IS NULL OR password = ""')
+    cursor.execute('UPDATE team_members SET permissions = "all" WHERE permissions IS NULL OR permissions = ""')
 
     # Notifications / Alerts
     cursor.execute('''

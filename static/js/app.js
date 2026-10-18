@@ -135,6 +135,18 @@ function initLucide() {
 
 // ----------------- TAB NAVIGATION -----------------
 function switchTab(tabId) {
+    if (typeof currentUser !== 'undefined' && currentUser) {
+        if (tabId === 'team') {
+            if (!isAbuAlnasr(currentUser)) {
+                showToast('قسم إدارة الموظفين مخصص للمشرف العام (ابوالنصر) فقط', 'warning');
+                return;
+            }
+        } else if (typeof hasPermission === 'function' && !hasPermission(tabId)) {
+            showToast('ليس لديك صلاحية للوصول إلى هذا القسم', 'warning');
+            return;
+        }
+    }
+
     currentTab = tabId;
     
     // Stop chat polling if leaving chat tab
@@ -169,7 +181,7 @@ function switchTab(tabId) {
         btn.classList.add('bg-slate-800', 'text-slate-300');
     });
     const mobileTabs = document.querySelectorAll('.mobile-tab');
-    const tabNames = ['dashboard', 'projects', 'tasks', 'expenses', 'suppliers', 'cashflow', 'subcontractors', 'custody', 'documents', 'reports', 'chat'];
+    const tabNames = ['dashboard', 'projects', 'tasks', 'expenses', 'suppliers', 'cashflow', 'subcontractors', 'custody', 'documents', 'reports', 'chat', 'team'];
     const idx = tabNames.indexOf(tabId);
     if (idx !== -1 && mobileTabs[idx]) {
         mobileTabs[idx].classList.remove('bg-slate-800', 'text-slate-300');
@@ -188,6 +200,7 @@ function switchTab(tabId) {
     else if (tabId === 'documents') loadDocuments();
     else if (tabId === 'reports') loadDetailedReports();
     else if (tabId === 'chat') initChatTab();
+    else if (tabId === 'team') loadTeamManagement();
 
     initLucide();
 }
@@ -6622,7 +6635,9 @@ function initCurrentUser() {
                     role: valid.role, 
                     username: valid.username || '', 
                     phone: valid.phone || '',
-                    email: valid.email || ''
+                    email: valid.email || '',
+                    permissions: valid.permissions || 'all',
+                    is_admin: valid.is_admin || false
                 };
                 localStorage.setItem('segieny_auth_user', JSON.stringify(currentUser));
                 localStorage.setItem('segieny_current_user', JSON.stringify(currentUser));
@@ -6635,6 +6650,7 @@ function initCurrentUser() {
 }
 
 function updateUserUI() {
+    if (!currentUser) return;
     const nameEl = document.getElementById('active-user-name');
     const roleEl = document.getElementById('active-user-role');
     const menuNameEl = document.getElementById('menu-user-name');
@@ -6653,6 +6669,10 @@ function updateUserUI() {
         const displayName = isEn && typeof tr === 'function' ? tr(currentUser.name) : currentUser.name;
         const cleanName = displayName.replace(/^(م\.|أ\.|Eng\.)\s*/, '').trim();
         charEl.innerText = cleanName.charAt(0) || 'أ';
+    }
+
+    if (typeof applyUserPermissions === 'function') {
+        applyUserPermissions();
     }
 }
 
@@ -11601,6 +11621,432 @@ function openExpenseForCustody(custodyId = null) {
     if (paySelect) {
         paySelect.value = 'عهدة';
         onExpensePaymentMethodChanged(targetId);
+    }
+}
+
+// ========================================================
+// TEAM & PERMISSIONS MANAGEMENT MODULE (إدارة الموظفين والصلاحيات)
+// خاص بالمشرف العام: ابوالنصر البغدادي
+// ========================================================
+
+let cachedTeamList = [];
+
+function isAbuAlnasr(user) {
+    if (!user) return false;
+    if (user.is_admin) return true;
+    if (user.id === 1) return true;
+    if (user.username && user.username.toLowerCase() === 'baghdadi') return true;
+    if (user.name && user.name.includes('ابوالنصر')) return true;
+    return false;
+}
+
+function hasPermission(moduleKey) {
+    if (!currentUser) return false;
+    if (isAbuAlnasr(currentUser)) return true;
+    if (moduleKey === 'team') return false; // Only Abu Al-Nasr!
+    
+    const perms = currentUser.permissions;
+    if (!perms || perms === 'all' || perms === '*') return true;
+    
+    let list = [];
+    if (Array.isArray(perms)) {
+        list = perms;
+    } else if (typeof perms === 'string') {
+        try {
+            const parsed = JSON.parse(perms);
+            if (Array.isArray(parsed)) list = parsed;
+            else list = perms.split(',').map(s => s.trim());
+        } catch (e) {
+            list = perms.split(',').map(s => s.trim());
+        }
+    }
+    return list.includes(moduleKey);
+}
+
+function applyUserPermissions() {
+    if (!currentUser) return;
+    const isOwner = isAbuAlnasr(currentUser);
+    
+    // 1. Team Tab & Menu Item (Abu Al-Nasr only!)
+    const navTeam = document.getElementById('nav-team');
+    const menuBtnTeam = document.getElementById('menu-btn-team');
+    if (navTeam) {
+        if (isOwner) navTeam.classList.remove('hidden');
+        else navTeam.classList.add('hidden');
+    }
+    if (menuBtnTeam) {
+        if (isOwner) menuBtnTeam.classList.remove('hidden');
+        else menuBtnTeam.classList.add('hidden');
+    }
+
+    // 2. Filter tabs in navbar
+    const modules = ['dashboard', 'projects', 'tasks', 'expenses', 'suppliers', 'cashflow', 'subcontractors', 'custody', 'documents', 'reports', 'chat'];
+    modules.forEach(mod => {
+        const btn = document.getElementById('nav-' + mod);
+        if (btn) {
+            if (hasPermission(mod)) {
+                btn.style.display = '';
+            } else {
+                btn.style.display = 'none';
+            }
+        }
+    });
+
+    // 3. Filter quick actions
+    const quickAuto = document.querySelector('#quick-menu button[onclick*="openAutoAllocateModal"]');
+    const quickExp = document.querySelector('#quick-menu button[onclick*="expense-modal"]');
+    const quickCust = document.querySelector('#quick-menu button[onclick*="custody-request-modal"]');
+    const quickTsk = document.querySelector('#quick-menu button[onclick*="task-modal"]');
+    const quickProj = document.querySelector('#quick-menu button[onclick*="openProjectModal"]');
+    const quickDoc = document.querySelector('#quick-menu button[onclick*="document-modal"]');
+
+    if (quickAuto) quickAuto.style.display = hasPermission('cashflow') ? '' : 'none';
+    if (quickExp) quickExp.style.display = hasPermission('expenses') ? '' : 'none';
+    if (quickCust) quickCust.style.display = hasPermission('custody') ? '' : 'none';
+    if (quickTsk) quickTsk.style.display = hasPermission('tasks') ? '' : 'none';
+    if (quickProj) quickProj.style.display = hasPermission('projects') ? '' : 'none';
+    if (quickDoc) quickDoc.style.display = hasPermission('documents') ? '' : 'none';
+
+    // 4. Redirect if currently in unauthorized tab
+    if (currentTab === 'team' && !isOwner) {
+        switchTab('dashboard');
+    } else if (currentTab !== 'team' && !hasPermission(currentTab)) {
+        const firstAllowed = modules.find(m => hasPermission(m)) || 'dashboard';
+        switchTab(firstAllowed);
+    }
+}
+
+async function loadTeamManagement() {
+    if (!isAbuAlnasr(currentUser)) {
+        showToast('هذا القسم مخصص للمشرف العام (ابوالنصر) فقط', 'warning');
+        switchTab('dashboard');
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/team');
+        const team = await res.json();
+        cachedTeamList = team;
+
+        // Update stats
+        const totalEl = document.getElementById('stat-team-total');
+        const activeEl = document.getElementById('stat-team-active');
+        const badgeEl = document.getElementById('badge-team-count');
+
+        if (totalEl) totalEl.innerText = team.length;
+        if (activeEl) activeEl.innerText = team.filter(m => (m.status || 'active') === 'active').length;
+        if (badgeEl) badgeEl.innerText = team.length;
+
+        renderTeamMembers(team);
+    } catch (err) {
+        console.error('Error loading team management:', err);
+        showToast('حدث خطأ في تحميل قائمة الموظفين', 'error');
+    }
+}
+
+const MODULE_DEFINITIONS = [
+    { key: 'dashboard', label: 'الرئيسية', color: 'emerald' },
+    { key: 'projects', label: 'المشاريع', color: 'blue' },
+    { key: 'tasks', label: 'المهام', color: 'amber' },
+    { key: 'expenses', label: 'المصاريف', color: 'rose' },
+    { key: 'suppliers', label: 'الموردين', color: 'amber' },
+    { key: 'cashflow', label: 'السيولة', color: 'teal' },
+    { key: 'subcontractors', label: 'مقاولو الباطن', color: 'indigo' },
+    { key: 'custody', label: 'العهد', color: 'amber' },
+    { key: 'documents', label: 'المخططات', color: 'purple' },
+    { key: 'reports', label: 'التقارير', color: 'emerald' },
+    { key: 'chat', label: 'المحادثات', color: 'teal' }
+];
+
+function renderTeamMembers(members) {
+    const container = document.getElementById('team-members-list');
+    if (!container) return;
+
+    if (!members || members.length === 0) {
+        container.innerHTML = `
+            <div class="col-span-full p-8 text-center bg-slate-850 rounded-2xl border border-slate-750 text-slate-400">
+                <i data-lucide="users" class="w-10 h-10 mx-auto mb-2 text-slate-500"></i>
+                <p class="font-bold text-sm">لا يوجد موظفون مطابقون لخيارات البحث</p>
+            </div>
+        `;
+        initLucide();
+        return;
+    }
+
+    const html = members.map(m => {
+        const isAdmin = isAbuAlnasr(m);
+        const isActive = (m.status || 'active') === 'active';
+        const cleanName = (m.name || '').replace(/^(م\.|أ\.|Eng\.)\s*/, '').trim();
+        const initial = cleanName.charAt(0) || 'م';
+
+        // Parse permissions
+        let permBadges = '';
+        if (isAdmin || m.permissions === 'all' || !m.permissions) {
+            permBadges = `
+                <div class="p-2.5 rounded-xl bg-purple-950/40 border border-purple-800/40 text-[11px] text-purple-300 flex items-center gap-1.5 font-bold">
+                    <i data-lucide="shield-check" class="w-4 h-4 text-purple-400 shrink-0"></i>
+                    <span>${isAdmin ? 'المشرف العام - كامل الصلاحيات لجميع الأقسام' : 'كامل الصلاحيات (جميع الأقسام)'}</span>
+                </div>
+            `;
+        } else {
+            const userPerms = (typeof m.permissions === 'string' ? m.permissions.split(',') : m.permissions).map(s => s.trim());
+            const badges = MODULE_DEFINITIONS
+                .filter(mod => userPerms.includes(mod.key))
+                .map(mod => `<span class="px-2 py-0.5 rounded-md bg-slate-800 text-slate-200 border border-slate-700 text-[10px] font-semibold">${mod.label}</span>`)
+                .join(' ');
+
+            permBadges = badges ? `
+                <div class="space-y-1">
+                    <span class="text-[10px] text-slate-400 block font-medium">الأقسام المصرح بها (${userPerms.length}):</span>
+                    <div class="flex flex-wrap gap-1">${badges}</div>
+                </div>
+            ` : `
+                <div class="p-2 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-[10px] font-bold">
+                    لا توجد صلاحيات ممنوحة
+                </div>
+            `;
+        }
+
+        const avatarColor = isAdmin 
+            ? 'from-purple-600 to-indigo-600 text-white' 
+            : 'from-emerald-600 to-teal-600 text-white';
+
+        return `
+            <div class="bg-slate-850 rounded-2xl border border-slate-750 hover:border-purple-500/40 p-5 shadow-lg flex flex-col justify-between space-y-4 transition">
+                <div class="space-y-3">
+                    <!-- Top Info Header -->
+                    <div class="flex items-start justify-between gap-3">
+                        <div class="flex items-center gap-3 min-w-0">
+                            <div class="w-12 h-12 rounded-2xl bg-gradient-to-br ${avatarColor} flex items-center justify-center font-black text-lg shadow-md shrink-0">
+                                ${initial}
+                            </div>
+                            <div class="min-w-0">
+                                <h3 class="font-black text-sm text-white truncate flex items-center gap-1.5">
+                                    <span>${m.name}</span>
+                                    ${isAdmin ? '<i data-lucide="crown" class="w-3.5 h-3.5 text-amber-400 shrink-0" title="المشرف العام"></i>' : ''}
+                                </h3>
+                                <div class="flex items-center gap-2 mt-0.5">
+                                    <span class="text-[11px] text-emerald-400 font-semibold truncate">${m.role || 'موظف'}</span>
+                                    <span class="text-[10px] text-slate-400 font-mono">@${m.username || 'user'}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Status Badge -->
+                        <span class="shrink-0 px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${isActive ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' : 'bg-slate-800 text-slate-400 border-slate-700'}">
+                            ${isActive ? '● نشط' : '○ معطل'}
+                        </span>
+                    </div>
+
+                    <!-- Contact Details -->
+                    <div class="p-2.5 rounded-xl bg-slate-900/60 border border-slate-750/60 space-y-1 text-[11px]">
+                        <div class="flex items-center justify-between text-slate-300">
+                            <span class="flex items-center gap-1.5 text-slate-400">
+                                <i data-lucide="phone" class="w-3 h-3 text-slate-500"></i>
+                                <span>الجوال:</span>
+                            </span>
+                            <span class="font-mono text-white">${m.phone || '—'}</span>
+                        </div>
+                        <div class="flex items-center justify-between text-slate-300 truncate">
+                            <span class="flex items-center gap-1.5 text-slate-400 shrink-0">
+                                <i data-lucide="mail" class="w-3 h-3 text-slate-500"></i>
+                                <span>البريد:</span>
+                            </span>
+                            <span class="font-mono text-slate-300 truncate ml-2">${m.email || '—'}</span>
+                        </div>
+                    </div>
+
+                    <!-- Permissions Section -->
+                    <div class="pt-2 border-t border-slate-750">
+                        ${permBadges}
+                    </div>
+                </div>
+
+                <!-- Action Footer Buttons -->
+                <div class="pt-3 border-t border-slate-750 flex items-center justify-end gap-2">
+                    <button type="button" onclick="openEditTeamMemberModal(${m.id})" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-750 text-purple-300 hover:text-white border border-slate-700 text-xs font-bold flex items-center gap-1.5 transition">
+                        <i data-lucide="pencil" class="w-3.5 h-3.5"></i>
+                        <span>تعديل الصلاحيات</span>
+                    </button>
+                    ${!isAdmin ? `
+                        <button type="button" onclick="deleteTeamMember(${m.id}, '${m.name}')" class="px-3 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 border border-rose-500/30 text-xs font-bold flex items-center gap-1.5 transition" title="حذف الموظف نهائياً">
+                            <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                            <span>حذف</span>
+                        </button>
+                    ` : ''}
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    container.innerHTML = html;
+    initLucide();
+}
+
+function filterTeamMembersTable() {
+    const searchVal = (document.getElementById('team-search-input')?.value || '').trim().toLowerCase();
+    const roleVal = document.getElementById('team-role-filter')?.value || '';
+
+    const filtered = cachedTeamList.filter(m => {
+        const matchesSearch = !searchVal || 
+            (m.name && m.name.toLowerCase().includes(searchVal)) ||
+            (m.username && m.username.toLowerCase().includes(searchVal)) ||
+            (m.phone && m.phone.includes(searchVal)) ||
+            (m.email && m.email.toLowerCase().includes(searchVal));
+
+        const matchesRole = !roleVal || (m.role && m.role.includes(roleVal));
+        return matchesSearch && matchesRole;
+    });
+
+    renderTeamMembers(filtered);
+}
+
+function openAddTeamMemberModal() {
+    const form = document.getElementById('team-member-form');
+    if (form) form.reset();
+    document.getElementById('tm-id').value = '';
+    document.getElementById('team-modal-title').innerText = 'إضافة موظف جديد وتحديد صلاحياته';
+    document.getElementById('btn-team-submit-text').innerText = 'إضافة الموظف';
+    document.getElementById('tm-username').disabled = false;
+    document.getElementById('tm-password').value = '123';
+    document.getElementById('tm-pwd-hint').innerText = '(123 افتراضياً)';
+
+    // Default to all permissions for new employee
+    setPermissionsPreset('all');
+    openModal('team-member-modal');
+}
+
+function openEditTeamMemberModal(memberId) {
+    const member = cachedTeamList.find(m => m.id === memberId);
+    if (!member) return;
+
+    const isAdmin = isAbuAlnasr(member);
+    document.getElementById('tm-id').value = member.id;
+    document.getElementById('tm-name').value = member.name || '';
+    document.getElementById('tm-role').value = member.role || '';
+    document.getElementById('tm-username').value = member.username || '';
+    document.getElementById('tm-phone').value = member.phone || '';
+    document.getElementById('tm-email').value = member.email || '';
+    document.getElementById('tm-status').value = member.status || 'active';
+    document.getElementById('tm-password').value = '';
+    document.getElementById('tm-pwd-hint').innerText = '(اتركها فارغة إذا لم ترغب بتغييرها)';
+    
+    // Protect username and status for Abu Al-Nasr
+    document.getElementById('tm-username').disabled = isAdmin;
+    document.getElementById('tm-status').disabled = isAdmin;
+
+    document.getElementById('team-modal-title').innerText = `تعديل بيانات وصلاحيات: ${member.name}`;
+    document.getElementById('btn-team-submit-text').innerText = 'حفظ التعديلات';
+
+    // Set Checkboxes
+    if (isAdmin || member.permissions === 'all' || !member.permissions) {
+        setPermissionsPreset('all');
+    } else {
+        const userPerms = (typeof member.permissions === 'string' ? member.permissions.split(',') : member.permissions).map(s => s.trim());
+        document.querySelectorAll('.perm-cb').forEach(cb => {
+            cb.checked = userPerms.includes(cb.value);
+        });
+    }
+
+    openModal('team-member-modal');
+}
+
+function setPermissionsPreset(preset) {
+    const checkboxes = document.querySelectorAll('.perm-cb');
+    if (preset === 'all') {
+        checkboxes.forEach(cb => cb.checked = true);
+    } else if (preset === 'none') {
+        checkboxes.forEach(cb => cb.checked = false);
+    } else if (preset === 'engineer') {
+        const allowed = ['dashboard', 'projects', 'tasks', 'custody', 'documents', 'chat'];
+        checkboxes.forEach(cb => cb.checked = allowed.includes(cb.value));
+    } else if (preset === 'accountant') {
+        const allowed = ['dashboard', 'expenses', 'suppliers', 'cashflow', 'subcontractors', 'reports', 'chat'];
+        checkboxes.forEach(cb => cb.checked = allowed.includes(cb.value));
+    }
+}
+
+async function submitTeamMemberForm(e) {
+    e.preventDefault();
+    const id = document.getElementById('tm-id').value;
+    const name = (document.getElementById('tm-name').value || '').trim();
+    const role = (document.getElementById('tm-role').value || '').trim();
+    const username = (document.getElementById('tm-username').value || '').trim().toLowerCase();
+    const password = (document.getElementById('tm-password').value || '').trim();
+    const phone = (document.getElementById('tm-phone').value || '').trim();
+    const email = (document.getElementById('tm-email').value || '').trim();
+    const status = document.getElementById('tm-status').value;
+
+    // Collect permissions
+    const checkedPerms = Array.from(document.querySelectorAll('.perm-cb:checked')).map(cb => cb.value);
+    let permissions = 'all';
+    const allCount = document.querySelectorAll('.perm-cb').length;
+    if (checkedPerms.length === allCount) {
+        permissions = 'all';
+    } else if (checkedPerms.length === 0) {
+        showToast('يرجى تحديد قسم واحد على الأقل للموظف', 'warning');
+        return;
+    } else {
+        permissions = checkedPerms.join(',');
+    }
+
+    const payload = { name, role, username, phone, email, status, permissions };
+    if (password) payload.password = password;
+
+    const submitBtn = document.getElementById('btn-submit-team-member');
+    if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.classList.add('opacity-70');
+    }
+
+    try {
+        const url = id ? `/api/team/${id}` : '/api/team';
+        const method = id ? 'PUT' : 'POST';
+
+        const res = await fetch(url, {
+            method: method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+
+        if (res.ok && (data.success || !data.error)) {
+            showToast(data.message || 'تم حفظ بيانات الموظف والصلاحيات بنجاح', 'success');
+            closeModal('team-member-modal');
+            await loadTeamManagement();
+            if (typeof loadTeamDropdowns === 'function') await loadTeamDropdowns();
+        } else {
+            showToast(data.error || 'حدث خطأ في حفظ بيانات الموظف', 'error');
+        }
+    } catch (err) {
+        console.error('Error saving team member:', err);
+        showToast('حدث خطأ في الاتصال بالخادم', 'error');
+    } finally {
+        if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.classList.remove('opacity-70');
+        }
+    }
+}
+
+async function deleteTeamMember(id, name) {
+    if (!confirm(`هل أنت متأكد من حذف حساب الموظف "${name}" نهائياً من المنظومة؟\n\nلن يتمكن الموظف من تسجيل الدخول بعد الآن.`)) {
+        return;
+    }
+
+    try {
+        const res = await fetch(`/api/team/${id}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (res.ok && data.success) {
+            showToast(data.message || 'تم حذف حساب الموظف بنجاح', 'success');
+            await loadTeamManagement();
+            if (typeof loadTeamDropdowns === 'function') await loadTeamDropdowns();
+        } else {
+            showToast(data.error || 'تعذر حذف الموظف', 'error');
+        }
+    } catch (err) {
+        console.error('Error deleting team member:', err);
+        showToast('حدث خطأ أثناء حذف الموظف', 'error');
     }
 }
 

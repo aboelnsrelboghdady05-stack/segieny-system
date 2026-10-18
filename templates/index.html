@@ -207,6 +207,10 @@
                                 <span id="menu-user-role" class="text-[10px] text-emerald-400 block font-semibold">المدير المالي</span>
                                 <span id="menu-user-username" class="text-[9px] text-slate-400 font-mono block mt-0.5">@baghdadi</span>
                             </div>
+                            <button type="button" id="menu-btn-team" onclick="switchTab('team'); toggleUserMenu()" class="w-full text-right px-3 py-2 rounded-xl text-xs font-semibold text-purple-300 hover:bg-slate-800 hover:text-white flex items-center gap-2 transition hidden">
+                                <i data-lucide="shield-check" class="w-3.5 h-3.5 text-purple-400"></i>
+                                <span>إدارة الموظفين والصلاحيات</span>
+                            </button>
                             <button type="button" onclick="openChangePasswordModal()" class="w-full text-right px-3 py-2 rounded-xl text-xs font-semibold text-slate-300 hover:bg-slate-800 hover:text-white flex items-center gap-2 transition">
                                 <i data-lucide="key-round" class="w-3.5 h-3.5 text-amber-400"></i>
                                 <span>تغيير كلمة المرور</span>
@@ -336,6 +340,11 @@
                         <i data-lucide="message-square" class="w-4 h-4 text-emerald-400"></i>
                         <span data-i18n="nav_chat">محادثات الفريق</span>
                         <span id="badge-chat-count" class="px-1.5 py-0.2 text-[10px] rounded-full bg-emerald-500/20 text-emerald-400 font-bold hidden">0</span>
+                    </button>
+                    <button onclick="switchTab('team')" id="nav-team" class="nav-tab shrink-0 px-3.5 py-1.5 sm:py-2 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-2 text-purple-300 hover:text-white transition-all hidden">
+                        <i data-lucide="shield-check" class="w-4 h-4 text-purple-400"></i>
+                        <span data-i18n="nav_team">إدارة الموظفين والصلاحيات</span>
+                        <span id="badge-team-count" class="px-1.5 py-0.2 text-[10px] rounded-full bg-purple-500/20 text-purple-300 font-bold">3</span>
                     </button>
                 </nav>
             </div>
@@ -2092,6 +2101,91 @@
 
             </div>
 
+        </div>
+
+        <!-- ========================================== -->
+        <!-- TAB 9: TEAM & PERMISSIONS MANAGEMENT (إدارة الموظفين والصلاحيات) -->
+        <!-- ========================================== -->
+        <div id="tab-team" class="tab-content hidden space-y-6 animate-fadeIn">
+            <!-- Header Section -->
+            <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-gradient-to-r from-purple-950/40 via-slate-850 to-slate-900 p-6 rounded-2xl border border-purple-900/30 shadow-xl">
+                <div class="space-y-1">
+                    <div class="flex items-center gap-2.5">
+                        <div class="p-2.5 rounded-xl bg-purple-500/20 text-purple-400 border border-purple-500/30">
+                            <i data-lucide="shield-check" class="w-6 h-6"></i>
+                        </div>
+                        <div>
+                            <h2 class="text-xl font-black text-white flex items-center gap-2">
+                                <span>إدارة الموظفين والصلاحيات</span>
+                                <span class="text-xs px-2.5 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30 font-bold">لوحة المشرف العام: ابوالنصر</span>
+                            </h2>
+                            <p class="text-xs text-slate-400 mt-0.5">تحكم كامل في إضافة موظفي الشركة، تحديد الأقسام والتبويبات المسموح لكل موظف برؤيتها، وإدارة الحسابات وكلمات المرور.</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="flex items-center gap-2.5 shrink-0">
+                    <button type="button" onclick="openAddTeamMemberModal()" class="px-4 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs flex items-center gap-2 shadow-lg shadow-purple-950/50 transition border border-purple-400/30">
+                        <i data-lucide="user-plus" class="w-4 h-4"></i>
+                        <span>إضافة موظف جديد وتحديد صلاحياته</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Stats / KPI Cards -->
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div class="bg-slate-850 p-4 rounded-xl border border-slate-750 shadow flex items-center justify-between">
+                    <div>
+                        <span class="text-xs text-slate-400 block font-medium">إجمالي حسابات المنظومة</span>
+                        <span id="stat-team-total" class="text-2xl font-black text-white mt-1 block">3</span>
+                    </div>
+                    <div class="p-3 rounded-xl bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                        <i data-lucide="users" class="w-5 h-5"></i>
+                    </div>
+                </div>
+                <div class="bg-slate-850 p-4 rounded-xl border border-slate-750 shadow flex items-center justify-between">
+                    <div>
+                        <span class="text-xs text-slate-400 block font-medium">الحسابات النشطة والمفعلة</span>
+                        <span id="stat-team-active" class="text-2xl font-black text-emerald-400 mt-1 block">3</span>
+                    </div>
+                    <div class="p-3 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                        <i data-lucide="user-check" class="w-5 h-5"></i>
+                    </div>
+                </div>
+                <div class="bg-slate-850 p-4 rounded-xl border border-slate-750 shadow flex items-center justify-between">
+                    <div>
+                        <span class="text-xs text-slate-400 block font-medium">المشرف العام (تحكم كامل)</span>
+                        <span class="text-xs font-black text-purple-300 mt-1 block truncate">ابوالنصر البغدادي (@baghdadi)</span>
+                    </div>
+                    <div class="p-3 rounded-xl bg-purple-500/10 text-purple-400 border border-purple-500/20">
+                        <i data-lucide="crown" class="w-5 h-5"></i>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Filter & Search Toolbar -->
+            <div class="bg-slate-850 p-4 rounded-xl border border-slate-750 flex flex-col sm:flex-row items-center justify-between gap-3">
+                <div class="relative w-full sm:w-80">
+                    <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute right-3.5 top-3 pointer-events-none"></i>
+                    <input type="text" id="team-search-input" oninput="filterTeamMembersTable()" placeholder="بحث بالاسم أو اسم المستخدم أو الجوال..." class="w-full bg-slate-900 border border-slate-700 rounded-xl pr-10 pl-3 py-2 text-xs text-white placeholder-slate-500 outline-none focus:border-purple-500 transition">
+                </div>
+                <div class="flex items-center gap-2 w-full sm:w-auto">
+                    <select id="team-role-filter" onchange="filterTeamMembersTable()" class="bg-slate-900 border border-slate-700 text-xs rounded-xl px-3 py-2 text-slate-200 outline-none focus:border-purple-500">
+                        <option value="">جميع الأدوار الوظيفية</option>
+                        <option value="المدير المالي">المدير المالي</option>
+                        <option value="المدير العام">المدير العام</option>
+                        <option value="مدير المشاريع">مدير المشاريع</option>
+                        <option value="مهندس موقع">مهندس موقع</option>
+                        <option value="محاسب مالي">محاسب مالي</option>
+                        <option value="مسؤول مشتريات">مسؤول مشتريات</option>
+                        <option value="مشرف تنفيذ">مشرف تنفيذ</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Team Members Grid / Cards -->
+            <div id="team-members-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <!-- Populated via JavaScript -->
+            </div>
         </div>
 
     </main>
@@ -4686,6 +4780,179 @@
                 <img id="lightbox-img" src="" class="hidden max-h-[70vh] rounded-lg shadow-lg object-contain">
                 <iframe id="lightbox-iframe" src="" class="hidden w-full h-[70vh] rounded-lg"></iframe>
             </div>
+        </div>
+    </div>
+
+    <!-- 9. TEAM MEMBER ADD / EDIT MODAL (إضافة وتعديل موظف وصلاحياته) -->
+    <div id="team-member-modal" class="modal-overlay hidden fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+        <div class="bg-slate-850 rounded-2xl border border-slate-750 w-full max-w-2xl shadow-2xl p-6 space-y-5 animate-scaleUp overflow-y-auto max-h-[92vh]">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-750">
+                <div class="flex items-center gap-2.5">
+                    <div class="p-2 rounded-xl bg-purple-500/20 text-purple-400">
+                        <i data-lucide="user-cog" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h3 id="team-modal-title" class="font-black text-base text-white">إضافة موظف جديد وتحديد صلاحياته</h3>
+                        <p class="text-[11px] text-slate-400">تحكم في بيانات الموظف والأقسام المسموح له بالوصول إليها في المنظومة</p>
+                    </div>
+                </div>
+                <button type="button" onclick="closeModal('team-member-modal')" class="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <form id="team-member-form" onsubmit="submitTeamMemberForm(event)" class="space-y-4 text-xs">
+                <input type="hidden" id="tm-id" value="">
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                    <div>
+                        <label class="block font-bold text-slate-300 mb-1">الاسم الكامل للموظف: <span class="text-rose-400">*</span></label>
+                        <input type="text" id="tm-name" required placeholder="مثال: م. أحمد السعيد" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white outline-none focus:border-purple-500">
+                    </div>
+                    <div>
+                        <label class="block font-bold text-slate-300 mb-1">المسمى الوظيفي: <span class="text-rose-400">*</span></label>
+                        <input type="text" id="tm-role" required list="roles-suggestions" placeholder="مثال: مهندس موقع / محاسب / مشرف تنفيذ" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white outline-none focus:border-purple-500">
+                        <datalist id="roles-suggestions">
+                            <option value="مهندس موقع">
+                            <option value="مدير مشاريع">
+                            <option value="محاسب مالي">
+                            <option value="مسؤول مشتريات">
+                            <option value="مشرف تنفيذ">
+                            <option value="إداري">
+                        </datalist>
+                    </div>
+                    <div>
+                        <label class="block font-bold text-slate-300 mb-1">اسم المستخدم للدخول: <span class="text-rose-400">*</span></label>
+                        <input type="text" id="tm-username" required placeholder="مثال: ahmed (حروف إنجليزية)" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white outline-none focus:border-purple-500 font-mono">
+                    </div>
+                    <div>
+                        <label class="block font-bold text-slate-300 mb-1">كلمة المرور: <span id="tm-pwd-hint" class="text-slate-400 text-[10px]">(123 افتراضياً)</span></label>
+                        <input type="text" id="tm-password" placeholder="123" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white outline-none focus:border-purple-500 font-mono">
+                    </div>
+                    <div>
+                        <label class="block font-bold text-slate-300 mb-1">رقم الجوال:</label>
+                        <input type="text" id="tm-phone" placeholder="05XXXXXXXX" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white outline-none focus:border-purple-500 font-mono">
+                    </div>
+                    <div>
+                        <label class="block font-bold text-slate-300 mb-1">البريد الإلكتروني:</label>
+                        <input type="email" id="tm-email" placeholder="user@segieny.sa" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white outline-none focus:border-purple-500">
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block font-bold text-slate-300 mb-1">حالة الحساب:</label>
+                    <select id="tm-status" class="w-full sm:w-1/2 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white outline-none focus:border-purple-500">
+                        <option value="active">نشط ومفعل (يمكنه الدخول)</option>
+                        <option value="inactive">معطل مؤقتاً</option>
+                    </select>
+                </div>
+
+                <!-- PERMISSIONS SELECTOR SECTION -->
+                <div class="pt-3 border-t border-slate-750 space-y-3">
+                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                        <div>
+                            <span class="block font-black text-sm text-purple-300">تحديد الأقسام المسموح للموظف برؤيتها:</span>
+                            <span class="text-[11px] text-slate-400">حدد التبويبات التي ستظهر له في الشريط العلوي للمنظومة</span>
+                        </div>
+                        <!-- Quick Presets -->
+                        <div class="flex flex-wrap items-center gap-1.5">
+                            <button type="button" onclick="setPermissionsPreset('all')" class="px-2.5 py-1 rounded-lg bg-purple-600/20 hover:bg-purple-600/40 text-purple-300 border border-purple-500/30 text-[10px] font-bold transition">تحديد الكل</button>
+                            <button type="button" onclick="setPermissionsPreset('none')" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-[10px] font-bold transition">إلغاء الكل</button>
+                            <button type="button" onclick="setPermissionsPreset('engineer')" class="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/40 text-amber-300 border border-amber-500/30 text-[10px] font-bold transition">قالب مهندس</button>
+                            <button type="button" onclick="setPermissionsPreset('accountant')" class="px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/40 text-emerald-300 border border-emerald-500/30 text-[10px] font-bold transition">قالب محاسب</button>
+                        </div>
+                    </div>
+
+                    <!-- Checkboxes Grid -->
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 p-3.5 rounded-xl bg-slate-900/80 border border-slate-750">
+                        <label class="flex items-center gap-2.5 p-2 rounded-lg hover:bg-slate-800 cursor-pointer transition border border-transparent hover:border-slate-700">
+                            <input type="checkbox" name="perm" value="dashboard" class="perm-cb rounded text-purple-600 focus:ring-0 bg-slate-950 border-slate-750 w-4 h-4">
+                            <div>
+                                <strong class="block text-white text-xs">الرئيسية (Dashboard)</strong>
+                                <span class="text-[10px] text-slate-400">لوحة المؤشرات والملخص العام</span>
+                            </div>
+                        </label>
+                        <label class="flex items-center gap-2.5 p-2 rounded-lg hover:bg-slate-800 cursor-pointer transition border border-transparent hover:border-slate-700">
+                            <input type="checkbox" name="perm" value="projects" class="perm-cb rounded text-purple-600 focus:ring-0 bg-slate-950 border-slate-750 w-4 h-4">
+                            <div>
+                                <strong class="block text-white text-xs">المشاريع والمراحل</strong>
+                                <span class="text-[10px] text-slate-400">بيانات المشاريع، بنود WBS، والتكلفة</span>
+                            </div>
+                        </label>
+                        <label class="flex items-center gap-2.5 p-2 rounded-lg hover:bg-slate-800 cursor-pointer transition border border-transparent hover:border-slate-700">
+                            <input type="checkbox" name="perm" value="tasks" class="perm-cb rounded text-purple-600 focus:ring-0 bg-slate-950 border-slate-750 w-4 h-4">
+                            <div>
+                                <strong class="block text-white text-xs">المهام والتاسكات</strong>
+                                <span class="text-[10px] text-slate-400">جدول المهام ومتابعة الإنجاز</span>
+                            </div>
+                        </label>
+                        <label class="flex items-center gap-2.5 p-2 rounded-lg hover:bg-slate-800 cursor-pointer transition border border-transparent hover:border-slate-700">
+                            <input type="checkbox" name="perm" value="expenses" class="perm-cb rounded text-purple-600 focus:ring-0 bg-slate-950 border-slate-750 w-4 h-4">
+                            <div>
+                                <strong class="block text-white text-xs">المصاريف والفواتير</strong>
+                                <span class="text-[10px] text-slate-400">تسجيل الفواتير وسندات الصرف</span>
+                            </div>
+                        </label>
+                        <label class="flex items-center gap-2.5 p-2 rounded-lg hover:bg-slate-800 cursor-pointer transition border border-transparent hover:border-slate-700">
+                            <input type="checkbox" name="perm" value="suppliers" class="perm-cb rounded text-purple-600 focus:ring-0 bg-slate-950 border-slate-750 w-4 h-4">
+                            <div>
+                                <strong class="block text-white text-xs">الموردين وعروض الأسعار</strong>
+                                <span class="text-[10px] text-slate-400">عروض الأسعار ومقارنة الفروقات</span>
+                            </div>
+                        </label>
+                        <label class="flex items-center gap-2.5 p-2 rounded-lg hover:bg-slate-800 cursor-pointer transition border border-transparent hover:border-slate-700">
+                            <input type="checkbox" name="perm" value="cashflow" class="perm-cb rounded text-purple-600 focus:ring-0 bg-slate-950 border-slate-750 w-4 h-4">
+                            <div>
+                                <strong class="block text-white text-xs">التدفق النقدي والسيولة</strong>
+                                <span class="text-[10px] text-slate-400">دفعات العملاء ومستخلصات التنفيذ</span>
+                            </div>
+                        </label>
+                        <label class="flex items-center gap-2.5 p-2 rounded-lg hover:bg-slate-800 cursor-pointer transition border border-transparent hover:border-slate-700">
+                            <input type="checkbox" name="perm" value="subcontractors" class="perm-cb rounded text-purple-600 focus:ring-0 bg-slate-950 border-slate-750 w-4 h-4">
+                            <div>
+                                <strong class="block text-white text-xs">مقاولو الباطن</strong>
+                                <span class="text-[10px] text-slate-400">العقود ومستخلصات مقاولي الباطن</span>
+                            </div>
+                        </label>
+                        <label class="flex items-center gap-2.5 p-2 rounded-lg hover:bg-slate-800 cursor-pointer transition border border-transparent hover:border-slate-700">
+                            <input type="checkbox" name="perm" value="custody" class="perm-cb rounded text-purple-600 focus:ring-0 bg-slate-950 border-slate-750 w-4 h-4">
+                            <div>
+                                <strong class="block text-white text-xs">العهد النثرية</strong>
+                                <span class="text-[10px] text-slate-400">طلبات العهد النقدية والتصفية</span>
+                            </div>
+                        </label>
+                        <label class="flex items-center gap-2.5 p-2 rounded-lg hover:bg-slate-800 cursor-pointer transition border border-transparent hover:border-slate-700">
+                            <input type="checkbox" name="perm" value="documents" class="perm-cb rounded text-purple-600 focus:ring-0 bg-slate-950 border-slate-750 w-4 h-4">
+                            <div>
+                                <strong class="block text-white text-xs">المخططات والمستندات</strong>
+                                <span class="text-[10px] text-slate-400">المخططات الهندسية والعقود</span>
+                            </div>
+                        </label>
+                        <label class="flex items-center gap-2.5 p-2 rounded-lg hover:bg-slate-800 cursor-pointer transition border border-transparent hover:border-slate-700">
+                            <input type="checkbox" name="perm" value="reports" class="perm-cb rounded text-purple-600 focus:ring-0 bg-slate-950 border-slate-750 w-4 h-4">
+                            <div>
+                                <strong class="block text-white text-xs">التقارير المفصلة</strong>
+                                <span class="text-[10px] text-slate-400">تقارير التكاليف، الأرباح وتصدير Excel</span>
+                            </div>
+                        </label>
+                        <label class="flex items-center gap-2.5 p-2 rounded-lg hover:bg-slate-800 cursor-pointer transition border border-transparent hover:border-slate-700">
+                            <input type="checkbox" name="perm" value="chat" class="perm-cb rounded text-purple-600 focus:ring-0 bg-slate-950 border-slate-750 w-4 h-4">
+                            <div>
+                                <strong class="block text-white text-xs">محادثات الفريق</strong>
+                                <span class="text-[10px] text-slate-400">الدردشة العامة وقنوات المشاريع</span>
+                            </div>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-750">
+                    <button type="button" onclick="closeModal('team-member-modal')" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-300 font-bold text-xs transition">إلغاء</button>
+                    <button type="submit" id="btn-submit-team-member" class="px-5 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs flex items-center gap-2 shadow-lg shadow-purple-950/40 transition">
+                        <i data-lucide="check" class="w-4 h-4"></i>
+                        <span id="btn-team-submit-text">حفظ الموظف</span>
+                    </button>
+                </div>
+            </form>
         </div>
     </div>
 

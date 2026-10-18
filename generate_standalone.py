@@ -59,20 +59,20 @@ def build_standalone():
     const INITIAL_DB = {json.dumps(db_dump, ensure_ascii=False)};
     
     // Always sync or initialize LocalStorage
-    if (!localStorage.getItem('segieny_standalone_db_v4')) {{
-        localStorage.setItem('segieny_standalone_db_v4', JSON.stringify(INITIAL_DB));
+    if (!localStorage.getItem('segieny_standalone_db_v5')) {{
+        localStorage.setItem('segieny_standalone_db_v5', JSON.stringify(INITIAL_DB));
     }}
     
     function getDB() {{
         try {{
-            return JSON.parse(localStorage.getItem('segieny_standalone_db_v4')) || INITIAL_DB;
+            return JSON.parse(localStorage.getItem('segieny_standalone_db_v5')) || INITIAL_DB;
         }} catch(e) {{
             return INITIAL_DB;
         }}
     }}
     
     function saveDB(data) {{
-        localStorage.setItem('segieny_standalone_db_v4', JSON.stringify(data));
+        localStorage.setItem('segieny_standalone_db_v5', JSON.stringify(data));
     }}
 
     const originalFetch = window.fetch;

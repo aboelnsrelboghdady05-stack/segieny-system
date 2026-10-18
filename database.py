@@ -789,28 +789,6 @@ def seed_hr_demo_data(cursor):
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''', employees)
 
-    # Initial Monthly Payroll (شهر سبتمبر 2026)
-    cursor.execute('''
-    INSERT INTO hr_payrolls (month_year, total_basic, total_allowances, total_deductions, total_advances, total_net, employees_count, status, approved_by, payment_date, notes)
-    VALUES ('2026-09', 93500.0, 31900.0, 1200.0, 2500.0, 121700.0, 7, 'paid', 'ابوالنصر البغدادي', '2026-09-28', 'تم تحويل رواتب شهر سبتمبر 2026 عبر مسير نظام حماية الأجور البنكي')
-    ''')
-    payroll_id = cursor.lastrowid
-
-    # Payroll Items
-    payroll_items = [
-        (payroll_id, 1, 'ابوالنصر البغدادي', 'المدير المالي', 18000.0, 7000.0, 0, 0, 0, 0, 25000.0, 'SA0380000000123456789012', 'paid', 'تم التحويل'),
-        (payroll_id, 2, 'مهندس جهاد', 'مدير المشاريع', 16000.0, 6500.0, 0, 0, 0, 0, 22500.0, 'SA4410000000987654321098', 'paid', 'تم التحويل'),
-        (payroll_id, 3, 'نواف سجيني', 'المدير العام', 25000.0, 10000.0, 0, 0, 0, 0, 35000.0, 'SA5520000000554433221100', 'paid', 'تم التحويل'),
-        (payroll_id, 4, 'م. فادي القحطاني', 'مهندس موقع أول', 12000.0, 4700.0, 0, 0, 0, 0, 16700.0, 'SA1205000000112233445566', 'paid', 'تم التحويل'),
-        (payroll_id, 5, 'م. طارق الزهراني', 'مهندس مكتب فني وحصر', 10500.0, 4000.0, 0, 0, 0, 0, 14500.0, 'SA9880000000998877665544', 'paid', 'تم التحويل'),
-        (payroll_id, 6, 'سليمان عبد الرحيم', 'مشرف عام تنفيذ', 7500.0, 2700.0, 500.0, 0, 400.0, 1500.0, 8800.0, 'SA3340000000445566778899', 'paid', 'تم التحويل - خصم سلفة 1,500 ر.س'),
-        (payroll_id, 7, 'بابو راجيش كومار', 'مراقب حدادة وخرسانات', 4500.0, 1700.0, 300.0, 0, 800.0, 1000.0, 4700.0, 'SA7760000000778899001122', 'paid', 'تم التحويل - خصم سلفة 1,000 ر.س')
-    ]
-    cursor.executemany('''
-    INSERT INTO hr_payroll_items (payroll_id, employee_id, employee_name, job_title, basic_salary, allowances, overtime_amount, bonus_amount, deductions, advances_deducted, net_salary, iban, status, notes)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ''', payroll_items)
-
     # Sample Leaves
     leaves = [
         (4, 'م. فادي القحطاني', 'سنوية', '2026-11-01', '2026-11-15', 14, 'approved', 'إجازة سنوية معتمدة للتجديد والاستجمام'),

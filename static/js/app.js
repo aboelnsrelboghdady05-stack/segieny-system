@@ -12551,9 +12551,6 @@ function renderHrPayrolls() {
                                 <i data-lucide="check" class="w-3.5 h-3.5"></i>
                                 <span>اعتماد</span>
                             </button>
-                            <button type="button" onclick="deleteHrPayroll(${p.id})" class="p-2 rounded-xl bg-slate-800 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 border border-slate-700 transition" title="حذف المسير">
-                                <i data-lucide="trash-2" class="w-4 h-4"></i>
-                            </button>
                         ` : ''}
                         ${p.status === 'approved' ? `
                             <button type="button" onclick="updateHrPayrollStatus(${p.id}, 'paid')" class="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1 transition">
@@ -12561,6 +12558,9 @@ function renderHrPayrolls() {
                                 <span>تأكيد الصرف</span>
                             </button>
                         ` : ''}
+                        <button type="button" onclick="deleteHrPayroll(${p.id})" class="p-2 rounded-xl bg-slate-800 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 border border-slate-700 transition" title="حذف المسير">
+                            <i data-lucide="trash-2" class="w-4 h-4"></i>
+                        </button>
                     </div>
                 </div>
             </div>
@@ -12756,6 +12756,7 @@ async function deleteHrPayroll(id) {
         const data = await res.json();
         if (res.ok && data.success) {
             showToast(data.message || 'تم حذف المسير بنجاح', 'success');
+            closeModal('hr-payroll-detail-modal');
             await loadHrData();
         } else {
             showToast(data.error || 'تعذر حذف المسير', 'error');

@@ -61,6 +61,20 @@
             }
         })();
     </script>
+    <style>
+        #auth-screen.hidden,
+        #auth-screen[style*="display: none"],
+        .auth-hidden {
+            display: none !important;
+            visibility: hidden !important;
+            opacity: 0 !important;
+            pointer-events: none !important;
+            z-index: -99999 !important;
+        }
+        .hidden {
+            display: none !important;
+        }
+    </style>
 </head>
 <body class="bg-slate-900 text-slate-100 font-cairo antialiased min-h-screen flex flex-col selection:bg-emerald-500 selection:text-white overflow-x-hidden">
 
@@ -5878,7 +5892,7 @@
 
     <!-- Scripts -->
     <script src="/static/js/i18n.js?v=20261018_v2"></script>
-    <script src="/static/js/app.js?v=20261018_hr_v6"></script>
+    <script src="/static/js/app.js?v=20261018_hr_v7"></script>
     <script>
     (function() {
         try {

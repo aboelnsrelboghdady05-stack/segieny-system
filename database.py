@@ -1,10 +1,17 @@
 import sqlite3
 import os
 from datetime import datetime, date
+import turso_db
+
+TURSO_DATABASE_URL = os.environ.get('TURSO_DATABASE_URL', 'https://sejiny-abuelnasr.aws-eu-west-1.turso.io')
+TURSO_AUTH_TOKEN = os.environ.get('TURSO_AUTH_TOKEN', 'eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3OTIzNjYyMDgsImlkIjoiMDFhMTUxNTUtOGMwMS03NmMzLWI4NDYtNTY4Yzc2MGZkZmZmIiwia2lkIjoiVmRIVzNoM2RzQklGODdDUlFMaVBXU3Q5TlV3eThGVHUyUjhMUER2bExFTSIsInJpZCI6ImZjYzMxMjM4LWM4NjktNGFhNy04YjMxLWY4NWJiMDFmOGRkOSJ9.CtHhtaup_cm0wKMGqMLDkWQ9XyuQzL8rTPfw2EfR84tITwK0iXCv4C4IXXrlxm4aa3NV49yFcRYs-TWQMGPtCQ')
+
 DB_PATH = os.environ.get('DATABASE_PATH', os.path.join(os.path.dirname(__file__), 'segieny_contracting.db'))
 os.makedirs(os.path.dirname(os.path.abspath(DB_PATH)), exist_ok=True)
 
 def get_db_connection():
+    if TURSO_DATABASE_URL and TURSO_AUTH_TOKEN:
+        return turso_db.connect(TURSO_DATABASE_URL, TURSO_AUTH_TOKEN)
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
@@ -12,6 +19,15 @@ def get_db_connection():
 def init_db():
     conn = get_db_connection()
     cursor = conn.cursor()
+
+    # If database is already initialized, skip table creation
+    try:
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='projects'")
+        if cursor.fetchone():
+            conn.close()
+            return
+    except Exception:
+        pass
 
     # Projects table
     cursor.execute('''

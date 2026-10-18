@@ -13151,15 +13151,21 @@ async function calculateEosDirectly() {
         const data = await res.json();
 
         if (res.ok && data.success) {
-            document.getElementById('eos-result-amount').innerText = Number(data.final_eos_amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-            document.getElementById('eos-multiplier-badge').innerText = `${Math.round(data.multiplier * 100)}% استحقاق (${data.reduction_note})`;
-            document.getElementById('eos-reduction-note').innerText = `تم احتساب المستحقات بناءً على راتب أساسي وبدلات قدرها ${formatCurrency(data.total_salary)} ومدة خدمة ${data.total_years_fraction} سنة وفق المادتين 84 و 85 من نظام العمل السعودي.`;
+            const elRes = document.getElementById('eos-result-amount');
+            if (elRes) elRes.innerText = Number(data.final_eos_amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            const elMult = document.getElementById('eos-multiplier-badge');
+            if (elMult) elMult.innerText = `${Math.round(data.multiplier * 100)}% استحقاق (${data.reduction_note})`;
+            const elNote = document.getElementById('eos-reduction-note');
+            if (elNote) elNote.innerText = `تم احتساب المستحقات بناءً على راتب أساسي وبدلات قدرها ${formatCurrency(data.total_salary)} ومدة خدمة ${data.total_years_fraction} سنة وفق المادتين 84 و 85 من نظام العمل السعودي.`;
 
-            document.getElementById('eos-base-salary-display').innerText = formatCurrency(data.total_salary);
-            document.getElementById('eos-years-display').innerText = `${data.total_years_fraction} سنة`;
-            document.getElementById('eos-step1-amount').innerText = formatCurrency(data.first_5_years_amount);
-            document.getElementById('eos-step2-amount').innerText = formatCurrency(data.after_5_years_amount);
-            document.getElementById('eos-unadjusted-amount').innerText = formatCurrency(data.unadjusted_eos_amount);
+            const elWage = document.getElementById('eos-display-wage') || document.getElementById('eos-base-salary-display');
+            if (elWage) elWage.innerText = formatCurrency(data.total_salary);
+            const elServ = document.getElementById('eos-display-service') || document.getElementById('eos-years-display');
+            if (elServ) elServ.innerText = `${data.total_years_fraction} سنة`;
+            const elF5 = document.getElementById('eos-display-first5') || document.getElementById('eos-step1-amount');
+            if (elF5) elF5.innerText = formatCurrency(data.first_5_years_amount);
+            const elB5 = document.getElementById('eos-display-beyond5') || document.getElementById('eos-step2-amount');
+            if (elB5) elB5.innerText = formatCurrency(data.after_5_years_amount);
         } else {
             showToast(data.error || 'تعذر حساب مكافأة نهاية الخدمة', 'error');
         }

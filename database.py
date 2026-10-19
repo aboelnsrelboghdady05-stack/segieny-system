@@ -20,15 +20,6 @@ def init_db():
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    # If database is already initialized, skip table creation
-    try:
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='projects'")
-        if cursor.fetchone():
-            conn.close()
-            return
-    except Exception:
-        pass
-
     # Projects table
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS projects (
@@ -409,12 +400,33 @@ def init_db():
         receipt_file_path TEXT,
         receipt_file_name TEXT,
         phase_id INTEGER,
+        payment_type TEXT DEFAULT 'contract', -- contract (تعاقدية), extra_work (أعمال إضافية وفروق أسعار خامات)
         notes TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
         FOREIGN KEY (phase_id) REFERENCES project_phases(id) ON DELETE SET NULL
     )
     ''')
+
+    cursor.execute('PRAGMA table_info(client_payments)')
+    cp_cols = [r[1] for r in cursor.fetchall()]
+    if 'payment_type' not in cp_cols:
+        cursor.execute("ALTER TABLE client_payments ADD COLUMN payment_type TEXT DEFAULT 'contract'")
+
+    cursor.execute("""
+        UPDATE client_payments 
+        SET payment_type = 'extra_work'
+        WHERE (payment_type = 'contract' OR payment_type IS NULL) 
+          AND (
+            milestone_name LIKE '%تغير%' 
+            OR milestone_name LIKE '%تغيير%' 
+            OR milestone_name LIKE '%إضاف%' 
+            OR milestone_name LIKE '%اضاف%' 
+            OR milestone_name LIKE '%فروق أسعار%'
+            OR milestone_name LIKE '%فرق سعر%'
+            OR id IN (34, 35)
+          )
+    """)
 
     # Client Receipt Vouchers (سندات قبض دفعات العملاء - للتسديد والتوزيع التلقائي)
     cursor.execute('''
@@ -468,16 +480,16 @@ def init_db():
     if 'username' not in tm_cols:
         cursor.execute('ALTER TABLE team_members ADD COLUMN username TEXT')
     if 'password' not in tm_cols:
-        cursor.execute('ALTER TABLE team_members ADD COLUMN password TEXT DEFAULT "123"')
+        cursor.execute("ALTER TABLE team_members ADD COLUMN password TEXT DEFAULT '123'")
     if 'permissions' not in tm_cols:
-        cursor.execute('ALTER TABLE team_members ADD COLUMN permissions TEXT DEFAULT "all"')
+        cursor.execute("ALTER TABLE team_members ADD COLUMN permissions TEXT DEFAULT 'all'")
 
     # Backfill default usernames, passwords & permissions
-    cursor.execute('UPDATE team_members SET username = "baghdadi", password = COALESCE(password, "123"), permissions = "all" WHERE id = 1 AND (username IS NULL OR username = "" OR permissions IS NULL OR permissions = "")')
-    cursor.execute('UPDATE team_members SET username = "jihad", password = COALESCE(password, "123"), permissions = COALESCE(permissions, "all") WHERE id = 2 AND (username IS NULL OR username = "")')
-    cursor.execute('UPDATE team_members SET name = "نواف سجيني", username = "nawaf", email = "nawaf@segieny.sa", password = COALESCE(password, "123"), permissions = COALESCE(permissions, "all") WHERE id = 3 OR username = "farouk" OR name = "فاروق محمد"')
-    cursor.execute('UPDATE team_members SET password = "123" WHERE password IS NULL OR password = ""')
-    cursor.execute('UPDATE team_members SET permissions = "all" WHERE permissions IS NULL OR permissions = ""')
+    cursor.execute("UPDATE team_members SET username = 'baghdadi', password = COALESCE(password, '123'), permissions = 'all' WHERE id = 1 AND (username IS NULL OR username = '' OR permissions IS NULL OR permissions = '')")
+    cursor.execute("UPDATE team_members SET username = 'jihad', password = COALESCE(password, '123'), permissions = COALESCE(permissions, 'all') WHERE id = 2 AND (username IS NULL OR username = '')")
+    cursor.execute("UPDATE team_members SET name = 'نواف سجيني', username = 'nawaf', email = 'nawaf@segieny.sa', password = COALESCE(password, '123'), permissions = COALESCE(permissions, 'all') WHERE id = 3 OR username = 'farouk' OR name = 'فاروق محمد'")
+    cursor.execute("UPDATE team_members SET password = '123' WHERE password IS NULL OR password = ''")
+    cursor.execute("UPDATE team_members SET permissions = 'all' WHERE permissions IS NULL OR permissions = ''")
 
     # Notifications / Alerts
     cursor.execute('''

@@ -420,12 +420,29 @@ def get_project_details(project_id):
     tot_pending = max(0.0, tot_milestones_tax - tot_received)
     col_rate = round((tot_received / tot_milestones_tax * 100), 1) if tot_milestones_tax > 0 else 0
 
+    contract_cps = [cp for cp in client_payments if cp.get('payment_type') != 'extra_work']
+    extra_cps = [cp for cp in client_payments if cp.get('payment_type') == 'extra_work']
+
+    tot_contract_tax = sum(float(cp.get('amount_with_tax') or 0) for cp in contract_cps)
+    tot_contract_rec = sum(float(cp.get('received_amount') or 0) for cp in contract_cps if cp.get('is_received') or cp.get('status') in ('paid', 'partially_paid'))
+    tot_contract_pend = max(0.0, tot_contract_tax - tot_contract_rec)
+
+    tot_extra_tax = sum(float(cp.get('amount_with_tax') or 0) for cp in extra_cps)
+    tot_extra_rec = sum(float(cp.get('received_amount') or 0) for cp in extra_cps if cp.get('is_received') or cp.get('status') in ('paid', 'partially_paid'))
+    tot_extra_pend = max(0.0, tot_extra_tax - tot_extra_rec)
+
     project_data['payment_summary'] = {
         'total_milestones_with_tax': tot_milestones_tax,
         'total_milestones_without_tax': tot_milestones_no_tax,
         'total_received': tot_received,
         'total_pending': tot_pending,
         'collection_rate': col_rate,
+        'contract_milestones_total': tot_contract_tax,
+        'contract_milestones_received': tot_contract_rec,
+        'contract_milestones_pending': tot_contract_pend,
+        'extra_works_total': tot_extra_tax,
+        'extra_works_received': tot_extra_rec,
+        'extra_works_pending': tot_extra_pend,
         'payments_count': len(client_payments),
         'paid_count': sum(1 for cp in client_payments if cp.get('is_received') or cp.get('status') == 'paid')
     }
@@ -3058,6 +3075,13 @@ def create_client_payment():
     payment_method = data.get('payment_method', 'تحويل بنكي')
     receipt_voucher_no = data.get('receipt_voucher_no')
     notes = data.get('notes')
+    payment_type = data.get('payment_type')
+    if not payment_type:
+        lower_name = (milestone_name or '').lower()
+        if any(kw in lower_name for kw in ['تغير', 'تغيير', 'إضاف', 'اضاف', 'فروق أسعار', 'فرق سعر', 'زيادة', 'خامات']):
+            payment_type = 'extra_work'
+        else:
+            payment_type = 'contract'
     
     conn = database.get_db_connection()
     cursor = conn.cursor()
@@ -3071,13 +3095,13 @@ def create_client_payment():
             project_id, payment_number, milestone_name, percentage,
             amount_with_tax, tax_amount, amount_without_tax, due_date,
             received_date, received_amount, is_received, status,
-            payment_method, receipt_voucher_no, notes
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            payment_method, receipt_voucher_no, notes, payment_type
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''', (
         project_id, payment_number, milestone_name, percentage,
         amount_with_tax, tax_amount, amount_without_tax, due_date,
         received_date, received_amount, is_received, status,
-        payment_method, receipt_voucher_no, notes
+        payment_method, receipt_voucher_no, notes, payment_type
     ))
     payment_id = cursor.lastrowid
     conn.commit()
@@ -3119,6 +3143,7 @@ def update_client_payment(payment_id):
     payment_method = data.get('payment_method', existing['payment_method'])
     receipt_voucher_no = data.get('receipt_voucher_no', existing['receipt_voucher_no'])
     notes = data.get('notes', existing['notes'])
+    payment_type = data.get('payment_type', existing.get('payment_type', 'contract'))
     
     cursor.execute('''
         UPDATE client_payments SET
@@ -3126,14 +3151,14 @@ def update_client_payment(payment_id):
             amount_with_tax = ?, tax_amount = ?, amount_without_tax = ?,
             due_date = ?, received_date = ?, received_amount = ?,
             is_received = ?, status = ?, payment_method = ?,
-            receipt_voucher_no = ?, notes = ?
+            receipt_voucher_no = ?, notes = ?, payment_type = ?
         WHERE id = ?
     ''', (
         milestone_name, payment_number, percentage,
         amount_with_tax, tax_amount, amount_without_tax,
         due_date, received_date, received_amount,
         is_received, status, payment_method,
-        receipt_voucher_no, notes, payment_id
+        receipt_voucher_no, notes, payment_type, payment_id
     ))
     conn.commit()
     conn.close()
@@ -5379,6 +5404,17 @@ def get_detailed_reports():
         p_tot_pend = max(0.0, p_tot_with_tax - p_tot_rec)
         p_rate = round((p_tot_rec / p_tot_with_tax * 100), 1) if p_tot_with_tax > 0 else 0
         
+        contract_cps = [cp for cp in p_payments if cp.get('payment_type') != 'extra_work']
+        extra_cps = [cp for cp in p_payments if cp.get('payment_type') == 'extra_work']
+
+        p_contract_tot = sum(cp['amount_with_tax'] for cp in contract_cps)
+        p_contract_rec = sum(cp['received_amount'] for cp in contract_cps if cp['is_received'] or cp['status'] in ('paid', 'partially_paid'))
+        p_contract_pend = max(0.0, p_contract_tot - p_contract_rec)
+
+        p_extra_tot = sum(cp['amount_with_tax'] for cp in extra_cps)
+        p_extra_rec = sum(cp['received_amount'] for cp in extra_cps if cp['is_received'] or cp['status'] in ('paid', 'partially_paid'))
+        p_extra_pend = max(0.0, p_extra_tot - p_extra_rec)
+
         client_payments_report.append({
             'project_id': pid,
             'project_name': p['name'],
@@ -5389,6 +5425,12 @@ def get_detailed_reports():
             'total_received': p_tot_rec,
             'total_pending': p_tot_pend,
             'collection_rate': p_rate,
+            'contract_milestones_total': p_contract_tot,
+            'contract_milestones_received': p_contract_rec,
+            'contract_milestones_pending': p_contract_pend,
+            'extra_works_total': p_extra_tot,
+            'extra_works_received': p_extra_rec,
+            'extra_works_pending': p_extra_pend,
             'payments': p_payments
         })
 

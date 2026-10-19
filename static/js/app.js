@@ -7647,6 +7647,32 @@ function renderCashFlowUI() {
         kpiFinalCashDescEl.innerText = activeProject ? `صافي أرباح كاش مشروع ${activeProject.code}` : 'صافي رصيد كاش الشركة بعد التسليم الكامل';
     }
 
+    // Populate Bank Reconciliation Strip
+    const reconOpening = document.getElementById('cf-recon-opening');
+    if (reconOpening) reconOpening.innerText = formatMoney(openingBal);
+
+    const reconRec = document.getElementById('cf-recon-received');
+    if (reconRec) reconRec.innerText = '+' + formatMoney(activeProject ? totRec : (summary.total_received || 0));
+
+    const reconExp = document.getElementById('cf-recon-expenses');
+    if (reconExp) {
+        const expAmt = activeProject ? totSpent : (summary.direct_expenses_spent !== undefined ? summary.direct_expenses_spent : (summary.total_spent || 0));
+        reconExp.innerText = '-' + formatMoney(expAmt);
+    }
+
+    const reconCust = document.getElementById('cf-recon-custody');
+    if (reconCust) {
+        reconCust.innerText = '-' + formatMoney(activeProject ? 0 : (summary.net_custody_outflow || 0));
+    }
+
+    const reconAdv = document.getElementById('cf-recon-advances');
+    if (reconAdv) {
+        reconAdv.innerText = '-' + formatMoney(activeProject ? 0 : (summary.net_advances_outflow || 0));
+    }
+
+    const reconBal = document.getElementById('cf-recon-balance');
+    if (reconBal) reconBal.innerText = formatMoney(curCash);
+
     // 3. Render Phase Stepper & Simulation Box
     const simBadge = document.getElementById('cf-sim-badge-project');
     if (simBadge) {

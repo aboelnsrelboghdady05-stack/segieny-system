@@ -1377,22 +1377,25 @@
 
             <!-- Executive KPI Strip (5 Cards) -->
             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
-                <!-- KPI 1: Current Net Cash -->
+                <!-- KPI 1: Current Net Cash / Bank Balance -->
                 <div class="bg-slate-850 p-4 rounded-2xl border border-slate-800 shadow-md relative overflow-hidden group hover:border-emerald-500/40 transition">
                     <div class="flex items-center justify-between">
-                        <span class="text-[11px] text-slate-400 font-bold">السيولة النقدية الحالية</span>
+                        <span class="text-[11px] text-emerald-300 font-bold flex items-center gap-1.5">
+                            <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                            الرصيد الفعلي (مطابق للبنك)
+                        </span>
                         <div class="w-8 h-8 rounded-xl bg-emerald-500/10 flex items-center justify-center text-emerald-400">
-                            <i data-lucide="banknote" class="w-4 h-4"></i>
+                            <i data-lucide="landmark" class="w-4 h-4"></i>
                         </div>
                     </div>
                     <h3 id="cf-kpi-current-cash" class="text-xl font-black text-white mt-1">0 ر.س</h3>
                     <div class="flex items-center justify-between text-[10px] text-slate-400 mt-2 pt-2 border-t border-slate-800/80">
                         <span>المقبوض: <strong id="cf-kpi-tot-received" class="text-emerald-400">0</strong></span>
-                        <span>المنصرف: <strong id="cf-kpi-tot-spent" class="text-rose-400">0</strong></span>
+                        <span>الخارج الفعلي: <strong id="cf-kpi-tot-spent" class="text-rose-400" title="يشمل المصاريف والعهد والسلف المنصرفة">0</strong></span>
                     </div>
                     <div class="text-[10px] text-amber-300/90 mt-1.5 flex items-center justify-between bg-amber-500/5 px-2 py-1 rounded-lg border border-amber-500/20">
-                        <span>رصيد افتتاحي: <strong id="cf-kpi-opening-cash" class="font-bold">300,000 ر.س</strong></span>
-                        <button onclick="openEditOpeningCashModal()" class="text-amber-400 hover:underline font-bold text-[9px]">تعديل</button>
+                        <span>رصيد البنك الافتتاحي: <strong id="cf-kpi-opening-cash" class="font-bold">300,000 ر.س</strong></span>
+                        <button onclick="openEditOpeningCashModal()" class="text-amber-400 hover:underline font-bold text-[9px] bg-amber-400/10 px-1.5 py-0.5 rounded transition">تعديل رصيد البنك</button>
                     </div>
                 </div>
 
@@ -1442,6 +1445,39 @@
                     </div>
                     <h3 id="cf-kpi-final-cash" class="text-xl font-black text-emerald-300 mt-1">0 ر.س</h3>
                     <p id="cf-kpi-final-cash-desc" class="text-[10px] text-emerald-400/80 mt-2 truncate pt-2 border-t border-emerald-500/20">الأرباح الصافية بعد التسليم الكامل</p>
+                </div>
+            </div>
+
+            <!-- Bank Reconciliation Breakdown Strip -->
+            <div id="cf-bank-reconciliation-strip" class="bg-slate-900/90 p-3.5 rounded-2xl border border-slate-750 shadow-md">
+                <div class="flex flex-wrap items-center justify-between gap-3 text-xs">
+                    <div class="flex items-center gap-2">
+                        <div class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></div>
+                        <span class="font-black text-white flex items-center gap-1.5 text-xs">
+                            <i data-lucide="shield-check" class="w-4 h-4 text-emerald-400"></i>
+                            تفاصيل مطابقة رصيد البنك والخزينة:
+                        </span>
+                    </div>
+                    <div class="flex flex-wrap items-center gap-2 sm:gap-3 text-[11px] font-semibold text-slate-300">
+                        <span class="bg-slate-800/80 px-2.5 py-1 rounded-xl border border-slate-700">
+                            🏦 رصيد البنك الافتتاحي: <strong id="cf-recon-opening" class="font-mono text-amber-300">0 ر.س</strong>
+                        </span>
+                        <span class="bg-emerald-950/40 px-2.5 py-1 rounded-xl border border-emerald-500/30 text-emerald-300">
+                            📥 مقبوضات العملاء: <strong id="cf-recon-received" class="font-mono text-emerald-400">+0 ر.س</strong>
+                        </span>
+                        <span class="bg-rose-950/40 px-2.5 py-1 rounded-xl border border-rose-500/30 text-rose-300">
+                            📤 مصاريف ومشتريات: <strong id="cf-recon-expenses" class="font-mono text-rose-400">-0 ر.س</strong>
+                        </span>
+                        <span class="bg-amber-950/40 px-2.5 py-1 rounded-xl border border-amber-500/30 text-amber-300">
+                            👷 عهد مواقع منصرفة: <strong id="cf-recon-custody" class="font-mono text-amber-400">-0 ر.س</strong>
+                        </span>
+                        <span class="bg-purple-950/40 px-2.5 py-1 rounded-xl border border-purple-500/30 text-purple-300">
+                            👥 سلف موظفين: <strong id="cf-recon-advances" class="font-mono text-purple-400">-0 ر.س</strong>
+                        </span>
+                        <span class="bg-emerald-600/20 px-3 py-1 rounded-xl border border-emerald-400/50 text-emerald-300 font-bold">
+                            💰 رصيد البنك الحالي: <strong id="cf-recon-balance" class="font-mono text-white text-xs font-black">0 ر.س</strong>
+                        </span>
+                    </div>
                 </div>
             </div>
 
@@ -5943,8 +5979,8 @@
                         <i data-lucide="coins" class="w-5 h-5"></i>
                     </div>
                     <div>
-                        <h3 class="text-lg font-black text-white">الرصيد الافتتاحي للسيولة النقدية</h3>
-                        <p class="text-xs text-slate-400">رأس مال الشركة وبداية التدفق النقدي قبل بدء المشاريع</p>
+                        <h3 class="text-lg font-black text-white">الرصيد الافتتاحي لحساب البنك والخزينة</h3>
+                        <p class="text-xs text-slate-400">رصيدك البنكي الفعلي لمطابقة حركة التدفقات النقدية 100%</p>
                     </div>
                 </div>
                 <button type="button" onclick="closeModal('edit-opening-cash-modal')" class="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition">
@@ -5954,13 +5990,13 @@
 
             <form onsubmit="saveOpeningCash(event)" class="space-y-4">
                 <div>
-                    <label class="block text-xs font-bold text-slate-300 mb-1.5">مبلغ الرصيد الافتتاحي (ر.س) <span class="text-rose-400">*</span></label>
+                    <label class="block text-xs font-bold text-slate-300 mb-1.5">رصيد حساب البنك الحالي (ر.س) <span class="text-rose-400">*</span></label>
                     <div class="relative">
                         <input type="number" id="opening-cash-input" step="0.01" min="0" required class="w-full bg-slate-900 border border-slate-750 focus:border-amber-500 rounded-xl px-4 py-2.5 text-white font-mono text-base font-bold pr-12 focus:outline-none transition">
                         <span class="absolute left-3 top-2.5 text-xs font-bold text-amber-400">ر.س</span>
                     </div>
                     <p class="text-[11px] text-slate-400 mt-2 leading-relaxed">
-                        💡 هذا الرصيد يمثل السيولة النقدية / رأس المال المتاح في خزينة وحسابات الشركة قبل بدء إجمالي المشاريع (افتراضياً 300,000 ر.س). يتم إضافته تلقائياً لكافة مؤشرات السيولة الحالية ورصيد الخزينة المتوقع بعد كل مرحلة.
+                        💡 يمكنك وضع رصيدك الفعلي الموجود في تطبيق البنك الآن. سيقوم النظام بحساب كل ما يدخل للبنك (دفعات العملاء) وما يخرج منه (المصاريف، العهد، والسلف) ليظل الرصيد في النظام مطابقاً تماماً لحسابك البنكي.
                     </p>
                 </div>
 

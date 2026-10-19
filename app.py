@@ -3695,9 +3695,47 @@ def get_cashflow():
             'payments_count': len(enriched_payments)
         })
         
+    # Calculate Bank Cash Flow Outflows (Custodies and HR Advances)
+    # 1. Direct Expenses (custody_id IS NULL) so site custody expenses are not double counted
+    cursor.execute('SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE custody_id IS NULL')
+    direct_expenses_spent = float(cursor.fetchone()[0] or 0.0)
+
+    # 2. Total all project expenses for reference
+    cursor.execute('SELECT COALESCE(SUM(amount), 0) FROM expenses')
+    total_all_expenses = float(cursor.fetchone()[0] or 0.0)
+
+    # 3. Custody Net Outflow: Disbursed to engineers minus what was returned to the bank/treasury
+    cursor.execute('''
+        SELECT 
+            COALESCE(SUM(CASE WHEN status IN ('disbursed', 'settled') THEN COALESCE(disbursed_amount, amount) ELSE 0 END), 0),
+            COALESCE(SUM(CASE WHEN status = 'settled' THEN COALESCE(returned_amount, 0) ELSE 0 END), 0)
+        FROM custody_requests
+    ''')
+    c_row = cursor.fetchone()
+    total_custody_disbursed = float(c_row[0] or 0.0)
+    total_custody_returned = float(c_row[1] or 0.0)
+    net_custody_outflow = max(0.0, total_custody_disbursed - total_custody_returned)
+
+    # 4. HR Advances Net Outflow: Disbursed to employees minus installments repaid
+    cursor.execute('''
+        SELECT 
+            COALESCE(SUM(amount), 0),
+            COALESCE(SUM(paid_amount), 0),
+            COALESCE(SUM(remaining_amount), 0)
+        FROM hr_advances
+    ''')
+    a_row = cursor.fetchone()
+    total_advances_disbursed = float(a_row[0] or 0.0)
+    total_advances_repaid = float(a_row[1] or 0.0)
+    net_advances_outflow = float(a_row[2] or (total_advances_disbursed - total_advances_repaid))
+
+    # Total Actual Cash Outflows from Bank Account
+    total_actual_bank_outflows = direct_expenses_spent + net_custody_outflow + net_advances_outflow
+
     opening_cash = float(database.get_setting('opening_cash_balance', '300000.0') or 300000.0)
-    company_current_cash = opening_cash + company_tot_received - company_tot_spent
-    company_tot_final_cash += opening_cash
+    # Exact Bank Account Balance: Opening + Client Inflows - All Actual Bank Outflows
+    company_current_cash = opening_cash + company_tot_received - total_actual_bank_outflows
+    company_tot_final_cash = company_current_cash + company_tot_pending_inflow - company_tot_remaining_cost
     
     # Calculate company cash at simulated phase across all projects
     company_cash_at_sim_phase = opening_cash
@@ -3760,8 +3798,16 @@ def get_cashflow():
         'opening_cash_balance': opening_cash,
         'total_contract_value': company_tot_contract,
         'total_received': company_tot_received,
-        'total_spent': company_tot_spent,
-        'current_net_cash': company_current_cash,
+        'total_spent': total_actual_bank_outflows,
+        'total_project_expenses': total_all_expenses,
+        'direct_expenses_spent': direct_expenses_spent,
+        'total_custody_disbursed': total_custody_disbursed,
+        'total_custody_returned': total_custody_returned,
+        'net_custody_outflow': net_custody_outflow,
+        'total_advances_disbursed': total_advances_disbursed,
+        'total_advances_repaid': total_advances_repaid,
+        'net_advances_outflow': net_advances_outflow,
+        'current_net_cash': company_current_cash, # Exact Bank Account Balance!
         'total_pending_inflow': company_tot_pending_inflow,
         'total_remaining_cost': company_tot_remaining_cost,
         'final_projected_cash': company_tot_final_cash,
@@ -4696,6 +4742,41 @@ def delete_hr_advance(id):
     conn.commit()
     conn.close()
     return jsonify({'success': True, 'message': 'تم حذف السلفة'})
+
+@app.route('/api/hr/advances/<int:id>/repay', methods=['POST'])
+def repay_hr_advance(id):
+    data = request.json or {}
+    repay_amount = float(data.get('amount') or data.get('repay_amount') or 0.0)
+    if repay_amount <= 0:
+        return jsonify({'error': 'مبلغ السداد يجب أن يكون أكبر من صفر'}), 400
+
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM hr_advances WHERE id = ?', (id,))
+    adv = cursor.fetchone()
+    if not adv:
+        conn.close()
+        return jsonify({'error': 'السلفة غير موجودة'}), 404
+
+    total_amt = float(adv['amount'] or 0.0)
+    curr_paid = float(adv['paid_amount'] or 0.0)
+    new_paid = curr_paid + repay_amount
+    new_rem = max(0.0, total_amt - new_paid)
+    new_status = 'paid' if new_rem <= 0 else 'active'
+
+    cursor.execute('''
+        UPDATE hr_advances
+        SET paid_amount = ?, remaining_amount = ?, status = ?
+        WHERE id = ?
+    ''', (new_paid, new_rem, new_status, id))
+
+    conn.commit()
+    conn.close()
+    return jsonify({
+        'success': True,
+        'message': f'تم سداد {repay_amount:,.2f} ر.س من سلفة {adv["employee_name"]} بنجاح (المتبقي: {new_rem:,.2f} ر.س)'
+    })
+
 
 # ----------------- DOCUMENT EXPIRATIONS & COMPLIANCE -----------------
 @app.route('/api/hr/expirations', methods=['GET'])

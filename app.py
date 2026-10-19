@@ -3581,8 +3581,83 @@ def get_cashflow():
     cursor.execute('SELECT * FROM projects ORDER BY id ASC')
     all_projects = cursor.fetchall()
     
+    # Pre-calculate Bank Cash Flow Outflows (Custodies and HR Advances)
+    # 1. Bank Direct Expenses (all bank transfers/paid expenses)
+    cursor.execute('''
+        SELECT COALESCE(SUM(amount), 0)
+        FROM expenses
+        WHERE custody_id IS NULL
+          AND (payment_method IS NULL OR payment_method NOT LIKE '%عهدة%')
+          AND (
+              payment_method LIKE '%تحويل%'
+              OR payment_method LIKE '%بنك%'
+              OR payment_method LIKE '%مدى%'
+              OR payment_method LIKE '%شيك%'
+              OR (payment_status = 'paid' AND payment_method NOT IN ('آجل', 'نقدي'))
+          )
+    ''')
+    bank_expenses_spent = float(cursor.fetchone()[0] or 0.0)
+
+    # 2. Custody expenses spent from site petty custodies
+    cursor.execute('''
+        SELECT COALESCE(SUM(amount), 0)
+        FROM expenses
+        WHERE custody_id IS NOT NULL OR payment_method LIKE '%عهدة%'
+    ''')
+    custody_expenses_spent = float(cursor.fetchone()[0] or 0.0)
+
+    # 3. Total all project expenses for reference
+    cursor.execute('SELECT COALESCE(SUM(amount), 0) FROM expenses')
+    total_all_expenses = float(cursor.fetchone()[0] or 0.0)
+
+    # 4. Bank Custody Net Outflow
+    cursor.execute('''
+        SELECT 
+            COALESCE(SUM(CASE WHEN status IN ('disbursed', 'settled') THEN COALESCE(disbursed_amount, amount) ELSE 0 END), 0),
+            COALESCE(SUM(CASE WHEN status = 'settled' THEN COALESCE(returned_amount, 0) ELSE 0 END), 0)
+        FROM custody_requests
+        WHERE (
+            payment_method LIKE '%تحويل%'
+            OR payment_method LIKE '%بنك%'
+            OR payment_method LIKE '%شيك%'
+            OR payment_method IS NULL
+            OR payment_method = ''
+        )
+    ''')
+    c_row = cursor.fetchone()
+    total_custody_disbursed = float(c_row[0] or 0.0)
+    total_custody_returned = float(c_row[1] or 0.0)
+    net_custody_outflow = max(0.0, total_custody_disbursed - total_custody_returned)
+
+    # 5. HR Advances Net Outflow
+    cursor.execute('''
+        SELECT 
+            COALESCE(SUM(amount), 0),
+            COALESCE(SUM(paid_amount), 0),
+            COALESCE(SUM(remaining_amount), 0)
+        FROM hr_advances
+    ''')
+    a_row = cursor.fetchone()
+    total_advances_disbursed = float(a_row[0] or 0.0)
+    total_advances_repaid = float(a_row[1] or 0.0)
+    net_advances_outflow = float(a_row[2] or (total_advances_disbursed - total_advances_repaid))
+
+    total_actual_bank_outflows = bank_expenses_spent + net_custody_outflow + net_advances_outflow
+
+    # 6. Total client payments received across all projects
+    cursor.execute('''
+        SELECT COALESCE(SUM(received_amount), 0)
+        FROM client_payments
+        WHERE is_received = 1 OR status IN ('paid', 'partially_paid')
+    ''')
+    company_tot_received = float(cursor.fetchone()[0] or 0.0)
+
+    opening_cash = float(database.get_setting('opening_cash_balance', '300000.0') or 300000.0)
+    
+    # Exact Unified Bank Account Balance (مطابق للبنك في كل المشاريع: 150,575 ر.س)
+    company_current_cash = opening_cash + company_tot_received - total_actual_bank_outflows
+
     company_tot_contract = 0.0
-    company_tot_received = 0.0
     company_tot_spent = 0.0
     company_tot_pending_inflow = 0.0
     company_tot_remaining_cost = 0.0
@@ -3630,8 +3705,9 @@ def get_cashflow():
         cursor.execute('SELECT * FROM project_phases WHERE project_id = ? ORDER BY order_num ASC, id ASC', (pid,))
         phase_rows = cursor.fetchall()
         
-        current_cash = tot_received - tot_spent
-        running_cash = current_cash
+        current_cash = company_current_cash
+        running_cash = company_current_cash
+        project_isolated_cash = tot_received - tot_spent
         phase_flows = []
         tot_rem_cost = 0.0
         
@@ -3677,20 +3753,19 @@ def get_cashflow():
         if not proj_sim_phase and phase_flows:
             proj_sim_phase = phase_flows[0]
             
-        final_cash = running_cash
-
         p_budget_mode = p['budget_mode'] if 'budget_mode' in p.keys() else 'boq'
         p_manual_rem = p['manual_remaining_budget'] if 'manual_remaining_budget' in p.keys() else None
 
         if p_budget_mode == 'manual' and p_manual_rem is not None:
             tot_rem_cost = max(0.0, float(p_manual_rem))
-            final_cash = current_cash + tot_pending_inflow - tot_rem_cost
+
+        # Final bank cash if this project alone finishes!
+        # رصيد البنك لو المشروع ده بس خلص = رصيد البنك الحالي + متبقي تحصيلات هذا المشروع - متبقي تكاليف هذا المشروع
+        final_cash = company_current_cash + tot_pending_inflow - tot_rem_cost
         
-        company_tot_received += tot_received
         company_tot_spent += tot_spent
         company_tot_pending_inflow += tot_pending_inflow
         company_tot_remaining_cost += tot_rem_cost
-        company_tot_final_cash += final_cash
         
         all_projects_cashflow.append({
             'project_id': pid,
@@ -3703,7 +3778,8 @@ def get_cashflow():
             'progress_percent': p['progress_percent'],
             'total_received': tot_received,
             'total_spent': tot_spent,
-            'current_cash': current_cash,
+            'current_cash': company_current_cash, # Exact Bank Balance (150,575)!
+            'project_isolated_cash': project_isolated_cash,
             'total_pending_inflow': tot_pending_inflow,
             'total_remaining_cost': tot_rem_cost,
             'final_projected_cash': final_cash,
@@ -3714,74 +3790,7 @@ def get_cashflow():
             'payments_count': len(enriched_payments)
         })
         
-    # Calculate Bank Cash Flow Outflows (Custodies and HR Advances)
-    # 1. Bank Direct Expenses:
-    # Only expenses where payment_method represents bank transfers/payments AND NOT from custody AND NOT unpaid credit (آجل)
-    cursor.execute('''
-        SELECT COALESCE(SUM(amount), 0)
-        FROM expenses
-        WHERE custody_id IS NULL
-          AND (payment_method IS NULL OR payment_method NOT LIKE '%عهدة%')
-          AND (
-              payment_method LIKE '%تحويل%'
-              OR payment_method LIKE '%بنك%'
-              OR payment_method LIKE '%مدى%'
-              OR payment_method LIKE '%شيك%'
-              OR (payment_status = 'paid' AND payment_method NOT IN ('آجل', 'نقدي'))
-          )
-    ''')
-    bank_expenses_spent = float(cursor.fetchone()[0] or 0.0)
-
-    # 2. Custody expenses spent from site petty custodies (recorded on projects but NOT deducted from bank to prevent double deduction)
-    cursor.execute('''
-        SELECT COALESCE(SUM(amount), 0)
-        FROM expenses
-        WHERE custody_id IS NOT NULL OR payment_method LIKE '%عهدة%'
-    ''')
-    custody_expenses_spent = float(cursor.fetchone()[0] or 0.0)
-
-    # 3. Total all project expenses for reference
-    cursor.execute('SELECT COALESCE(SUM(amount), 0) FROM expenses')
-    total_all_expenses = float(cursor.fetchone()[0] or 0.0)
-
-    # 4. Bank Custody Net Outflow: Custodies disbursed via bank transfer minus what was returned to the bank/treasury
-    cursor.execute('''
-        SELECT 
-            COALESCE(SUM(CASE WHEN status IN ('disbursed', 'settled') THEN COALESCE(disbursed_amount, amount) ELSE 0 END), 0),
-            COALESCE(SUM(CASE WHEN status = 'settled' THEN COALESCE(returned_amount, 0) ELSE 0 END), 0)
-        FROM custody_requests
-        WHERE (
-            payment_method LIKE '%تحويل%'
-            OR payment_method LIKE '%بنك%'
-            OR payment_method LIKE '%شيك%'
-            OR payment_method IS NULL
-            OR payment_method = ''
-        )
-    ''')
-    c_row = cursor.fetchone()
-    total_custody_disbursed = float(c_row[0] or 0.0)
-    total_custody_returned = float(c_row[1] or 0.0)
-    net_custody_outflow = max(0.0, total_custody_disbursed - total_custody_returned)
-
-    # 5. HR Advances Net Outflow: Disbursed to employees minus installments repaid
-    cursor.execute('''
-        SELECT 
-            COALESCE(SUM(amount), 0),
-            COALESCE(SUM(paid_amount), 0),
-            COALESCE(SUM(remaining_amount), 0)
-        FROM hr_advances
-    ''')
-    a_row = cursor.fetchone()
-    total_advances_disbursed = float(a_row[0] or 0.0)
-    total_advances_repaid = float(a_row[1] or 0.0)
-    net_advances_outflow = float(a_row[2] or (total_advances_disbursed - total_advances_repaid))
-
-    # Total Actual Bank Outflows (Bank Transfer Expenses + Bank Custodies + Bank Advances)
-    total_actual_bank_outflows = bank_expenses_spent + net_custody_outflow + net_advances_outflow
-
-    opening_cash = float(database.get_setting('opening_cash_balance', '300000.0') or 300000.0)
-    # Exact Bank Account Balance: Opening + Client Inflows - All Actual Bank Outflows
-    company_current_cash = opening_cash + company_tot_received - total_actual_bank_outflows
+    # Exact Bank Balance if ALL projects finish!
     company_tot_final_cash = company_current_cash + company_tot_pending_inflow - company_tot_remaining_cost
     
     # Calculate company cash at simulated phase across all projects

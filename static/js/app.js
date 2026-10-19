@@ -7566,7 +7566,8 @@ function renderCashFlowUI() {
     const activeProject = selected_project_id && projects.length === 1 ? projects[0] : null;
 
     // 2. Render KPI Strip
-    const curCash = activeProject ? activeProject.current_cash : summary.current_net_cash;
+    // Card 1: Always the exact real-world bank balance (150,575) matching the bank account in all project views!
+    const curCash = summary.current_net_cash !== undefined ? summary.current_net_cash : (summary.current_cash || 0);
     const totRec = activeProject ? activeProject.total_received : summary.total_received;
     const totSpent = activeProject ? activeProject.total_spent : summary.total_spent;
     const finalCash = activeProject ? activeProject.final_projected_cash : summary.final_projected_cash;
@@ -7643,7 +7644,9 @@ function renderCashFlowUI() {
     }
     const kpiPhaseProjDescEl = document.getElementById('cf-kpi-phase-projected-cash-desc');
     if (kpiPhaseProjDescEl) {
-        kpiPhaseProjDescEl.innerText = simPhaseData ? `رصيد الخزينة بنهاية المرحلة ${simPhaseData.order_num}` : 'رصيد الخزينة التراكمي للشركة';
+        kpiPhaseProjDescEl.innerText = activeProject 
+            ? (simPhaseData ? `رصيد البنك بعد مرحلة ${simPhaseData.order_num} لـ ${activeProject.name}` : 'رصيد البنك بعد المرحلة')
+            : (simPhaseData ? `رصيد البنك بنهاية المرحلة ${simPhaseData.order_num}` : 'رصيد البنك التراكمي للشركة');
     }
 
     const kpiFinalCashEl = document.getElementById('cf-kpi-final-cash');
@@ -7653,7 +7656,9 @@ function renderCashFlowUI() {
     }
     const kpiFinalCashDescEl = document.getElementById('cf-kpi-final-cash-desc');
     if (kpiFinalCashDescEl) {
-        kpiFinalCashDescEl.innerText = activeProject ? `صافي أرباح كاش مشروع ${activeProject.code}` : 'صافي رصيد كاش الشركة بعد التسليم الكامل';
+        kpiFinalCashDescEl.innerText = activeProject 
+            ? `رصيد البنك لو اكتمل مشروع ${activeProject.name} وحده` 
+            : 'رصيد البنك بعد التسليم الكامل لكافة المشاريع';
     }
 
     // Populate Bank Reconciliation Strip

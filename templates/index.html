@@ -3688,9 +3688,13 @@
                         <i data-lucide="edit-3" class="w-4 h-4"></i>
                         <span>تعديل بيانات المشروع</span>
                     </button>
-                    <button onclick="printProjectReport()" class="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-bold flex items-center gap-2">
+                    <button onclick="viewProjectReport()" class="px-3.5 py-2 rounded-xl bg-emerald-600/20 hover:bg-emerald-600 text-emerald-400 hover:text-white border border-emerald-500/40 text-xs font-bold flex items-center gap-2 transition shadow-sm">
+                        <i data-lucide="eye" class="w-4 h-4"></i>
+                        <span>عرض التقرير</span>
+                    </button>
+                    <button onclick="printProjectReport()" class="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-bold flex items-center gap-2 transition">
                         <i data-lucide="printer" class="w-4 h-4 text-emerald-400"></i>
-                        <span>طباعة تقرير المشروع</span>
+                        <span>طباعة التقرير</span>
                     </button>
                     <button onclick="closeModal('project-detail-modal')" class="text-slate-400 hover:text-white p-2 rounded-lg hover:bg-slate-800">
                         <i data-lucide="x" class="w-5 h-5"></i>
@@ -3931,6 +3935,38 @@
                 </div>
             </div>
 
+        </div>
+    </div>
+
+    <!-- PROJECT REPORT PREVIEW MODAL (معاينة وعرض تقرير المشروع) -->
+    <div id="project-report-preview-modal" class="modal-overlay hidden fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-2 sm:p-4">
+        <div class="bg-slate-900 rounded-2xl border border-slate-750 w-full max-w-6xl h-[94vh] flex flex-col shadow-2xl animate-scaleUp overflow-hidden">
+            <div class="px-5 py-3.5 bg-slate-850 border-b border-slate-750 flex items-center justify-between shrink-0">
+                <div class="flex items-center gap-3">
+                    <div class="p-2.5 rounded-xl bg-emerald-500/20 text-emerald-400">
+                        <i data-lucide="file-text" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <h3 id="report-preview-title" class="text-base font-black text-white">معاينة تقرير الموقف التنفيذي والمالي</h3>
+                            <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">محدث لحظياً</span>
+                        </div>
+                        <p id="report-preview-subtitle" class="text-xs text-slate-400 mt-0.5"></p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button onclick="printFromReportPreview()" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-2 shadow-lg shadow-emerald-900/30 transition">
+                        <i data-lucide="printer" class="w-4 h-4"></i>
+                        <span>طباعة / حفظ PDF</span>
+                    </button>
+                    <button onclick="closeModal('project-report-preview-modal')" class="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition">
+                        <i data-lucide="x" class="w-5 h-5"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="flex-1 bg-slate-950 p-2 sm:p-4 overflow-hidden relative">
+                <iframe id="project-report-preview-frame" class="w-full h-full rounded-xl bg-white shadow-xl" style="border:none;"></iframe>
+            </div>
         </div>
     </div>
 
@@ -6126,8 +6162,8 @@
     </div>
 
     <!-- Scripts -->
-    <script src="/static/js/i18n.js?v=20261019_v5"></script>
-    <script src="/static/js/app.js?v=20261019_v5"></script>
+    <script src="/static/js/i18n.js?v=20261019_v6"></script>
+    <script src="/static/js/app.js?v=20261019_v6"></script>
     <script>
     (function() {
         try {

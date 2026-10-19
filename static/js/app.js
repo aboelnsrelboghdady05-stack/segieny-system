@@ -5225,30 +5225,8 @@ function switchDetailTab(dtab) {
     }
 }
 
-async function printProjectReport(projectId = null) {
-    const targetId = projectId || (typeof currentProjectIdForModal !== 'undefined' ? currentProjectIdForModal : null) || (currentProjectDetailData ? currentProjectDetailData.id : null);
-    if (!targetId) {
-        showToast('يرجى فتح أو اختيار المشروع أولاً للطباعة', 'warning');
-        return;
-    }
-
-    let p = null;
-    try {
-        const res = await fetch(`/api/projects/${targetId}?_t=${Date.now()}`);
-        if (res.ok) {
-            p = await res.json();
-            currentProjectDetailData = p;
-        }
-    } catch (e) {
-        console.error('Error fetching project for print:', e);
-    }
-    if (!p) {
-        p = currentProjectDetailData;
-    }
-    if (!p) {
-        showToast('تعذر تحميل بيانات المشروع للطباعة', 'error');
-        return;
-    }
+function generateProjectReportHtml(p) {
+    if (!p) return '';
 
     const todayStr = new Date().toLocaleDateString('ar-EG', { year: 'numeric', month: 'long', day: 'numeric' });
     const printTimeStr = new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' });
@@ -5487,6 +5465,7 @@ async function printProjectReport(projectId = null) {
     const totalMilRem = totalContractRem + totalExtraRem;
     const extraPctCol = totalExtraReq > 0 ? Math.round((totalExtraRecv / totalExtraReq) * 100) : 0;
     const contractPctCol = totalContractReq > 0 ? Math.round((totalContractRecv / totalContractReq) * 100) : 0;
+    const grandPctCol = totalMilReq > 0 ? Math.round((totalMilRecv / totalMilReq) * 100) : (colRate || 0);
     const bankBalance = parseFloat(p.bank_balance) || 150575.45;
     const projectedFinalBankCash = parseFloat(p.projected_final_bank_cash) || (bankBalance + totalPending - remainingBudget);
     const projectedFinalProjectProfit = parseFloat(p.projected_final_project_profit) || ((contractVal + totalExtraReq) - (totalSpent + remainingBudget));
@@ -5575,26 +5554,74 @@ async function printProjectReport(projectId = null) {
     // Build full HTML
     const printHtml = '<!DOCTYPE html>\n<html dir="rtl" lang="ar">\n<head>\n<meta charset="UTF-8">\n<title>تقرير - ' + escapeHtml(p.name) + '</title>\n<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap" rel="stylesheet">\n<style>\n*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}\n@page{size:A4;margin:12mm 10mm 10mm 10mm;}\nbody{font-family:\'Cairo\',system-ui,sans-serif;background:#fff;color:#1e293b;font-size:10.5px;line-height:1.45;-webkit-print-color-adjust:exact;print-color-adjust:exact;}\n.action-bar{background:#f1f5f9;border-bottom:1px solid #e2e8f0;padding:8px 14px;display:flex;align-items:center;gap:10px;}\n.btn-print{background:#059669;color:#fff;border:none;padding:7px 22px;font-size:13px;font-weight:700;border-radius:6px;cursor:pointer;font-family:inherit;}\n@media print{.action-bar{display:none!important;}}\n.report-header{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #1e293b;padding-bottom:8px;margin-bottom:10px;}\n.company-name{font-size:17px;font-weight:900;color:#1e293b;}\n.company-sub{font-size:10px;color:#059669;font-weight:700;margin-top:2px;}\n.report-badge{display:inline-block;background:#1e293b;color:#fff;font-weight:800;font-size:11.5px;padding:3px 12px;border-radius:5px;margin-top:5px;}\n.header-meta{text-align:left;font-size:9.5px;color:#64748b;line-height:1.7;}\n.header-meta strong{color:#1e293b;}\n.info-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;border:1px solid #e2e8f0;border-radius:6px;padding:7px 8px;background:#f8fafc;margin-bottom:10px;}\n.info-label{font-size:8.5px;color:#64748b;font-weight:600;display:block;}\n.info-value{font-size:11px;font-weight:800;color:#0f172a;}\n.kpi-row{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:8px;}\n.kpi-card{border-radius:7px;padding:8px 10px;border:1px solid;text-align:center;}\n.kpi-card .kpi-label{font-size:8.5px;font-weight:700;margin-bottom:3px;}\n.kpi-card .kpi-value{font-size:13px;font-weight:900;font-family:monospace;}\n.kpi-slate{background:#f8fafc;border-color:#cbd5e1;color:#1e293b;}\n.kpi-red{background:#fff1f2;border-color:#fecdd3;}\n.kpi-red .kpi-value{color:#dc2626;}\n.kpi-green{background:#f0fdf4;border-color:#bbf7d0;}\n.kpi-green .kpi-value{color:#059669;}\n.kpi-amber{background:#fffbeb;border-color:#fde68a;}\n.kpi-amber .kpi-value{color:#d97706;}\n.kpi-blue{background:#eff6ff;border-color:#bfdbfe;}\n.kpi-blue .kpi-value{color:#2563eb;}\n.kpi-purple{background:#faf5ff;border-color:#e9d5ff;}\n.kpi-purple .kpi-value{color:#7c3aed;}\n.kpi-teal{background:#f0fdfa;border-color:#99f6e4;}\n.kpi-teal .kpi-value{color:#0f766e;}\n.cf-banner{display:flex;align-items:center;justify-content:space-between;border-radius:8px;padding:10px 14px;margin-bottom:10px;border:1.5px solid;}\n.cf-banner.surplus{background:#f0fdf4;border-color:#059669;}\n.cf-banner.deficit{background:#fff1f2;border-color:#e11d48;}\n.cf-banner-label{font-weight:900;font-size:12px;}\n.cf-banner.surplus .cf-banner-label{color:#065f46;}\n.cf-banner.deficit .cf-banner-label{color:#9f1239;}\n.cf-banner-sub{font-size:9px;color:#475569;margin-top:2px;}\n.cf-banner-val{font-size:20px;font-weight:900;font-family:monospace;}\n.cf-banner.surplus .cf-banner-val{color:#059669;}\n.cf-banner.deficit .cf-banner-val{color:#dc2626;}\n.dash-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;}\n.dash-card{border:1px solid #e2e8f0;border-radius:7px;padding:9px 11px;background:#fff;}\n.dash-card-title{font-size:10.5px;font-weight:900;color:#1e293b;margin-bottom:7px;border-bottom:1px solid #f1f5f9;padding-bottom:4px;}\n.section-title{font-size:11.5px;font-weight:900;border-right:4px solid #059669;padding-right:8px;margin:12px 0 6px 0;color:#1e293b;}\ntable{width:100%;border-collapse:collapse;margin-bottom:6px;font-size:9.5px;}\nth{background:#1e293b;color:#fff;font-weight:700;padding:5px 6px;text-align:right;font-size:9.5px;border:1px solid #334155;}\ntd{border:1px solid #e2e8f0;padding:4px 5px;text-align:right;vertical-align:middle;}\ntr:nth-child(even) td{background:#f8fafc;}\n.total-row td{background:#1e293b!important;color:#fff!important;font-weight:900;padding:5px 6px;}\n.sigs{display:flex;justify-content:space-between;margin-top:18px;padding-top:12px;border-top:2px solid #1e293b;page-break-inside:avoid;}\n.sig-col{width:30%;text-align:center;font-size:9.5px;font-weight:700;}\n.sig-line{margin-top:30px;border-top:1px solid #94a3b8;padding-top:4px;font-size:9px;color:#64748b;}\n.cf-legend{display:flex;gap:12px;font-size:8.5px;margin-bottom:5px;flex-wrap:wrap;}\n.no-break{page-break-inside:avoid;}\n@media print{body{font-size:9.5px;}table{page-break-inside:auto;}tr{page-break-inside:avoid;page-break-after:auto;}thead{display:table-header-group;}tfoot{display:table-footer-group;}.section-title{page-break-after:avoid;}svg{display:block!important;}}\n</style>\n</head>\n<body>\n<div class="action-bar"><button class="btn-print" onclick="window.print()">🖨️ طباعة / حفظ PDF</button><span style="color:#64748b;font-size:10.5px;margin-right:10px;">يتضمن: لوحة المؤشرات · التدفق النقدي · الرسوم البيانية · جداول البيانات</span></div>\n<div class="report-header"><div><div class="company-name">شركة مقاولات السجيني العامة</div><div class="company-sub">إدارة المشاريع الإنشائية · الرقابة المالية · تحليل التدفقات النقدية</div><div class="report-badge">📋 تقرير الموقف التنفيذي والمالي المتكامل</div></div><div class="header-meta"><div><strong>كود المشروع:</strong> ' + escapeHtml(p.code || 'PRJ-000') + '</div><div><strong>تاريخ التقرير:</strong> ' + todayStr + '</div><div><strong>وقت الاستخراج:</strong> ' + printTimeStr + '</div><div><strong>حالة المشروع:</strong> ' + (p.status === 'completed' ? '<strong style="color:#059669">مكتمل ✓</strong>' : '<strong style="color:#d97706">جاري التنفيذ</strong>') + '</div><div><strong>نسبة الإنجاز:</strong> <strong style="color:#2563eb;">' + progressPct + '%</strong></div></div></div>\n<div class="info-grid"><div><span class="info-label">اسم المشروع</span><span class="info-value">' + escapeHtml(p.name) + '</span></div><div><span class="info-label">العميل / المالك</span><span class="info-value">' + escapeHtml(p.client_name || '-') + '</span></div><div><span class="info-label">الموقع</span><span class="info-value">' + escapeHtml(p.location || '-') + '</span></div><div><span class="info-label">مدير المشروع</span><span class="info-value">' + escapeHtml(p.manager_name || 'م. السجيني') + '</span></div><div><span class="info-label">تاريخ البدء</span><span class="info-value" style="font-family:monospace;">' + escapeHtml(p.start_date || '-') + '</span></div><div><span class="info-label">تاريخ التسليم</span><span class="info-value" style="font-family:monospace;">' + escapeHtml(p.end_date || '-') + '</span></div><div><span class="info-label">نسبة التحصيل</span><span class="info-value" style="color:#d97706;">' + colRate + '%</span></div><div><span class="info-label">نسبة الإنجاز</span><span class="info-value" style="color:#059669;">' + progressPct + '%</span></div></div>\n' + topKpiHtml + '\n<div class="cf-banner ' + (netCashFlow >= 0 ? 'surplus' : 'deficit') + '"><div><div class="cf-banner-label">📊 الرقابة على التدفقات النقدية ومطابقة حساب البنك (الرصيد الفعلي الحالي في البنك: ' + formatCurrency(bankBalance) + ')</div><div class="cf-banner-sub">المحصل من العميل: <strong>' + formatCurrency(totalReceived) + '</strong> | إجمالي المنصرف: <strong>' + formatCurrency(totalSpent) + '</strong> | المتبقي كمصروف (الميزانية المتبقية): <strong>' + formatCurrency(remainingBudget) + '</strong> | المتبقي للتحصيل: <strong>' + formatCurrency(totalPending) + '</strong></div></div><div style="text-align:left;"><div class="cf-banner-val">' + formatCurrency(projectedFinalBankCash) + '</div><div style="font-size:9px;color:#475569;font-weight:700;">رصيد البنك المتوقع عند اكتمال هذا المشروع</div></div></div>\n<div class="dash-grid no-break"><div class="dash-card"><div class="dash-card-title">📊 مؤشرات الأداء المقارن</div><div style="margin-bottom:9px;"><div style="display:flex;justify-content:space-between;font-size:9.5px;margin-bottom:3px;font-weight:700;"><span>🏗️ نسبة الإنجاز الميداني</span><span style="color:#059669;">' + progressPct + '%</span></div>' + svgHBar(progressPct, '#059669', '#dcfce7', 290, 11) + '</div><div style="margin-bottom:9px;"><div style="display:flex;justify-content:space-between;font-size:9.5px;margin-bottom:3px;font-weight:700;"><span>💸 نسبة استهلاك الميزانية</span><span style="color:' + (budgetBurnPct > 90 ? '#dc2626' : '#2563eb') + ';">' + budgetBurnPct + '%</span></div>' + svgHBar(budgetBurnPct, budgetBurnPct > 90 ? '#dc2626' : '#2563eb', '#eff6ff', 290, 11) + '</div><div style="margin-bottom:9px;"><div style="display:flex;justify-content:space-between;font-size:9.5px;margin-bottom:3px;font-weight:700;"><span>💰 نسبة التحصيل من قيمة العقد</span><span style="color:#d97706;">' + collectionPct + '%</span></div>' + svgHBar(collectionPct, '#d97706', '#fffbeb', 290, 11) + '</div><div><div style="display:flex;justify-content:space-between;font-size:9.5px;margin-bottom:3px;font-weight:700;"><span>💸 بنود الصرف (أعلى 5 فئات)</span></div>' + catBarsHtml + '</div></div><div class="dash-card"><div class="dash-card-title">🍩 توزيع بنود الصرف حسب الفئة</div><div style="display:flex;align-items:center;gap:10px;"><svg width="120" height="120" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0;">' + donutPaths + '<text x="60" y="57" text-anchor="middle" font-size="8" fill="#64748b">إجمالي</text><text x="60" y="68" text-anchor="middle" font-size="7.5" fill="#1e293b" font-weight="bold">' + (totalExpensesSum/1000).toFixed(0) + 'k</text></svg><div style="flex:1;">' + (donutLegend || '<div style="color:#94a3b8;font-size:9px;">لا بيانات</div>') + '</div></div></div></div>\n<div class="dash-card no-break" style="margin-bottom:10px;"><div class="dash-card-title">📉 مخطط التدفقات النقدية التراكمي (الرصيد الجاري للمشروع)</div><div class="cf-legend"><span><span style="display:inline-block;width:14px;height:8px;background:#059669;opacity:0.5;border-radius:2px;"></span> التحصيل من العميل</span><span><span style="display:inline-block;width:14px;height:8px;background:#e11d48;opacity:0.5;border-radius:2px;"></span> المصروفات</span><span><span style="display:inline-block;width:14px;height:3px;background:#2563eb;border-radius:1px;margin-top:3px;"></span> الرصيد التراكمي</span></div>' + buildCashFlowSVG(cfRows) + '</div>\n<div class="section-title">💵 1. جدول التدفقات النقدية الشهرية للمشروع (المنفذ الفعلي والمتبقي لإتمام المشروع)</div>\n<table><thead><tr><th style="width:110px;">الفترة / الشهر</th><th>التحصيل (دخل)</th><th>المصروفات (خروج)</th><th>صافي التدفق</th><th>الرصيد التراكمي</th></tr></thead><tbody>' + cfTableRows + '</tbody><tfoot><tr class="total-row"><td style="text-align:center;">إجمالي المنفذ الفعلي حتى تاريخه (' + cfRows.length + ' شهر)</td><td style="font-family:monospace;">' + formatCurrency(totalReceived) + '</td><td style="font-family:monospace;">' + formatCurrency(totalSpent) + '</td><td style="font-family:monospace;">' + (netCashFlow >= 0 ? '+' : '') + formatCurrency(netCashFlow) + '</td><td style="font-family:monospace;">' + (netCashFlow >= 0 ? '+' : '') + formatCurrency(netCashFlow) + '</td></tr><tr style="background:#1e3a8a;color:#fff;font-weight:900;"><td style="text-align:center;padding:5px 6px;">✨ الإجمالي الشامل التقديري للمشروع (المنفذ + المتبقي)</td><td style="font-family:monospace;padding:5px 6px;color:#86efac;">' + formatCurrency(totalReceived + totalPending) + '</td><td style="font-family:monospace;padding:5px 6px;color:#fecdd3;">' + formatCurrency(totalSpent + remainingBudget) + '</td><td style="font-family:monospace;padding:5px 6px;color:#93c5fd;">' + (projectedFinalProjectProfit >= 0 ? '+' : '') + formatCurrency(projectedFinalProjectProfit) + '</td><td style="font-family:monospace;padding:5px 6px;color:#fef08a;">رصيد البنك: ' + formatCurrency(projectedFinalBankCash) + '</td></tr></tfoot></table>\n' + clientPaymentsSectionHtml + '\n<div class="section-title">🏗️ 3. مراحل التنفيذ الفني والإنجاز الميداني (WBS)</div>\n<table><thead><tr><th style="width:25px;">م</th><th>اسم المرحلة</th><th style="width:50px;text-align:center;">الوزن %</th><th style="width:100px;text-align:center;">نسبة الإنجاز</th><th>سعر التكلفة</th><th>سعر البيع</th><th style="width:65px;text-align:center;">الحالة</th></tr></thead><tbody>' + phasesRows + '</tbody><tfoot><tr class="total-row"><td colspan="2" style="text-align:center;">الإجمالي (' + (p.phases || []).length + ' مرحلة)</td><td style="text-align:center;">' + totalPhasesWeight.toFixed(0) + '%</td><td style="text-align:center;">' + progressPct + '%</td><td style="font-family:monospace;">' + formatCurrency(totalPhasesCost) + '</td><td style="font-family:monospace;">' + formatCurrency(totalPhasesSelling) + '</td><td></td></tr></tfoot></table>\n' + subsSection + '\n<div class="section-title">📑 ' + (subsSection ? '5' : '4') + '. سجل كافة مصروفات وفواتير المشروع (' + exps.length + ' بند)</div>\n<table><thead><tr><th style="width:22px;">م</th><th style="width:72px;">التاريخ</th><th>بيان الصرف / الفاتورة</th><th style="width:75px;">الفئة</th><th style="width:80px;">الجهة / المدفوع له</th><th style="width:90px;">المبلغ</th><th style="width:62px;text-align:center;">نوع الفاتورة</th></tr></thead><tbody>' + expensesRows + '</tbody><tfoot><tr class="total-row"><td colspan="5" style="text-align:center;">إجمالي كافة مصروفات المشروع (' + exps.length + ' بند)</td><td style="font-family:monospace;">' + formatCurrency(totalExpensesSum) + '</td><td></td></tr></tfoot></table>\n<div class="sigs no-break"><div class="sig-col"><div>المهندس الميداني</div><div style="font-size:8px;color:#64748b;margin-top:3px;">' + escapeHtml(p.manager_name || '-') + '</div><div class="sig-line">التوقيع: ................................</div></div><div class="sig-col"><div>المراجعة المالية</div><div style="font-size:8px;color:#64748b;margin-top:3px;">الإدارة المالية</div><div class="sig-line">التوقيع: ................................</div></div><div class="sig-col"><div>اعتماد مدير عام المشاريع</div><div style="font-size:8px;color:#64748b;margin-top:3px;">شركة مقاولات السجيني</div><div class="sig-line">الختم الرسمي: ..........................</div></div></div>\n<div style="text-align:center;margin-top:8px;font-size:8px;color:#94a3b8;border-top:1px solid #e2e8f0;padding-top:5px;">تم إعداد هذا التقرير بواسطة نظام إدارة مشاريع السجيني — ' + todayStr + ' — كافة الأرقام بالريال السعودي (ر.س)</div>\n</body>\n</html>';
 
-    const printWin = window.open('', '_blank', 'width=1050,height=900,scrollbars=yes,resizable=yes');
-    if (printWin) {
-        printWin.document.open();
-        printWin.document.write(printHtml);
-        printWin.document.close();
-        printWin.focus();
-        setTimeout(function() { printWin.print(); }, 800);
-    } else {
-        let printIframe = document.getElementById('project-print-iframe');
-        if (!printIframe) {
-            printIframe = document.createElement('iframe');
-            printIframe.id = 'project-print-iframe';
-            printIframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
-            document.body.appendChild(printIframe);
-        }
-        printIframe.contentDocument.open();
-        printIframe.contentDocument.write(printHtml);
-        printIframe.contentDocument.close();
-        setTimeout(function() { printIframe.contentWindow.focus(); printIframe.contentWindow.print(); }, 800);
+    return printHtml;
+}
+
+// ----------------- VIEW PROJECT REPORT MODAL (معاينة وعرض التقرير) -----------------
+async function viewProjectReport(projectId = null) {
+    const targetId = projectId || (typeof currentProjectIdForModal !== 'undefined' ? currentProjectIdForModal : null) || (currentProjectDetailData ? currentProjectDetailData.id : null);
+    if (!targetId) {
+        showToast('يرجى فتح أو اختيار المشروع أولاً لعرض التقرير', 'warning');
+        return;
     }
+
+    showToast('جاري تجهيز وتحديث تقرير الموقف التنفيذي والمالي...', 'info');
+
+    let p = null;
+    try {
+        const res = await fetch(`/api/projects/${targetId}?_t=${Date.now()}`);
+        if (res.ok) {
+            p = await res.json();
+            currentProjectDetailData = p;
+        }
+    } catch (e) {
+        console.error('Error fetching project for report preview:', e);
+    }
+    if (!p) {
+        p = currentProjectDetailData;
+    }
+    if (!p) {
+        showToast('تعذر تحميل بيانات المشروع لعرض التقرير', 'error');
+        return;
+    }
+
+    const printHtml = generateProjectReportHtml(p);
+
+    const previewModal = document.getElementById('project-report-preview-modal');
+    const frame = document.getElementById('project-report-preview-frame');
+    const titleEl = document.getElementById('report-preview-title');
+    const subEl = document.getElementById('report-preview-subtitle');
+
+    if (titleEl) titleEl.textContent = `معاينة تقرير الموقف التنفيذي والمالي — ${p.name || ''}`;
+    if (subEl) subEl.textContent = `كود: ${p.code || '-'} | العميل: ${p.client_name || '-'} | نسبة الإنجاز: ${p.progress_percent || 0}%`;
+
+    if (frame) {
+        frame.srcdoc = printHtml;
+    }
+
+    if (previewModal) {
+        previewModal.classList.remove('hidden');
+        if (typeof lucide !== 'undefined') lucide.createIcons();
+    }
+}
+
+// ----------------- PRINT FROM REPORT PREVIEW -----------------
+function printFromReportPreview() {
+    const frame = document.getElementById('project-report-preview-frame');
+    if (frame && frame.contentWindow) {
+        frame.contentWindow.focus();
+        frame.contentWindow.print();
+    } else {
+        window.print();
+    }
+}
+
+// ----------------- PRINT PROJECT REPORT (عرض ثم طباعة مباشرة) -----------------
+async function printProjectReport(projectId = null) {
+    await viewProjectReport(projectId);
+    setTimeout(function() {
+        printFromReportPreview();
+    }, 700);
 }
 
 

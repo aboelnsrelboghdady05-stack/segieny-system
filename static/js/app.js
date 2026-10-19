@@ -3556,7 +3556,15 @@ async function openProjectDetails(projectId) {
     currentProjectIdForModal = projectId;
     try {
         const res = await fetch(`/api/projects/${projectId}`);
+        if (!res.ok) {
+            showToast('تعذر تحميل بيانات المشروع من السيرفر', 'error');
+            return;
+        }
         const p = await res.json();
+        if (p.error) {
+            showToast(p.error, 'error');
+            return;
+        }
         currentProjectDetailData = p;
 
         document.getElementById('detail-proj-code').innerText = p.code || 'PRJ';
@@ -3738,6 +3746,7 @@ async function openProjectDetails(projectId) {
         initLucide();
     } catch (err) {
         console.error('Error opening project details:', err);
+        showToast('حدث خطأ أثناء عرض تفاصيل المشروع', 'error');
     }
 }
 

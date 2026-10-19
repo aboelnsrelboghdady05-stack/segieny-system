@@ -224,8 +224,8 @@ def get_project_details(project_id):
     ''', (project_id,))
     phases = [dict(row) for row in cursor.fetchall()]
     
-    total_phases_cost = 0
-    total_phases_selling = 0
+    total_phases_cost = 0.0
+    total_phases_selling = 0.0
     for ph in phases:
         # Load items (بنود المرحلة)
         cursor.execute('''
@@ -238,31 +238,46 @@ def get_project_details(project_id):
         # Calculate actual spent per item
         for it in items:
             cursor.execute('SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE item_id = ?', (it['id'],))
-            it_spent = cursor.fetchone()[0]
+            it_spent = float(cursor.fetchone()[0] or 0)
+            cost_price = float(it.get('cost_price') or 0)
+            selling_price = float(it.get('selling_price') or 0)
+            prog = float(it.get('progress_percent') or 0)
             it['actual_spent'] = it_spent
-            it['budget_cost'] = it['cost_price']
-            it['variance'] = it['cost_price'] - it_spent
-            it['is_over_budget'] = it_spent > it['cost_price']
-            it['over_amount'] = max(0.0, it_spent - it['cost_price'])
-            it['savings_amount'] = max(0.0, it['cost_price'] - it_spent)
-            it['actual_profit'] = it['selling_price'] - it_spent
+            it['budget_cost'] = cost_price
+            it['cost_price'] = cost_price
+            it['selling_price'] = selling_price
+            it['progress_percent'] = prog
+            it['variance'] = cost_price - it_spent
+            it['is_over_budget'] = it_spent > cost_price
+            it['over_amount'] = max(0.0, it_spent - cost_price)
+            it['savings_amount'] = max(0.0, cost_price - it_spent)
+            it['actual_profit'] = selling_price - it_spent
             it['is_loss'] = it['actual_profit'] < 0
-            it['profit_percent'] = round((it['actual_profit'] / it['selling_price'] * 100), 1) if it['selling_price'] > 0 else 0
+            it['profit_percent'] = round((it['actual_profit'] / selling_price * 100), 1) if selling_price > 0 else 0
 
         ph['items'] = items
         ph['item_count'] = len(items)
 
-        if items:
-            items_cost = sum(it['cost_price'] for it in items)
-            items_selling = sum(it['selling_price'] for it in items)
-            avg_item_prog = sum(it['progress_percent'] for it in items) / len(items)
-            all_done = all(it['status'] == 'done' or it['progress_percent'] >= 100 for it in items)
+        ph_cost = float(ph.get('cost_price') or 0)
+        ph_selling = float(ph.get('selling_price') or 0)
+        ph_prog = float(ph.get('progress_percent') or 0)
+        ph_weight = float(ph.get('weight_percent') or 0)
+        ph['cost_price'] = ph_cost
+        ph['selling_price'] = ph_selling
+        ph['progress_percent'] = ph_prog
+        ph['weight_percent'] = ph_weight
 
-            eff_cost = items_cost if items_cost > 0 else ph['cost_price']
-            eff_selling = items_selling if items_selling > 0 else ph['selling_price']
+        if items:
+            items_cost = sum(float(it.get('cost_price') or 0) for it in items)
+            items_selling = sum(float(it.get('selling_price') or 0) for it in items)
+            avg_item_prog = sum(float(it.get('progress_percent') or 0) for it in items) / len(items)
+            all_done = all(it.get('status') == 'done' or float(it.get('progress_percent') or 0) >= 100 for it in items)
+
+            eff_cost = items_cost if items_cost > 0 else ph_cost
+            eff_selling = items_selling if items_selling > 0 else ph_selling
             calc_progress = 100.0 if all_done else round(avg_item_prog, 1)
 
-            if abs(calc_progress - ph['progress_percent']) > 0.01:
+            if abs(calc_progress - ph_prog) > 0.01:
                 cursor.execute('UPDATE project_phases SET progress_percent = ?, status = ? WHERE id = ?', 
                                (calc_progress, 'completed' if all_done else 'in_progress', ph['id']))
                 ph['progress_percent'] = calc_progress
@@ -271,39 +286,43 @@ def get_project_details(project_id):
             ph['effective_cost'] = eff_cost
             ph['effective_selling'] = eff_selling
         else:
-            ph['effective_cost'] = ph['cost_price']
-            ph['effective_selling'] = ph['selling_price']
+            ph['effective_cost'] = ph_cost
+            ph['effective_selling'] = ph_selling
 
         # Actual phase expenditure (from phase expenses or linked item expenses)
         cursor.execute('''
             SELECT COALESCE(SUM(amount), 0) FROM expenses 
             WHERE phase_id = ? OR item_id IN (SELECT id FROM phase_items WHERE phase_id = ?)
         ''', (ph['id'], ph['id']))
-        ph_spent = cursor.fetchone()[0]
+        ph_spent = float(cursor.fetchone()[0] or 0)
+        eff_cost = float(ph.get('effective_cost') or 0)
+        eff_selling = float(ph.get('effective_selling') or 0)
         ph['actual_spent'] = ph_spent
-        ph['budget_cost'] = ph['effective_cost']
-        ph['variance'] = ph['effective_cost'] - ph_spent
-        ph['is_over_budget'] = ph_spent > ph['effective_cost']
-        ph['over_amount'] = max(0.0, ph_spent - ph['effective_cost'])
-        ph['savings_amount'] = max(0.0, ph['effective_cost'] - ph_spent)
-        ph['actual_profit'] = ph['effective_selling'] - ph_spent
+        ph['budget_cost'] = eff_cost
+        ph['variance'] = eff_cost - ph_spent
+        ph['is_over_budget'] = ph_spent > eff_cost
+        ph['over_amount'] = max(0.0, ph_spent - eff_cost)
+        ph['savings_amount'] = max(0.0, eff_cost - ph_spent)
+        ph['actual_profit'] = eff_selling - ph_spent
         ph['is_loss'] = ph['actual_profit'] < 0
-        ph['profit_margin'] = ph['effective_selling'] - ph['effective_cost']
-        ph['profit_percent'] = round(((ph['effective_selling'] - ph['effective_cost']) / ph['effective_selling'] * 100), 1) if ph['effective_selling'] > 0 else 0
-        ph['actual_profit_percent'] = round(((ph['effective_selling'] - ph_spent) / ph['effective_selling'] * 100), 1) if ph['effective_selling'] > 0 else 0
+        ph['profit_margin'] = eff_selling - eff_cost
+        ph['profit_percent'] = round(((eff_selling - eff_cost) / eff_selling * 100), 1) if eff_selling > 0 else 0
+        ph['actual_profit_percent'] = round(((eff_selling - ph_spent) / eff_selling * 100), 1) if eff_selling > 0 else 0
 
-        total_phases_cost += ph['effective_cost']
-        total_phases_selling += ph['effective_selling']
+        total_phases_cost += eff_cost
+        total_phases_selling += eff_selling
 
     # Update overall project progress based on phase weights
     cursor.execute('''
         SELECT COALESCE(SUM(progress_percent * (weight_percent / 100.0)), 0), COALESCE(SUM(weight_percent), 0)
         FROM project_phases WHERE project_id = ?
     ''', (project_id,))
-    weighted_prog, total_weight = cursor.fetchone()
+    row_prog = cursor.fetchone()
+    weighted_prog = float(row_prog[0] or 0)
+    total_weight = float(row_prog[1] or 0)
     if total_weight > 0:
         overall_prog = min(100, max(0, round(weighted_prog)))
-        if overall_prog != project_data['progress_percent']:
+        if overall_prog != float(project_data.get('progress_percent') or 0):
             cursor.execute('UPDATE projects SET progress_percent = ? WHERE id = ?', (overall_prog, project_id))
             project_data['progress_percent'] = overall_prog
 
@@ -312,9 +331,9 @@ def get_project_details(project_id):
     # Total Spent & Recoverable Input Tax
     cursor.execute('SELECT COALESCE(SUM(amount), 0), COALESCE(SUM(amount_without_tax), 0), COALESCE(SUM(tax_amount), 0) FROM expenses WHERE project_id = ?', (project_id,))
     exp_p_row = cursor.fetchone()
-    total_spent = exp_p_row[0]
-    total_spent_without_tax = exp_p_row[1]
-    total_tax_refundable = exp_p_row[2]
+    total_spent = float(exp_p_row[0] or 0)
+    total_spent_without_tax = float(exp_p_row[1] or 0)
+    total_tax_refundable = float(exp_p_row[2] or 0)
 
     contract_val = float(project_data.get('contract_value') or 0.0)
     effective_selling = contract_val if contract_val > 0 else total_phases_selling
@@ -395,9 +414,9 @@ def get_project_details(project_id):
     client_payments = [dict(row) for row in cursor.fetchall()]
     project_data['client_payments'] = client_payments
 
-    tot_milestones_tax = sum(cp['amount_with_tax'] for cp in client_payments)
-    tot_milestones_no_tax = sum(cp['amount_without_tax'] for cp in client_payments)
-    tot_received = sum(cp['received_amount'] for cp in client_payments if cp['is_received'] or cp['status'] in ('paid', 'partially_paid'))
+    tot_milestones_tax = sum(float(cp.get('amount_with_tax') or 0) for cp in client_payments)
+    tot_milestones_no_tax = sum(float(cp.get('amount_without_tax') or 0) for cp in client_payments)
+    tot_received = sum(float(cp.get('received_amount') or 0) for cp in client_payments if cp.get('is_received') or cp.get('status') in ('paid', 'partially_paid'))
     tot_pending = max(0.0, tot_milestones_tax - tot_received)
     col_rate = round((tot_received / tot_milestones_tax * 100), 1) if tot_milestones_tax > 0 else 0
 
@@ -408,7 +427,7 @@ def get_project_details(project_id):
         'total_pending': tot_pending,
         'collection_rate': col_rate,
         'payments_count': len(client_payments),
-        'paid_count': sum(1 for cp in client_payments if cp['is_received'] or cp['status'] == 'paid')
+        'paid_count': sum(1 for cp in client_payments if cp.get('is_received') or cp.get('status') == 'paid')
     }
 
     conn.close()

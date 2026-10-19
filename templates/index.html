@@ -1016,6 +1016,7 @@
                                 <th class="p-3.5">الغرض وبيان العهدة</th>
                                 <th class="p-3.5 text-left font-mono">المبلغ المطلوب</th>
                                 <th class="p-3.5 text-left font-mono">المبلغ المنصرف</th>
+                                <th class="p-3.5 text-center">جهة / طريقة الصرف</th>
                                 <th class="p-3.5 text-center">تاريخ الطلب</th>
                                 <th class="p-3.5 text-center">حالة الطلب</th>
                                 <th class="p-3.5 text-center">الإجراءات</th>
@@ -4975,10 +4976,18 @@
                     </div>
                 </div>
 
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <div class="space-y-1">
                         <label class="block text-xs font-bold text-slate-300">المبلغ المطلوب (ر.س): <span class="text-rose-400">*</span></label>
                         <input type="number" id="custody-req-amount" required step="0.01" min="1" placeholder="0.00" class="w-full bg-slate-950 border border-slate-750 focus:border-amber-500 rounded-xl px-3 py-2 text-xs text-white font-mono outline-none">
+                    </div>
+                    <div class="space-y-1">
+                        <label class="block text-xs font-bold text-slate-300">طريقة / جهة الصرف: <span class="text-rose-400">*</span></label>
+                        <select id="custody-req-method" class="w-full bg-slate-950 border border-slate-750 focus:border-amber-500 rounded-xl px-3 py-2 text-xs text-white outline-none">
+                            <option value="تحويل بنكي">🏦 تحويل بنكي (حساب البنك)</option>
+                            <option value="نقدي">💵 نقداً من الخزينة (صندوق الكاش)</option>
+                            <option value="شيك">📜 شيك مصرفي</option>
+                        </select>
                     </div>
                     <div class="space-y-1">
                         <label class="block text-xs font-bold text-slate-300">تاريخ الطلب: <span class="text-rose-400">*</span></label>
@@ -5058,11 +5067,11 @@
 
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div class="space-y-1">
-                        <label class="block text-xs font-bold text-slate-300">طريقة الصرف: <span class="text-rose-400">*</span></label>
+                        <label class="block text-xs font-bold text-slate-300">طريقة / جهة الصرف: <span class="text-rose-400">*</span></label>
                         <select id="custody-disburse-method" class="w-full bg-slate-950 border border-slate-750 focus:border-emerald-500 rounded-xl px-3 py-2 text-xs text-white outline-none">
-                            <option value="نقدي">نقدي (كاش)</option>
-                            <option value="تحويل بنكي">تحويل بنكي</option>
-                            <option value="شيك">شيك مصرفي</option>
+                            <option value="تحويل بنكي">🏦 تحويل بنكي (يخصم من كاش فلو البنك)</option>
+                            <option value="نقدي">💵 نقداً من الخزينة (صندوق الكاش)</option>
+                            <option value="شيك">📜 شيك مصرفي (يخصم من كاش فلو البنك)</option>
                         </select>
                     </div>
                     <div class="space-y-1">

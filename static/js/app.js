@@ -10974,6 +10974,23 @@ function renderCustodyTable() {
                         </div>
                     ` : ''}
                 </td>
+                <td class="p-3.5 text-center whitespace-nowrap">
+                    ${item.payment_method === 'تحويل بنكي' ? `
+                        <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-bold bg-blue-500/20 text-blue-400 border border-blue-500/30">
+                            <i data-lucide="landmark" class="w-3 h-3"></i>
+                            <span>تحويل بنكي</span>
+                        </span>
+                    ` : (item.payment_method === 'نقدي' ? `
+                        <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                            <i data-lucide="banknote" class="w-3 h-3"></i>
+                            <span>نقدي (خزينة)</span>
+                        </span>
+                    ` : (item.payment_method ? `
+                        <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-bold bg-slate-800 text-slate-300 border border-slate-700">
+                            <span>${escapeHtml(item.payment_method)}</span>
+                        </span>
+                    ` : '<span class="text-slate-500 text-[10px]">-</span>'))}
+                </td>
                 <td class="p-3.5 text-center font-mono text-[11px] text-slate-400 whitespace-nowrap">
                     <div>${escapeHtml(item.request_date || '-')}</div>
                     ${item.disbursed_date ? `<div class="text-[9px] text-emerald-400">صرف: ${item.disbursed_date}</div>` : ''}
@@ -11075,6 +11092,9 @@ async function openEditCustodyModal(id) {
         projSelect.innerHTML = opts;
     }
 
+    const methodSelect = document.getElementById('custody-req-method');
+    if (methodSelect) methodSelect.value = item.payment_method || 'تحويل بنكي';
+
     openModal('custody-request-modal');
 }
 
@@ -11089,6 +11109,7 @@ async function submitCustodyRequest(e) {
         formData.append('employee_name', document.getElementById('custody-req-employee')?.value || '');
         formData.append('project_id', document.getElementById('custody-req-project')?.value || '');
         formData.append('amount', document.getElementById('custody-req-amount')?.value || '0');
+        formData.append('payment_method', document.getElementById('custody-req-method')?.value || 'تحويل بنكي');
         formData.append('request_date', document.getElementById('custody-req-date')?.value || '');
         formData.append('purpose', document.getElementById('custody-req-purpose')?.value || '');
         formData.append('notes', document.getElementById('custody-req-notes')?.value || '');
@@ -11215,7 +11236,7 @@ function openCustodyDisburseModal(id) {
 
     document.getElementById('custody-disburse-amount').value = item.amount;
     document.getElementById('custody-disburse-date').value = new Date().toISOString().split('T')[0];
-    document.getElementById('custody-disburse-method').value = 'نقدي';
+    document.getElementById('custody-disburse-method').value = item.payment_method || 'تحويل بنكي';
     document.getElementById('custody-disburse-voucher').value = '';
     document.getElementById('custody-disburse-notes').value = '';
     document.getElementById('custody-record-expense').checked = Boolean(item.project_id);

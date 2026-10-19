@@ -3696,27 +3696,55 @@ def get_cashflow():
         })
         
     # Calculate Bank Cash Flow Outflows (Custodies and HR Advances)
-    # 1. Direct Expenses (custody_id IS NULL) so site custody expenses are not double counted
-    cursor.execute('SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE custody_id IS NULL')
-    direct_expenses_spent = float(cursor.fetchone()[0] or 0.0)
+    # 1. Bank Direct Expenses:
+    # Only expenses where payment_method represents bank transfers/payments AND NOT from custody AND NOT unpaid credit (آجل)
+    cursor.execute('''
+        SELECT COALESCE(SUM(amount), 0)
+        FROM expenses
+        WHERE custody_id IS NULL
+          AND (payment_method IS NULL OR payment_method NOT LIKE '%عهدة%')
+          AND (
+              payment_method LIKE '%تحويل%'
+              OR payment_method LIKE '%بنك%'
+              OR payment_method LIKE '%مدى%'
+              OR payment_method LIKE '%شيك%'
+              OR (payment_status = 'paid' AND payment_method NOT IN ('آجل', 'نقدي'))
+          )
+    ''')
+    bank_expenses_spent = float(cursor.fetchone()[0] or 0.0)
 
-    # 2. Total all project expenses for reference
+    # 2. Custody expenses spent from site petty custodies (recorded on projects but NOT deducted from bank to prevent double deduction)
+    cursor.execute('''
+        SELECT COALESCE(SUM(amount), 0)
+        FROM expenses
+        WHERE custody_id IS NOT NULL OR payment_method LIKE '%عهدة%'
+    ''')
+    custody_expenses_spent = float(cursor.fetchone()[0] or 0.0)
+
+    # 3. Total all project expenses for reference
     cursor.execute('SELECT COALESCE(SUM(amount), 0) FROM expenses')
     total_all_expenses = float(cursor.fetchone()[0] or 0.0)
 
-    # 3. Custody Net Outflow: Disbursed to engineers minus what was returned to the bank/treasury
+    # 4. Bank Custody Net Outflow: Custodies disbursed via bank transfer minus what was returned to the bank/treasury
     cursor.execute('''
         SELECT 
             COALESCE(SUM(CASE WHEN status IN ('disbursed', 'settled') THEN COALESCE(disbursed_amount, amount) ELSE 0 END), 0),
             COALESCE(SUM(CASE WHEN status = 'settled' THEN COALESCE(returned_amount, 0) ELSE 0 END), 0)
         FROM custody_requests
+        WHERE (
+            payment_method LIKE '%تحويل%'
+            OR payment_method LIKE '%بنك%'
+            OR payment_method LIKE '%شيك%'
+            OR payment_method IS NULL
+            OR payment_method = ''
+        )
     ''')
     c_row = cursor.fetchone()
     total_custody_disbursed = float(c_row[0] or 0.0)
     total_custody_returned = float(c_row[1] or 0.0)
     net_custody_outflow = max(0.0, total_custody_disbursed - total_custody_returned)
 
-    # 4. HR Advances Net Outflow: Disbursed to employees minus installments repaid
+    # 5. HR Advances Net Outflow: Disbursed to employees minus installments repaid
     cursor.execute('''
         SELECT 
             COALESCE(SUM(amount), 0),
@@ -3729,8 +3757,8 @@ def get_cashflow():
     total_advances_repaid = float(a_row[1] or 0.0)
     net_advances_outflow = float(a_row[2] or (total_advances_disbursed - total_advances_repaid))
 
-    # Total Actual Cash Outflows from Bank Account
-    total_actual_bank_outflows = direct_expenses_spent + net_custody_outflow + net_advances_outflow
+    # Total Actual Bank Outflows (Bank Transfer Expenses + Bank Custodies + Bank Advances)
+    total_actual_bank_outflows = bank_expenses_spent + net_custody_outflow + net_advances_outflow
 
     opening_cash = float(database.get_setting('opening_cash_balance', '300000.0') or 300000.0)
     # Exact Bank Account Balance: Opening + Client Inflows - All Actual Bank Outflows
@@ -3800,7 +3828,8 @@ def get_cashflow():
         'total_received': company_tot_received,
         'total_spent': total_actual_bank_outflows,
         'total_project_expenses': total_all_expenses,
-        'direct_expenses_spent': direct_expenses_spent,
+        'direct_expenses_spent': bank_expenses_spent,
+        'custody_expenses_spent': custody_expenses_spent,
         'total_custody_disbursed': total_custody_disbursed,
         'total_custody_returned': total_custody_returned,
         'net_custody_outflow': net_custody_outflow,
@@ -5479,12 +5508,15 @@ def create_custody_request():
             file.save(file_path)
             receipt_file_path = f"/uploads/{unique_name}"
 
+    payment_method = data.get('payment_method') or 'تحويل بنكي'
+
     cursor.execute('''
         INSERT INTO custody_requests (
             request_number, employee_name, project_id, amount, purpose,
-            request_date, status, approval_notes, receipt_file_path, receipt_file_name
-        ) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)
-    ''', (request_number, employee_name, project_id, amount, purpose, request_date, approval_notes, receipt_file_path, receipt_file_name))
+            request_date, status, approval_notes, receipt_file_path, receipt_file_name,
+            payment_method
+        ) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)
+    ''', (request_number, employee_name, project_id, amount, purpose, request_date, approval_notes, receipt_file_path, receipt_file_name, payment_method))
     custody_id = cursor.lastrowid
 
     # Notification for Financial Manager

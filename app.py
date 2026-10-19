@@ -447,6 +447,64 @@ def get_project_details(project_id):
         'paid_count': sum(1 for cp in client_payments if cp.get('is_received') or cp.get('status') == 'paid')
     }
 
+    # Exact Unified Bank Account Balance & Cash Flow Projections
+    cursor.execute('''
+        SELECT COALESCE(SUM(amount), 0)
+        FROM expenses
+        WHERE custody_id IS NULL
+          AND (payment_method IS NULL OR payment_method NOT LIKE '%عهدة%')
+          AND (
+              payment_method LIKE '%تحويل%'
+              OR payment_method LIKE '%بنك%'
+              OR payment_method LIKE '%مدى%'
+              OR payment_method LIKE '%شيك%'
+              OR (payment_status = 'paid' AND payment_method NOT IN ('آجل', 'نقدي'))
+          )
+    ''')
+    bank_expenses_spent = float(cursor.fetchone()[0] or 0.0)
+
+    cursor.execute('''
+        SELECT 
+            COALESCE(SUM(CASE WHEN status IN ('disbursed', 'settled') THEN COALESCE(disbursed_amount, amount) ELSE 0 END), 0),
+            COALESCE(SUM(CASE WHEN status = 'settled' THEN COALESCE(returned_amount, 0) ELSE 0 END), 0)
+        FROM custody_requests
+        WHERE (
+            payment_method LIKE '%تحويل%'
+            OR payment_method LIKE '%بنك%'
+            OR payment_method LIKE '%شيك%'
+            OR payment_method IS NULL
+            OR payment_method = ''
+        )
+    ''')
+    c_row = cursor.fetchone()
+    total_custody_disbursed = float(c_row[0] or 0.0)
+    total_custody_returned = float(c_row[1] or 0.0)
+    net_custody_outflow = max(0.0, total_custody_disbursed - total_custody_returned)
+
+    cursor.execute('''
+        SELECT COALESCE(SUM(remaining_amount), 0)
+        FROM hr_advances
+    ''')
+    net_advances_outflow = float(cursor.fetchone()[0] or 0.0)
+
+    total_actual_bank_outflows = bank_expenses_spent + net_custody_outflow + net_advances_outflow
+
+    cursor.execute('''
+        SELECT COALESCE(SUM(received_amount), 0)
+        FROM client_payments
+        WHERE is_received = 1 OR status IN ('paid', 'partially_paid')
+    ''')
+    company_tot_received = float(cursor.fetchone()[0] or 0.0)
+    opening_cash = float(database.get_setting('opening_cash_balance', '300000.0') or 300000.0)
+    company_bank_balance = opening_cash + company_tot_received - total_actual_bank_outflows
+
+    project_data['bank_balance'] = round(company_bank_balance, 2)
+    # Projected final bank cash if this project alone completes (رصيد البنك لو المشروع ده بس خلص)
+    project_data['projected_final_bank_cash'] = round(company_bank_balance + tot_pending - rem_budget, 2)
+    # Projected total project profit at completion (صافي ربح المشروع الإجمالي عند اكتمال كافة بنوده)
+    total_billable = tot_milestones_tax if tot_milestones_tax > 0 else (contract_val + tot_extra_tax)
+    project_data['projected_final_project_profit'] = round(total_billable - (total_spent + rem_budget), 2)
+
     conn.close()
     return jsonify(project_data)
 

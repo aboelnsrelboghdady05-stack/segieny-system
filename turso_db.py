@@ -224,18 +224,22 @@ class TursoConnection:
         self.row_factory = None
 
         if TursoConnection._shared_session is None:
-            session = requests.Session()
-            retries = Retry(
-                total=3,
-                backoff_factor=0.3,
-                status_forcelist=[500, 502, 503, 504]
-            )
-            adapter = HTTPAdapter(pool_connections=10, pool_maxsize=20, max_retries=retries)
-            session.mount('https://', adapter)
-            session.mount('http://', adapter)
-            TursoConnection._shared_session = session
+            self._init_session()
+        else:
+            self.session = TursoConnection._shared_session
 
-        self.session = TursoConnection._shared_session
+    def _init_session(self):
+        session = requests.Session()
+        retries = Retry(
+            total=3,
+            backoff_factor=0.3,
+            status_forcelist=[500, 502, 503, 504]
+        )
+        adapter = HTTPAdapter(pool_connections=10, pool_maxsize=20, max_retries=retries)
+        session.mount('https://', adapter)
+        session.mount('http://', adapter)
+        TursoConnection._shared_session = session
+        self.session = session
 
     def _execute_pipeline(self, requests_list):
         payload = {'requests': requests_list}
@@ -243,11 +247,19 @@ class TursoConnection:
             'Authorization': f'Bearer {self.auth_token}',
             'Content-Type': 'application/json'
         }
-        resp = self.session.post(self.endpoint, json=payload, headers=headers, timeout=30)
-        if resp.status_code != 200:
-            raise TursoDatabaseError(f"HTTP {resp.status_code}: {resp.text}")
-        data = resp.json()
-        return data.get('results', [])
+        for attempt in range(4):
+            try:
+                resp = self.session.post(self.endpoint, json=payload, headers=headers, timeout=30)
+                if resp.status_code != 200:
+                    raise TursoDatabaseError(f"HTTP {resp.status_code}: {resp.text}")
+                data = resp.json()
+                return data.get('results', [])
+            except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+                if attempt == 3:
+                    raise
+                import time
+                time.sleep(0.5 * (attempt + 1))
+                self._init_session()
 
     def cursor(self):
         return TursoCursor(self)

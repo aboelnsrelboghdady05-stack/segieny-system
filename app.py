@@ -6425,6 +6425,461 @@ def get_custody_expenses(custody_id):
         'remaining_balance': remaining
     })
 
+
+# ==========================================
+# EXPENSE REQUESTS API (طلبات الصرف والمصاريف للموظفين والموردين والمقاولين)
+# ==========================================
+
+@app.route('/api/expense-requests', methods=['GET'])
+def get_expense_requests():
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+
+    status_filter = request.args.get('status')
+    project_id = request.args.get('project_id')
+    beneficiary_type = request.args.get('beneficiary_type')
+    priority = request.args.get('priority')
+    search = request.args.get('search', '').strip()
+
+    query = '''
+        SELECT er.*, 
+               p.name as project_name, p.code as project_code,
+               tm.name as requester_full_name, tm.role as requester_role,
+               e.id as linked_expense_id, e.title as linked_expense_title
+        FROM expense_requests er
+        LEFT JOIN projects p ON er.project_id = p.id
+        LEFT JOIN team_members tm ON er.requester_id = tm.id
+        LEFT JOIN expenses e ON er.generated_expense_id = e.id
+        WHERE 1=1
+    '''
+    params = []
+
+    if status_filter:
+        query += ' AND er.status = ?'
+        params.append(status_filter)
+    if project_id:
+        query += ' AND er.project_id = ?'
+        params.append(project_id)
+    if beneficiary_type:
+        query += ' AND er.beneficiary_type = ?'
+        params.append(beneficiary_type)
+    if priority:
+        query += ' AND er.priority = ?'
+        params.append(priority)
+    if search:
+        query += ' AND (er.request_number LIKE ? OR er.beneficiary_name LIKE ? OR er.requester_name LIKE ? OR er.purpose LIKE ?)'
+        wildcard = f"%{search}%"
+        params.extend([wildcard, wildcard, wildcard, wildcard])
+
+    query += '''
+        ORDER BY 
+            CASE 
+                WHEN er.status = 'pending' THEN 0 
+                WHEN er.status = 'approved' THEN 1 
+                WHEN er.status = 'disbursed' THEN 2 
+                ELSE 3 
+            END, 
+            er.id DESC
+    '''
+
+    cursor.execute(query, params)
+    rows = [dict(r) for r in cursor.fetchall()]
+
+    # Summary KPIs
+    cursor.execute('''
+        SELECT 
+            COUNT(*) as total_count,
+            COALESCE(SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END), 0) as pending_count,
+            COALESCE(SUM(CASE WHEN status = 'pending' THEN amount ELSE 0 END), 0) as pending_amount,
+            COALESCE(SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END), 0) as approved_count,
+            COALESCE(SUM(CASE WHEN status = 'approved' THEN amount ELSE 0 END), 0) as approved_amount,
+            COALESCE(SUM(CASE WHEN status = 'disbursed' THEN 1 ELSE 0 END), 0) as disbursed_count,
+            COALESCE(SUM(CASE WHEN status = 'disbursed' THEN COALESCE(disbursed_amount, amount) ELSE 0 END), 0) as disbursed_amount,
+            COALESCE(SUM(CASE WHEN status = 'rejected' THEN 1 ELSE 0 END), 0) as rejected_count
+        FROM expense_requests
+    ''')
+    stats_row = dict(cursor.fetchone() or {})
+
+    conn.close()
+    return jsonify({
+        'requests': rows,
+        'summary': stats_row
+    })
+
+
+@app.route('/api/expense-requests/<int:req_id>', methods=['GET'])
+def get_expense_request_detail(req_id):
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT er.*, p.name as project_name, p.code as project_code,
+               tm.name as requester_full_name, tm.role as requester_role,
+               e.id as linked_expense_id, e.title as linked_expense_title
+        FROM expense_requests er
+        LEFT JOIN projects p ON er.project_id = p.id
+        LEFT JOIN team_members tm ON er.requester_id = tm.id
+        LEFT JOIN expenses e ON er.generated_expense_id = e.id
+        WHERE er.id = ?
+    ''', (req_id,))
+    row = cursor.fetchone()
+    conn.close()
+    if not row:
+        return jsonify({'error': 'طلب الصرف غير موجود'}), 404
+    return jsonify(dict(row))
+
+
+@app.route('/api/expense-requests', methods=['POST'])
+def create_expense_request():
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+
+    if request.is_json:
+        data = request.get_json() or {}
+    else:
+        data = request.form.to_dict()
+
+    requester_name = data.get('requester_name', '').strip()
+    requester_id = data.get('requester_id')
+    project_id = data.get('project_id')
+    beneficiary_type = data.get('beneficiary_type', 'عام').strip()
+    beneficiary_id = data.get('beneficiary_id')
+    beneficiary_name = data.get('beneficiary_name', '').strip()
+    category = data.get('category', 'نثريات وإداريات').strip()
+    amount = float(data.get('amount', 0))
+    purpose = data.get('purpose', '').strip()
+    priority = data.get('priority', 'عادي').strip()
+    request_date = data.get('request_date', datetime.now().strftime('%Y-%m-%d'))
+    notes = data.get('notes', '').strip()
+
+    if not requester_name:
+        conn.close()
+        return jsonify({'error': 'اسم مقدم الطلب مطلوب'}), 400
+    if not beneficiary_name:
+        conn.close()
+        return jsonify({'error': 'اسم المستفيد أو جهة الصرف مطلوب'}), 400
+    if amount <= 0:
+        conn.close()
+        return jsonify({'error': 'المبلغ المطلوب يجب أن يكون أكبر من صفر'}), 400
+    if not purpose:
+        conn.close()
+        return jsonify({'error': 'بيان الغرض وسبب طلب الصرف مطلوب'}), 400
+
+    try:
+        project_id = int(project_id) if project_id else None
+    except (ValueError, TypeError):
+        project_id = None
+
+    try:
+        requester_id = int(requester_id) if requester_id else None
+    except (ValueError, TypeError):
+        requester_id = None
+
+    try:
+        beneficiary_id = int(beneficiary_id) if beneficiary_id else None
+    except (ValueError, TypeError):
+        beneficiary_id = None
+
+    # Sequential Request Number
+    year_str = datetime.now().strftime('%Y')
+    cursor.execute('SELECT COUNT(*) FROM expense_requests')
+    count = cursor.fetchone()[0] + 1
+    request_number = f"REQ-{year_str}-{count:04d}"
+
+    # Handle file attachment
+    attachment_path = None
+    attachment_name = None
+    if 'attachment' in request.files:
+        file = request.files['attachment']
+        if file and file.filename and allowed_file(file.filename):
+            attachment_name = secure_filename(file.filename)
+            unique_name = f"req_{uuid.uuid4().hex[:8]}_{attachment_name}"
+            file_path = os.path.join(app.config['UPLOAD_FOLDER'], unique_name)
+            file.save(file_path)
+            attachment_path = f"/uploads/{unique_name}"
+
+    cursor.execute('''
+        INSERT INTO expense_requests (
+            request_number, requester_id, requester_name, project_id,
+            beneficiary_type, beneficiary_id, beneficiary_name, category,
+            amount, purpose, priority, request_date, notes,
+            attachment_path, attachment_name, status
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
+    ''', (
+        request_number, requester_id, requester_name, project_id,
+        beneficiary_type, beneficiary_id, beneficiary_name, category,
+        amount, purpose, priority, request_date, notes,
+        attachment_path, attachment_name
+    ))
+    req_id = cursor.lastrowid
+
+    # Notification for Financial Manager
+    proj_name = 'مصروف عام / إداري'
+    if project_id:
+        cursor.execute('SELECT name FROM projects WHERE id = ?', (project_id,))
+        p_row = cursor.fetchone()
+        if p_row:
+            proj_name = p_row[0]
+
+    cursor.execute('''
+        INSERT INTO notifications (project_id, type, title, message)
+        VALUES (?, 'expense_request', 'طلب صرف مصروف جديد بانتظار التعميد', ?)
+    ''', (project_id, f"رفع {requester_name} طلب صرف برقم {request_number} بمبلغ {amount:,.2f} ر.س لـ ({beneficiary_type}: {beneficiary_name}) - المشروع: {proj_name} - الغرض: {purpose}"))
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({
+        'success': True,
+        'message': f'تم رفع طلب الصرف برقم {request_number} بنجاح، وهو الآن بانتظار تعميد المدير المالي ولن يتم الصرف إلا بعد تعميده.',
+        'id': req_id,
+        'request_number': request_number
+    }), 201
+
+
+@app.route('/api/expense-requests/<int:req_id>/approve', methods=['POST'])
+def approve_expense_request(req_id):
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute('SELECT * FROM expense_requests WHERE id = ?', (req_id,))
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        return jsonify({'error': 'طلب الصرف غير موجود'}), 404
+
+    data = request.get_json() or {}
+    user_id = data.get('user_id')
+    user_role = data.get('user_role', '')
+    user_name = data.get('user_name', '')
+    approval_notes = data.get('approval_notes', '').strip()
+
+    is_fin, mgr_title = check_is_financial_manager(user_id=user_id, user_role=user_role, user_name=user_name, cursor=cursor)
+    if not is_fin:
+        conn.close()
+        return jsonify({'error': 'عذراً، صلاحية تعميد طلبات الصرف والمصروفات مقتصرة حصرياً على المدير المالي'}), 403
+
+    now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+    cursor.execute('''
+        UPDATE expense_requests
+        SET status = 'approved',
+            approved_by = ?,
+            approved_at = ?,
+            approval_notes = COALESCE(NULLIF(?, ''), approval_notes)
+        WHERE id = ?
+    ''', (mgr_title, now_str, approval_notes, req_id))
+
+    cursor.execute('''
+        INSERT INTO notifications (project_id, type, title, message)
+        VALUES (?, 'expense_request', 'تم تعميد طلب الصرف', ?)
+    ''', (row['project_id'], f"قام {mgr_title} بتعميد طلب الصرف {row['request_number']} بمبلغ {row['amount']:,.2f} ر.س لـ ({row['beneficiary_name']}) - الطلب جاهز للصرف الآن."))
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({
+        'success': True,
+        'message': f"تم تعميد طلب الصرف '{row['request_number']}' بنجاح، والطلب جاهز للصرف الفعلي الآن."
+    })
+
+
+@app.route('/api/expense-requests/<int:req_id>/reject', methods=['POST'])
+def reject_expense_request(req_id):
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute('SELECT * FROM expense_requests WHERE id = ?', (req_id,))
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        return jsonify({'error': 'طلب الصرف غير موجود'}), 404
+
+    data = request.get_json() or {}
+    user_id = data.get('user_id')
+    user_role = data.get('user_role', '')
+    user_name = data.get('user_name', '')
+    rejection_notes = data.get('rejection_notes', '').strip()
+
+    is_fin, mgr_title = check_is_financial_manager(user_id=user_id, user_role=user_role, user_name=user_name, cursor=cursor)
+    if not is_fin:
+        conn.close()
+        return jsonify({'error': 'عذراً، صلاحية رفض أو تعميد طلبات الصرف مقتصرة حصرياً على المدير المالي'}), 403
+
+    now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+    cursor.execute('''
+        UPDATE expense_requests
+        SET status = 'rejected',
+            approved_by = ?,
+            approved_at = ?,
+            approval_notes = ?
+        WHERE id = ?
+    ''', (mgr_title, now_str, rejection_notes, req_id))
+
+    cursor.execute('''
+        INSERT INTO notifications (project_id, type, title, message)
+        VALUES (?, 'expense_request', 'تم رفض طلب الصرف', ?)
+    ''', (row['project_id'], f"تم رفض طلب الصرف {row['request_number']} لـ ({row['beneficiary_name']}). سبب الرفض: {rejection_notes or 'لم يتم توضيح سبب'}"))
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({
+        'success': True,
+        'message': f"تم رفض طلب الصرف '{row['request_number']}' وتحديث الحالة."
+    })
+
+
+@app.route('/api/expense-requests/<int:req_id>/disburse', methods=['POST'])
+def disburse_expense_request(req_id):
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute('SELECT * FROM expense_requests WHERE id = ?', (req_id,))
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        return jsonify({'error': 'طلب الصرف غير موجود'}), 404
+
+    if row['status'] == 'disbursed':
+        conn.close()
+        return jsonify({'error': 'تم صرف هذا الطلب بالفعل مسبقاً'}), 400
+
+    if request.is_json:
+        data = request.get_json() or {}
+    else:
+        data = request.form.to_dict()
+
+    user_id = data.get('user_id')
+    user_role = data.get('user_role', '')
+    user_name = data.get('user_name', '')
+
+    is_fin, mgr_title = check_is_financial_manager(user_id=user_id, user_role=user_role, user_name=user_name, cursor=cursor)
+    if not is_fin:
+        conn.close()
+        return jsonify({'error': 'عذراً، صلاحية تسجيل الصرف الفعلي مقتصرة حصرياً على المدير المالي'}), 403
+
+    disbursed_amount = float(data.get('disbursed_amount', row['amount']))
+    disbursed_date = data.get('disbursed_date', datetime.now().strftime('%Y-%m-%d'))
+    payment_method = data.get('payment_method', 'تحويل بنكي')
+    bank_name = data.get('bank_name', '').strip()
+    transfer_reference = data.get('transfer_reference', '').strip()
+    disbursement_notes = data.get('disbursement_notes', '').strip()
+    now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+    # Receipt file upload if provided
+    disbursement_receipt_path = row['attachment_path']
+    disbursement_receipt_name = row['attachment_name']
+    if 'receipt_file' in request.files:
+        file = request.files['receipt_file']
+        if file and file.filename and allowed_file(file.filename):
+            receipt_name = secure_filename(file.filename)
+            unique_name = f"disb_{uuid.uuid4().hex[:8]}_{receipt_name}"
+            file_path = os.path.join(app.config['UPLOAD_FOLDER'], unique_name)
+            file.save(file_path)
+            disbursement_receipt_path = f"/uploads/{unique_name}"
+            disbursement_receipt_name = receipt_name
+
+    # 1. Update expense_requests record
+    cursor.execute('''
+        UPDATE expense_requests
+        SET status = 'disbursed',
+            disbursed_by = ?,
+            disbursed_at = ?,
+            disbursed_date = ?,
+            disbursed_amount = ?,
+            payment_method = ?,
+            bank_name = ?,
+            transfer_reference = ?,
+            disbursement_receipt_path = ?,
+            disbursement_receipt_name = ?,
+            disbursement_notes = ?
+        WHERE id = ?
+    ''', (
+        mgr_title, now_str, disbursed_date, disbursed_amount,
+        payment_method, bank_name, transfer_reference,
+        disbursement_receipt_path, disbursement_receipt_name, disbursement_notes,
+        req_id
+    ))
+
+    # 2. AUTOMATICALLY CREATE VERIFIED EXPENSE (كما طلب المستخدم)
+    category = row['category'] or 'نثريات وإداريات'
+    expense_title = f"صرف طلب {row['request_number']}: {row['purpose']}"
+    exp_notes = f"صرف بموجب طلب رقم {row['request_number']} - المستفيد: {row['beneficiary_type']} ({row['beneficiary_name']}) - وسيلة الصرف: {payment_method}"
+    if bank_name:
+        exp_notes += f" - البنك/الخزينة: {bank_name}"
+    if transfer_reference:
+        exp_notes += f" - رقم المرجع: {transfer_reference}"
+    if disbursement_notes:
+        exp_notes += f" - ملاحظات: {disbursement_notes}"
+
+    supplier_id = row['beneficiary_id'] if row['beneficiary_type'] == 'مورد' else None
+
+    cursor.execute('''
+        INSERT INTO expenses (
+            project_id, title, category, amount, payment_method,
+            paid_by, paid_to, expense_date, invoice_file_path, invoice_file_name,
+            notes, approval_status, approved_by, approved_at, approval_notes,
+            created_by, supplier_id, expense_request_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'approved', ?, ?, ?, ?, ?, ?)
+    ''', (
+        row['project_id'], expense_title, category, disbursed_amount, payment_method,
+        mgr_title, row['beneficiary_name'], disbursed_date,
+        disbursement_receipt_path, disbursement_receipt_name, exp_notes,
+        mgr_title, now_str, 'معمد ومصروف من المدير المالي مباشرة بموجب طلب صرف',
+        mgr_title, supplier_id, req_id
+    ))
+    new_expense_id = cursor.lastrowid
+
+    # 3. Link generated expense to request
+    cursor.execute('UPDATE expense_requests SET generated_expense_id = ? WHERE id = ?', (new_expense_id, req_id))
+
+    # 4. Deduct from Project Budget if manual
+    if row['project_id']:
+        cursor.execute('''
+            UPDATE projects
+            SET manual_remaining_budget = MAX(0.0, COALESCE(manual_remaining_budget, 0) - ?)
+            WHERE id = ? AND budget_mode = 'manual' AND manual_remaining_budget IS NOT NULL
+        ''', (disbursed_amount, row['project_id']))
+
+    # 5. Send Notification
+    cursor.execute('''
+        INSERT INTO notifications (project_id, type, title, message)
+        VALUES (?, 'expense_request', 'تم صرف طلب المصروف بنجاح', ?)
+    ''', (row['project_id'], f"تم صرف مبلغ {disbursed_amount:,.2f} ر.س لطلب الصرف {row['request_number']} لـ ({row['beneficiary_name']}) بواسطة {mgr_title} وتم ترحيله لمصروفات المشروع والكاش فلو."))
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({
+        'success': True,
+        'message': f"تم صرف الطلب {row['request_number']} بنجاح بمبلغ {disbursed_amount:,.2f} ر.س، وتم ترحيله فوراً إلى المصاريف المعتمدة وخصمه من الكاش فلو.",
+        'expense_id': new_expense_id
+    })
+
+
+@app.route('/api/expense-requests/<int:req_id>', methods=['DELETE'])
+def delete_expense_request(req_id):
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute('SELECT * FROM expense_requests WHERE id = ?', (req_id,))
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        return jsonify({'error': 'طلب الصرف غير موجود'}), 404
+
+    if row['status'] == 'disbursed':
+        conn.close()
+        return jsonify({'error': 'لا يمكن حذف طلب تم صرفه وترحيله للمصروفات بالفعل. لحذفه يجب إلغاء المصروف المنشأ أولاً.'}), 400
+
+    cursor.execute('DELETE FROM expense_requests WHERE id = ?', (req_id,))
+    conn.commit()
+    conn.close()
+
+    return jsonify({'success': True, 'message': 'تم حذف طلب الصرف بنجاح'})
+
+
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5001))
     print(f"================================================================")

@@ -577,6 +577,54 @@ def init_db():
     exp_cols = [r[1] for r in cursor.fetchall()]
     if 'custody_id' not in exp_cols:
         cursor.execute('ALTER TABLE expenses ADD COLUMN custody_id INTEGER REFERENCES custody_requests(id) ON DELETE SET NULL')
+
+    # Expense & Payment Requests (طلبات الصرف والمصاريف للموظفين، الموردين، والمقاولين)
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS expense_requests (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        request_number TEXT UNIQUE,
+        requester_id INTEGER,
+        requester_name TEXT NOT NULL,
+        project_id INTEGER,
+        beneficiary_type TEXT NOT NULL DEFAULT 'عام', -- مورد, مقاول, موظف, عام
+        beneficiary_id INTEGER,
+        beneficiary_name TEXT NOT NULL,
+        category TEXT DEFAULT 'نثريات وإداريات',
+        amount REAL NOT NULL,
+        purpose TEXT NOT NULL,
+        priority TEXT DEFAULT 'عادي', -- عادي, عاجل, طارئ
+        request_date TEXT NOT NULL,
+        notes TEXT,
+        attachment_path TEXT,
+        attachment_name TEXT,
+        status TEXT NOT NULL DEFAULT 'pending', -- pending, approved, disbursed, rejected
+        approved_by TEXT,
+        approved_at TIMESTAMP,
+        approval_notes TEXT,
+        disbursed_by TEXT,
+        disbursed_at TIMESTAMP,
+        disbursed_date TEXT,
+        disbursed_amount REAL DEFAULT 0,
+        payment_method TEXT DEFAULT 'تحويل بنكي', -- تحويل بنكي, نقدي, شيك
+        bank_name TEXT,
+        transfer_reference TEXT,
+        disbursement_receipt_path TEXT,
+        disbursement_receipt_name TEXT,
+        disbursement_notes TEXT,
+        generated_expense_id INTEGER,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL,
+        FOREIGN KEY (requester_id) REFERENCES team_members(id) ON DELETE SET NULL,
+        FOREIGN KEY (generated_expense_id) REFERENCES expenses(id) ON DELETE SET NULL
+    )
+    ''')
+
+    if 'expense_request_id' not in exp_cols:
+        try:
+            cursor.execute('ALTER TABLE expenses ADD COLUMN expense_request_id INTEGER REFERENCES expense_requests(id) ON DELETE SET NULL')
+        except Exception:
+            pass
+
     # HR Tables (إدارة الموارد البشرية وشؤون الموظفين)
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS hr_employees (

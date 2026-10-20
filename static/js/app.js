@@ -192,7 +192,10 @@ function switchTab(tabId) {
     if (tabId === 'dashboard') loadDashboard();
     else if (tabId === 'projects') loadProjects();
     else if (tabId === 'tasks') loadTasks();
-    else if (tabId === 'expenses') loadExpenses();
+    else if (tabId === 'expenses') {
+        loadExpenses();
+        if (typeof loadExpenseRequests === 'function') loadExpenseRequests();
+    }
     else if (tabId === 'suppliers') loadSuppliersData();
     else if (tabId === 'cashflow') loadCashFlow();
     else if (tabId === 'subcontractors') loadSubcontractors();
@@ -14258,3 +14261,963 @@ async function calculateEosDirectly() {
         showToast('حدث خطأ في الاتصال بالخادم', 'error');
     }
 }
+
+
+// ==========================================
+// EXPENSE REQUESTS MODULE (طلبات الصرف والمصاريف للموظفين والموردين والمقاولين)
+// ==========================================
+
+let currentExpensesActiveSubtab = 'invoices';
+let currentExpenseRequests = [];
+let currentExpenseRequestStatusFilter = '';
+let currentViewedExpenseRequest = null;
+let cachedSuppliersList = null;
+let cachedSubcontractorsList = null;
+
+function switchExpensesSubtab(subtab) {
+    currentExpensesActiveSubtab = subtab;
+    const btnInvoices = document.getElementById('subtab-btn-expenses-invoices');
+    const btnRequests = document.getElementById('subtab-btn-expenses-requests');
+    const contentInvoices = document.getElementById('subtab-content-expenses-invoices');
+    const contentRequests = document.getElementById('subtab-content-expenses-requests');
+
+    if (subtab === 'requests') {
+        if (btnRequests) {
+            btnRequests.className = 'flex-1 sm:flex-none px-4 sm:px-6 py-2.5 rounded-xl font-black text-xs sm:text-sm flex items-center justify-center gap-2 transition-all bg-amber-600 text-white shadow-lg shadow-amber-950/40';
+        }
+        if (btnInvoices) {
+            btnInvoices.className = 'flex-1 sm:flex-none px-4 sm:px-6 py-2.5 rounded-xl font-black text-xs sm:text-sm flex items-center justify-center gap-2 transition-all bg-slate-800/80 text-slate-300 hover:text-white hover:bg-slate-750';
+        }
+        if (contentInvoices) contentInvoices.classList.add('hidden');
+        if (contentRequests) contentRequests.classList.remove('hidden');
+        loadExpenseRequests();
+        populateExpenseRequestDropdowns();
+    } else {
+        if (btnInvoices) {
+            btnInvoices.className = 'flex-1 sm:flex-none px-4 sm:px-6 py-2.5 rounded-xl font-black text-xs sm:text-sm flex items-center justify-center gap-2 transition-all bg-emerald-600 text-white shadow-lg shadow-emerald-950/40';
+        }
+        if (btnRequests) {
+            btnRequests.className = 'flex-1 sm:flex-none px-4 sm:px-6 py-2.5 rounded-xl font-black text-xs sm:text-sm flex items-center justify-center gap-2 transition-all bg-slate-800/80 text-slate-300 hover:text-white hover:bg-slate-750';
+        }
+        if (contentRequests) contentRequests.classList.add('hidden');
+        if (contentInvoices) contentInvoices.classList.remove('hidden');
+        loadExpenses();
+    }
+    initLucide();
+}
+
+async function populateExpenseRequestDropdowns() {
+    // 1. Projects dropdowns
+    const projs = allProjectsList || [];
+    const projSelects = ['req-project-id', 'req-filter-project'];
+    projSelects.forEach(selId => {
+        const sel = document.getElementById(selId);
+        if (!sel) return;
+        const curVal = sel.value;
+        let html = selId === 'req-filter-project' ? '<option value="">جميع المشاريع</option>' : '<option value="">مصروف عام / إداري (بدون مشروع)</option>';
+        projs.forEach(p => {
+            html += `<option value="${p.id}" ${String(curVal) === String(p.id) ? 'selected' : ''}>${escapeHtml(p.name)} (${p.code || 'PRJ'})</option>`;
+        });
+        sel.innerHTML = html;
+    });
+
+    // 2. Default requester name and date
+    const u = currentUser || JSON.parse(localStorage.getItem('segieny_auth_user') || '{}');
+    const reqNameInput = document.getElementById('req-requester-name');
+    if (reqNameInput && !reqNameInput.value) {
+        reqNameInput.value = u.name || '';
+    }
+    const dateInput = document.getElementById('req-date');
+    if (dateInput && !dateInput.value) {
+        dateInput.value = new Date().toISOString().split('T')[0];
+    }
+
+    // 3. Populate beneficiary select
+    handleBeneficiaryTypeChange();
+}
+
+async function handleBeneficiaryTypeChange() {
+    const type = document.getElementById('req-beneficiary-type')?.value || 'عام';
+    const wrapper = document.getElementById('req-beneficiary-select-wrapper');
+    const select = document.getElementById('req-beneficiary-select');
+    const label = document.getElementById('req-beneficiary-select-label');
+    const nameInput = document.getElementById('req-beneficiary-name');
+    const categorySelect = document.getElementById('req-category');
+    const purposeTextarea = document.getElementById('req-purpose');
+
+    if (!wrapper || !select) return;
+
+    if (type === 'مورد') {
+        wrapper.classList.remove('hidden');
+        if (label) label.innerText = 'اختر المورد من القائمة:';
+        if (categorySelect) categorySelect.value = 'مواد بناء';
+        if (purposeTextarea && !purposeTextarea.value) {
+            purposeTextarea.placeholder = 'مثال: دفعة توريد حديد تسليح، فاتورة خرسانة جاهزة، شراء مواد سباكة...';
+        }
+
+        // Fetch suppliers if not cached
+        if (!cachedSuppliersList) {
+            try {
+                const res = await fetch('/api/suppliers');
+                cachedSuppliersList = await res.json();
+            } catch (e) {
+                cachedSuppliersList = [];
+            }
+        }
+        let opts = '<option value="">-- اختر المورد --</option>';
+        (cachedSuppliersList || []).forEach(s => {
+            opts += `<option value="${s.id}" data-name="${escapeHtml(s.name)}">${escapeHtml(s.name)} ${s.company_name ? '(' + escapeHtml(s.company_name) + ')' : ''}</option>`;
+        });
+        opts += '<option value="__manual__">➕ مورد آخر (كتابة يدوية)</option>';
+        select.innerHTML = opts;
+
+    } else if (type === 'مقاول') {
+        wrapper.classList.remove('hidden');
+        if (label) label.innerText = 'اختر مقاول الباطن من القائمة:';
+        if (categorySelect) categorySelect.value = 'عمالة ومقاولين باطن';
+        if (purposeTextarea && !purposeTextarea.value) {
+            purposeTextarea.placeholder = 'مثال: مستخلص الدفعة الثانية لأعمال اللياسة، مصنعيات دهانات الدور الأول...';
+        }
+
+        // Fetch subcontractors if not cached
+        if (!cachedSubcontractorsList) {
+            try {
+                const res = await fetch('/api/subcontractors');
+                cachedSubcontractorsList = await res.json();
+            } catch (e) {
+                cachedSubcontractorsList = [];
+            }
+        }
+        let opts = '<option value="">-- اختر مقاول الباطن --</option>';
+        (cachedSubcontractorsList || []).forEach(sub => {
+            opts += `<option value="${sub.id}" data-name="${escapeHtml(sub.name)}">${escapeHtml(sub.name)} ${sub.trade ? '(' + escapeHtml(sub.trade) + ')' : ''}</option>`;
+        });
+        opts += '<option value="__manual__">➕ مقاول آخر (كتابة يدوية)</option>';
+        select.innerHTML = opts;
+
+    } else if (type === 'موظف') {
+        wrapper.classList.remove('hidden');
+        if (label) label.innerText = 'اختر الموظف / المهندس:';
+        if (categorySelect) categorySelect.value = 'نثريات وإداريات';
+        if (purposeTextarea && !purposeTextarea.value) {
+            purposeTextarea.placeholder = 'مثال: عهدة سريعة لشراء نثريات الموقع، سلفة مؤقتة، مصاريف إنجاز معاملة...';
+        }
+
+        let opts = '<option value="">-- اختر الموظف --</option>';
+        const members = (typeof teamMembers !== 'undefined' && teamMembers) ? teamMembers : [];
+        members.forEach(m => {
+            opts += `<option value="${m.id}" data-name="${escapeHtml(m.name)}">${escapeHtml(m.name)} (${escapeHtml(m.role || 'عضو')})</option>`;
+        });
+        opts += '<option value="__manual__">➕ موظف آخر (كتابة يدوية)</option>';
+        select.innerHTML = opts;
+
+    } else {
+        // عام / أخرى
+        wrapper.classList.add('hidden');
+        if (categorySelect) categorySelect.value = 'نثريات وإداريات';
+        if (purposeTextarea && !purposeTextarea.value) {
+            purposeTextarea.placeholder = 'مثال: سداد رسوم رخصة البناء، إيجار معدة دكاكة، صيانة سيارة الموقع...';
+        }
+        if (nameInput) {
+            nameInput.focus();
+        }
+    }
+}
+
+function handleBeneficiarySelectChange() {
+    const select = document.getElementById('req-beneficiary-select');
+    const nameInput = document.getElementById('req-beneficiary-name');
+    if (!select || !nameInput) return;
+
+    const selectedOpt = select.options[select.selectedIndex];
+    if (selectedOpt && selectedOpt.value && selectedOpt.value !== '__manual__') {
+        nameInput.value = selectedOpt.getAttribute('data-name') || selectedOpt.text;
+    } else if (selectedOpt && selectedOpt.value === '__manual__') {
+        nameInput.value = '';
+        nameInput.placeholder = 'اكتب اسم الجهة أو المستفيد هنا...';
+        nameInput.focus();
+    }
+}
+
+function setExpenseRequestStatusFilter(status) {
+    currentExpenseRequestStatusFilter = status;
+    document.querySelectorAll('.req-filter-btn').forEach(btn => {
+        btn.classList.remove('bg-amber-500/20', 'text-amber-400');
+        btn.classList.add('text-slate-400');
+    });
+    const activeBtn = document.getElementById(`req-filter-${status || 'all'}`);
+    if (activeBtn) {
+        activeBtn.classList.add('bg-amber-500/20', 'text-amber-400');
+        activeBtn.classList.remove('text-slate-400');
+    }
+    loadExpenseRequests();
+}
+
+async function loadExpenseRequests() {
+    const status = currentExpenseRequestStatusFilter || '';
+    const bType = document.getElementById('req-filter-beneficiary-type')?.value || '';
+    const projId = document.getElementById('req-filter-project')?.value || '';
+    const search = document.getElementById('req-search-input')?.value || '';
+
+    let url = `/api/expense-requests?`;
+    if (status) url += `status=${encodeURIComponent(status)}&`;
+    if (bType) url += `beneficiary_type=${encodeURIComponent(bType)}&`;
+    if (projId) url += `project_id=${encodeURIComponent(projId)}&`;
+    if (search) url += `search=${encodeURIComponent(search)}&`;
+
+    try {
+        const res = await fetch(url);
+        const data = await res.json();
+        currentExpenseRequests = data.requests || [];
+        const summary = data.summary || {};
+
+        // Update KPIs
+        const elPendingSum = document.getElementById('req-kpi-pending-sum');
+        if (elPendingSum) elPendingSum.innerText = formatCurrency(summary.pending_amount || 0);
+        const elPendingCount = document.getElementById('req-kpi-pending-count');
+        if (elPendingCount) elPendingCount.innerText = `${summary.pending_count || 0} طلب معلق`;
+
+        const elApprovedSum = document.getElementById('req-kpi-approved-sum');
+        if (elApprovedSum) elApprovedSum.innerText = formatCurrency(summary.approved_amount || 0);
+        const elApprovedCount = document.getElementById('req-kpi-approved-count');
+        if (elApprovedCount) elApprovedCount.innerText = `${summary.approved_count || 0} طلب جاهز للصرف`;
+
+        const elDisbursedSum = document.getElementById('req-kpi-disbursed-sum');
+        if (elDisbursedSum) elDisbursedSum.innerText = formatCurrency(summary.disbursed_amount || 0);
+        const elDisbursedCount = document.getElementById('req-kpi-disbursed-count');
+        if (elDisbursedCount) elDisbursedCount.innerText = `${summary.disbursed_count || 0} طلب مصروف ومرحل`;
+
+        const elRejectedCount = document.getElementById('req-kpi-rejected-count');
+        if (elRejectedCount) elRejectedCount.innerText = String(summary.rejected_count || 0);
+
+        // Filter Counts
+        const cAll = document.getElementById('req-count-all');
+        if (cAll) cAll.innerText = summary.total_count || 0;
+        const cPending = document.getElementById('req-count-pending');
+        if (cPending) cPending.innerText = summary.pending_count || 0;
+        const cApproved = document.getElementById('req-count-approved');
+        if (cApproved) cApproved.innerText = summary.approved_count || 0;
+        const cDisbursed = document.getElementById('req-count-disbursed');
+        if (cDisbursed) cDisbursed.innerText = summary.disbursed_count || 0;
+        const cRejected = document.getElementById('req-count-rejected');
+        if (cRejected) cRejected.innerText = summary.rejected_count || 0;
+
+        // Header Pending Badge
+        const headerBadge = document.getElementById('badge-expense-requests-pending');
+        if (headerBadge) {
+            const pCount = summary.pending_count || 0;
+            if (pCount > 0) {
+                headerBadge.innerText = `${pCount} معلق`;
+                headerBadge.classList.remove('hidden');
+            } else {
+                headerBadge.classList.add('hidden');
+            }
+        }
+
+        // Role Banner
+        const u = currentUser || JSON.parse(localStorage.getItem('segieny_auth_user') || '{}');
+        const userBadge = document.getElementById('expense-req-user-badge');
+        const permDesc = document.getElementById('expense-req-permission-desc');
+        if (userBadge) userBadge.innerText = `${u.name || 'مستخدم'} (${u.role || 'عضو'})`;
+        if (permDesc) {
+            if (isFinancialManagerUser()) {
+                permDesc.innerText = 'تملك صلاحية التعميد والصرف الفعلي لطلبات المصاريف';
+                permDesc.className = 'text-emerald-400 font-semibold';
+            } else {
+                permDesc.innerText = 'يمكنك تقديم طلبات الصرف ومتابعة تعميدها وصرفها من المدير المالي';
+                permDesc.className = 'text-amber-400 font-semibold';
+            }
+        }
+
+        renderExpenseRequestsTable(currentExpenseRequests);
+    } catch (err) {
+        console.error('Error loading expense requests:', err);
+    }
+}
+
+function applyExpenseRequestFilters() {
+    const search = (document.getElementById('req-search-input')?.value || '').trim().toLowerCase();
+    if (!search) {
+        renderExpenseRequestsTable(currentExpenseRequests);
+        return;
+    }
+    const filtered = currentExpenseRequests.filter(r => {
+        return (r.request_number || '').toLowerCase().includes(search) ||
+               (r.beneficiary_name || '').toLowerCase().includes(search) ||
+               (r.requester_name || '').toLowerCase().includes(search) ||
+               (r.purpose || '').toLowerCase().includes(search) ||
+               (r.project_name || '').toLowerCase().includes(search);
+    });
+    renderExpenseRequestsTable(filtered);
+}
+
+function renderExpenseRequestsTable(requests) {
+    const tbody = document.getElementById('expense-requests-table-body');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+
+    const isFinManager = isFinancialManagerUser();
+    const u = currentUser || JSON.parse(localStorage.getItem('segieny_auth_user') || '{}');
+
+    if (!requests || requests.length === 0) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="11" class="text-center py-12 text-slate-500">
+                    <div class="flex flex-col items-center gap-2">
+                        <i data-lucide="inbox" class="w-8 h-8 text-slate-600"></i>
+                        <span class="text-sm font-semibold">لا توجد طلبات صرف مطابقة للفلاتر المحددة</span>
+                        <p class="text-[11px] text-slate-600">يمكنك الضغط على زر "رفع طلب صرف جديد" لإنشاء طلب لمورد أو مقاول أو موظف.</p>
+                    </div>
+                </td>
+            </tr>
+        `;
+        initLucide();
+        return;
+    }
+
+    requests.forEach(r => {
+        const tr = document.createElement('tr');
+        tr.className = 'hover:bg-slate-800/40 transition duration-150';
+
+        // Beneficiary Type Icon & Badge
+        let bIcon = 'building';
+        let bColor = 'text-slate-400 bg-slate-800 border-slate-700';
+        if (r.beneficiary_type === 'مورد') {
+            bIcon = 'truck';
+            bColor = 'text-amber-400 bg-amber-500/10 border-amber-500/30';
+        } else if (r.beneficiary_type === 'مقاول') {
+            bIcon = 'hard-hat';
+            bColor = 'text-blue-400 bg-blue-500/10 border-blue-500/30';
+        } else if (r.beneficiary_type === 'موظف') {
+            bIcon = 'user';
+            bColor = 'text-purple-400 bg-purple-500/10 border-purple-500/30';
+        }
+
+        // Priority Badge
+        let pBadge = '<span class="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-800 text-slate-400 border border-slate-700">عادي</span>';
+        if (r.priority === 'عاجل') {
+            pBadge = '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30">⚡ عاجل</span>';
+        } else if (r.priority === 'طارئ') {
+            pBadge = '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/20 text-rose-400 border border-rose-500/30 animate-pulse">🚨 طارئ</span>';
+        }
+
+        // Status Badge
+        let statusBadge = '';
+        if (r.status === 'pending') {
+            statusBadge = `
+                <div class="inline-flex flex-col items-center">
+                    <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                        <i data-lucide="clock" class="w-3 h-3"></i>
+                        <span>بانتظار التعميد</span>
+                    </span>
+                    <span class="text-[9px] text-slate-500 mt-0.5">المدير المالي</span>
+                </div>
+            `;
+        } else if (r.status === 'approved') {
+            statusBadge = `
+                <div class="inline-flex flex-col items-center">
+                    <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black bg-blue-500/20 text-blue-300 border border-blue-500/40">
+                        <i data-lucide="shield-check" class="w-3 h-3"></i>
+                        <span>معمد (جاهز للصرف)</span>
+                    </span>
+                    <span class="text-[9px] text-blue-400/80 mt-0.5 truncate max-w-[120px]" title="${escapeHtml(r.approved_by || '')}">عُمّد: ${escapeHtml(r.approved_by || 'المدير المالي')}</span>
+                </div>
+            `;
+        } else if (r.status === 'disbursed') {
+            statusBadge = `
+                <div class="inline-flex flex-col items-center">
+                    <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                        <i data-lucide="check-circle-2" class="w-3 h-3"></i>
+                        <span>تم الصرف (مرحل)</span>
+                    </span>
+                    <span class="text-[9px] text-emerald-400/80 mt-0.5">${escapeHtml(r.disbursed_date || '')}</span>
+                </div>
+            `;
+        } else if (r.status === 'rejected') {
+            statusBadge = `
+                <div class="inline-flex flex-col items-center">
+                    <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black bg-rose-500/20 text-rose-300 border border-rose-500/40">
+                        <i data-lucide="x-circle" class="w-3 h-3"></i>
+                        <span>مرفوض</span>
+                    </span>
+                    <span class="text-[9px] text-rose-400/80 mt-0.5 truncate max-w-[120px]" title="${escapeHtml(r.approval_notes || '')}">${escapeHtml(r.approval_notes || 'مرفوض')}</span>
+                </div>
+            `;
+        }
+
+        // Attachment Link
+        let attachLink = '<span class="text-slate-600">-</span>';
+        if (r.attachment_path) {
+            attachLink = `
+                <a href="${r.attachment_path}" target="_blank" class="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-750 text-indigo-400 hover:text-indigo-300 transition text-[11px] font-bold" title="عرض المرفق المبدئي">
+                    <i data-lucide="paperclip" class="w-3 h-3"></i>
+                    <span>مستند</span>
+                </a>
+            `;
+        }
+
+        // Action Buttons
+        let actionsHtml = `<div class="flex items-center justify-center gap-1.5 flex-wrap">`;
+        actionsHtml += `
+            <button onclick="viewExpenseRequestDetails(${r.id})" class="p-1.5 rounded-lg bg-slate-850 hover:bg-slate-750 text-slate-300 hover:text-white transition" title="عرض كافة التفاصيل">
+                <i data-lucide="eye" class="w-4 h-4"></i>
+            </button>
+        `;
+
+        if (isFinManager) {
+            if (r.status === 'pending') {
+                actionsHtml += `
+                    <button onclick="approveExpenseRequest(${r.id})" class="px-2.5 py-1.5 rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-[11px] flex items-center gap-1 shadow transition" title="تعميد الطلب">
+                        <i data-lucide="shield-check" class="w-3.5 h-3.5"></i>
+                        <span>تعميد</span>
+                    </button>
+                    <button onclick="rejectExpenseRequest(${r.id})" class="px-2 py-1.5 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-400 border border-rose-500/30 text-[11px] font-bold transition" title="رفض الطلب">
+                        <i data-lucide="x" class="w-3.5 h-3.5"></i>
+                    </button>
+                `;
+            } else if (r.status === 'approved') {
+                actionsHtml += `
+                    <button onclick="openDisburseExpenseRequestModal(${r.id})" class="px-3 py-1.5 rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-[11px] flex items-center gap-1.5 shadow-lg shadow-emerald-950/40 transition animate-bounce-subtle" title="تسجيل الصرف والخصم المالي الفوري">
+                        <i data-lucide="wallet" class="w-3.5 h-3.5"></i>
+                        <span>💵 صرف المبلغ</span>
+                    </button>
+                    <button onclick="rejectExpenseRequest(${r.id})" class="px-2 py-1.5 rounded-lg bg-slate-800 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 transition" title="إلغاء الاعتماد">
+                        <i data-lucide="undo-2" class="w-3.5 h-3.5"></i>
+                    </button>
+                `;
+            } else if (r.status === 'disbursed' && r.generated_expense_id) {
+                actionsHtml += `
+                    <span class="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-500/10 text-emerald-400 text-[10px] font-bold border border-emerald-500/20" title="تم ترحيله إلى المصروفات برقم فاتورة #${r.generated_expense_id}">
+                        <i data-lucide="receipt" class="w-3 h-3"></i>
+                        <span>فاتورة #${r.generated_expense_id}</span>
+                    </span>
+                `;
+            }
+        }
+
+        // Delete button for pending
+        if ((isFinManager || (u.id && r.requester_id === u.id)) && r.status === 'pending') {
+            actionsHtml += `
+                <button onclick="deleteExpenseRequest(${r.id})" class="p-1.5 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition" title="حذف الطلب">
+                    <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                </button>
+            `;
+        }
+
+        actionsHtml += `</div>`;
+
+        tr.innerHTML = `
+            <td class="p-3.5 font-mono font-bold text-amber-400 whitespace-nowrap">
+                ${escapeHtml(r.request_number)}
+            </td>
+            <td class="p-3.5 text-slate-400 whitespace-nowrap">
+                ${escapeHtml(r.request_date)}
+            </td>
+            <td class="p-3.5 font-bold text-white whitespace-nowrap">
+                ${escapeHtml(r.requester_name)}
+            </td>
+            <td class="p-3.5">
+                <div class="flex items-center gap-1.5">
+                    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold border ${bColor}">
+                        <i data-lucide="${bIcon}" class="w-3 h-3"></i>
+                        <span>${escapeHtml(r.beneficiary_type)}</span>
+                    </span>
+                    <strong class="text-white text-xs">${escapeHtml(r.beneficiary_name)}</strong>
+                </div>
+            </td>
+            <td class="p-3.5 text-slate-300">
+                ${r.project_name ? `<span class="font-bold text-white">${escapeHtml(r.project_name)}</span> <span class="text-[10px] text-slate-500 font-mono">(${escapeHtml(r.project_code || 'PRJ')})</span>` : '<span class="text-slate-500">عام / إداري</span>'}
+            </td>
+            <td class="p-3.5 max-w-xs truncate" title="${escapeHtml(r.purpose)}">
+                <span class="text-slate-200">${escapeHtml(r.purpose)}</span>
+            </td>
+            <td class="p-3.5 font-mono font-black text-amber-400 text-sm whitespace-nowrap">
+                ${formatCurrency(r.amount)}
+            </td>
+            <td class="p-3.5 text-center">
+                ${pBadge}
+            </td>
+            <td class="p-3.5 text-center">
+                ${attachLink}
+            </td>
+            <td class="p-3.5 text-center">
+                ${statusBadge}
+            </td>
+            <td class="p-3.5 text-center whitespace-nowrap">
+                ${actionsHtml}
+            </td>
+        `;
+
+        tbody.appendChild(tr);
+    });
+
+    initLucide();
+}
+
+async function submitExpenseRequest(event) {
+    event.preventDefault();
+    const btn = document.getElementById('btn-submit-expense-request');
+    if (btn) btn.disabled = true;
+
+    const u = currentUser || JSON.parse(localStorage.getItem('segieny_auth_user') || '{}');
+    const form = document.getElementById('expense-request-form');
+    const formData = new FormData();
+
+    formData.append('requester_name', document.getElementById('req-requester-name')?.value || u.name || '');
+    formData.append('requester_id', u.id || '');
+    formData.append('project_id', document.getElementById('req-project-id')?.value || '');
+    formData.append('beneficiary_type', document.getElementById('req-beneficiary-type')?.value || 'عام');
+    
+    // Beneficiary ID if selected from list
+    const select = document.getElementById('req-beneficiary-select');
+    if (select && select.value && select.value !== '__manual__') {
+        formData.append('beneficiary_id', select.value);
+    }
+    formData.append('beneficiary_name', document.getElementById('req-beneficiary-name')?.value || '');
+    formData.append('category', document.getElementById('req-category')?.value || 'نثريات وإداريات');
+    formData.append('amount', document.getElementById('req-amount')?.value || 0);
+    formData.append('purpose', document.getElementById('req-purpose')?.value || '');
+    formData.append('priority', document.getElementById('req-priority')?.value || 'عادي');
+    formData.append('request_date', document.getElementById('req-date')?.value || '');
+    formData.append('notes', document.getElementById('req-notes')?.value || '');
+
+    const fileInput = document.getElementById('req-attachment-file');
+    if (fileInput && fileInput.files && fileInput.files[0]) {
+        formData.append('attachment', fileInput.files[0]);
+    }
+
+    try {
+        const res = await fetch('/api/expense-requests', {
+            method: 'POST',
+            body: formData
+        });
+        const data = await res.json();
+
+        if (res.ok && data.success) {
+            showToast(data.message || 'تم رفع طلب الصرف بنجاح وهو بانتظار تعميد المدير المالي!', 'success');
+            closeModal('expense-request-modal');
+            form.reset();
+            loadExpenseRequests();
+        } else {
+            showToast(data.error || 'تعذر رفع طلب الصرف', 'error');
+        }
+    } catch (err) {
+        console.error('Error submitting expense request:', err);
+        showToast('حدث خطأ في الاتصال بالخادم', 'error');
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+}
+
+async function approveExpenseRequest(id) {
+    if (!isFinancialManagerUser()) {
+        showToast('عفواً، صلاحية تعميد طلبات الصرف والمصروفات مقتصرة حصرياً على المدير المالي (أ. ابوالنصر البغدادي).', 'error');
+        return;
+    }
+
+    const notes = prompt('هل ترغب بإضافة ملاحظات تعميد أو توجيه للصرف؟ (اختياري - اضغط موافق للتعميد مباشرة):', '');
+    if (notes === null) return; // User cancelled
+
+    const u = currentUser || JSON.parse(localStorage.getItem('segieny_auth_user') || '{}');
+    try {
+        const res = await fetch(`/api/expense-requests/${id}/approve`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                user_id: u.id,
+                user_role: u.role,
+                user_name: u.name,
+                approval_notes: notes.trim()
+            })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+            showToast(data.message || 'تم تعميد طلب الصرف بنجاح وهو جاهز للصرف الآن!', 'success');
+            loadExpenseRequests();
+        } else {
+            showToast(data.error || 'تعذر تعميد الطلب', 'error');
+        }
+    } catch (e) {
+        showToast('فشل في الاتصال بالخادم', 'error');
+    }
+}
+
+async function rejectExpenseRequest(id) {
+    if (!isFinancialManagerUser()) {
+        showToast('عفواً، صلاحية رفض طلبات الصرف مقتصرة على المدير المالي (أ. ابوالنصر البغدادي).', 'error');
+        return;
+    }
+
+    const reason = prompt('يرجى كتابة سبب رفض هذا الطلب:');
+    if (reason === null) return;
+    if (!reason.trim()) {
+        showToast('يرجى توضيح سبب الرفض', 'warning');
+        return;
+    }
+
+    const u = currentUser || JSON.parse(localStorage.getItem('segieny_auth_user') || '{}');
+    try {
+        const res = await fetch(`/api/expense-requests/${id}/reject`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                user_id: u.id,
+                user_role: u.role,
+                user_name: u.name,
+                rejection_notes: reason.trim()
+            })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+            showToast(data.message || 'تم رفض طلب الصرف وتحديث الحالة', 'info');
+            loadExpenseRequests();
+        } else {
+            showToast(data.error || 'تعذر رفض الطلب', 'error');
+        }
+    } catch (e) {
+        showToast('فشل في الاتصال بالخادم', 'error');
+    }
+}
+
+function openDisburseExpenseRequestModal(id) {
+    if (!isFinancialManagerUser()) {
+        showToast('عفواً، تسجيل الصرف الفعلي هو صلاحية حصرية للمدير المالي (أ. ابوالنصر البغدادي).', 'error');
+        return;
+    }
+
+    const req = currentExpenseRequests.find(r => r.id === id);
+    if (!req) return;
+
+    document.getElementById('disburse-req-id').value = req.id;
+    document.getElementById('disburse-req-number').innerText = req.request_number;
+    document.getElementById('disburse-req-requester').innerText = req.requester_name;
+    document.getElementById('disburse-req-beneficiary').innerText = `${req.beneficiary_type}: ${req.beneficiary_name}`;
+    document.getElementById('disburse-req-project').innerText = req.project_name || 'عام / إداري';
+    document.getElementById('disburse-req-amount-badge').innerText = formatCurrency(req.amount);
+    document.getElementById('disburse-req-purpose').innerText = req.purpose;
+
+    document.getElementById('disburse-actual-amount').value = req.amount;
+    document.getElementById('disburse-actual-date').value = new Date().toISOString().split('T')[0];
+    document.getElementById('disburse-payment-method').value = 'تحويل بنكي';
+    document.getElementById('disburse-bank-name').value = 'البنك الأهلي السعودي (حساب الشركة)';
+    document.getElementById('disburse-transfer-ref').value = '';
+    document.getElementById('disburse-notes').value = '';
+
+    openModal('expense-request-disburse-modal');
+}
+
+async function submitExpenseRequestDisbursement(event) {
+    event.preventDefault();
+    const btn = document.getElementById('btn-submit-disburse');
+    if (btn) btn.disabled = true;
+
+    const id = document.getElementById('disburse-req-id').value;
+    const u = currentUser || JSON.parse(localStorage.getItem('segieny_auth_user') || '{}');
+    const formData = new FormData();
+
+    formData.append('user_id', u.id || '');
+    formData.append('user_role', u.role || '');
+    formData.append('user_name', u.name || '');
+    formData.append('disbursed_amount', document.getElementById('disburse-actual-amount')?.value || 0);
+    formData.append('disbursed_date', document.getElementById('disburse-actual-date')?.value || '');
+    formData.append('payment_method', document.getElementById('disburse-payment-method')?.value || 'تحويل بنكي');
+    formData.append('bank_name', document.getElementById('disburse-bank-name')?.value || '');
+    formData.append('transfer_reference', document.getElementById('disburse-transfer-ref')?.value || '');
+    formData.append('disbursement_notes', document.getElementById('disburse-notes')?.value || '');
+
+    const fileInput = document.getElementById('disburse-receipt-file');
+    if (fileInput && fileInput.files && fileInput.files[0]) {
+        formData.append('receipt_file', fileInput.files[0]);
+    }
+
+    try {
+        const res = await fetch(`/api/expense-requests/${id}/disburse`, {
+            method: 'POST',
+            body: formData
+        });
+        const data = await res.json();
+
+        if (res.ok && data.success) {
+            showToast(data.message || 'تم صرف المبلغ وترحيله للمصروفات والكاش فلو بنجاح!', 'success');
+            closeModal('expense-request-disburse-modal');
+            loadExpenseRequests();
+            if (typeof loadExpenses === 'function') loadExpenses();
+            if (typeof loadCashFlow === 'function') loadCashFlow();
+            if (typeof loadDashboard === 'function') loadDashboard();
+        } else {
+            showToast(data.error || 'تعذر إتمام عملية الصرف', 'error');
+        }
+    } catch (err) {
+        console.error('Error disbursing expense request:', err);
+        showToast('حدث خطأ في الاتصال بالخادم', 'error');
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+}
+
+async function viewExpenseRequestDetails(id) {
+    try {
+        const res = await fetch(`/api/expense-requests/${id}`);
+        const req = await res.json();
+        currentViewedExpenseRequest = req;
+
+        document.getElementById('detail-req-number').innerText = req.request_number;
+        const container = document.getElementById('detail-req-content');
+        if (!container) return;
+
+        let statusColor = 'bg-amber-500/20 text-amber-300 border-amber-500/40';
+        let statusText = '⏳ بانتظار تعميد المدير المالي';
+        if (req.status === 'approved') {
+            statusColor = 'bg-blue-500/20 text-blue-300 border-blue-500/40';
+            statusText = '🛡️ معمد من المدير المالي (جاهز للصرف)';
+        } else if (req.status === 'disbursed') {
+            statusColor = 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40';
+            statusText = '💵 تم الصرف الفعلي وترحيله للمصروفات والكاش فلو';
+        } else if (req.status === 'rejected') {
+            statusColor = 'bg-rose-500/20 text-rose-300 border-rose-500/40';
+            statusText = '❌ تم رفض الطلب من المدير المالي';
+        }
+
+        container.innerHTML = `
+            <!-- Top Status Strip -->
+            <div class="p-3.5 rounded-xl border flex items-center justify-between ${statusColor}">
+                <div class="flex items-center gap-2">
+                    <i data-lucide="info" class="w-4 h-4"></i>
+                    <strong class="text-xs font-bold">${statusText}</strong>
+                </div>
+                <span class="font-mono text-sm font-black">${formatCurrency(req.amount)}</span>
+            </div>
+
+            <!-- General Details Grid -->
+            <div class="grid grid-cols-2 gap-3 p-4 bg-slate-950 rounded-xl border border-slate-800">
+                <div>
+                    <span class="text-slate-400 block text-[11px]">مقدم الطلب:</span>
+                    <strong class="text-white text-xs">${escapeHtml(req.requester_name)}</strong>
+                </div>
+                <div>
+                    <span class="text-slate-400 block text-[11px]">تاريخ الطلب:</span>
+                    <strong class="text-white text-xs">${escapeHtml(req.request_date)}</strong>
+                </div>
+                <div>
+                    <span class="text-slate-400 block text-[11px]">المستفيد / جهة الصرف:</span>
+                    <strong class="text-amber-400 text-xs">(${escapeHtml(req.beneficiary_type)}) ${escapeHtml(req.beneficiary_name)}</strong>
+                </div>
+                <div>
+                    <span class="text-slate-400 block text-[11px]">المشروع:</span>
+                    <strong class="text-white text-xs">${escapeHtml(req.project_name || 'عام / إداري')}</strong>
+                </div>
+                <div>
+                    <span class="text-slate-400 block text-[11px]">تصنيف المصروف:</span>
+                    <strong class="text-slate-200 text-xs">${escapeHtml(req.category || 'نثريات')}</strong>
+                </div>
+                <div>
+                    <span class="text-slate-400 block text-[11px]">درجة الأهمية:</span>
+                    <strong class="text-white text-xs">${escapeHtml(req.priority || 'عادي')}</strong>
+                </div>
+            </div>
+
+            <!-- Purpose & Description -->
+            <div class="p-4 bg-slate-950 rounded-xl border border-slate-800 space-y-1">
+                <span class="text-slate-400 block text-[11px] font-bold">البيان وسبب الصرف:</span>
+                <p class="text-slate-200 text-xs leading-relaxed whitespace-pre-line">${escapeHtml(req.purpose)}</p>
+                ${req.notes ? `<p class="text-[11px] text-slate-400 pt-2 border-t border-slate-850 mt-2">ملاحظات: ${escapeHtml(req.notes)}</p>` : ''}
+            </div>
+
+            <!-- Initial Attachment -->
+            ${req.attachment_path ? `
+                <div class="p-3 bg-slate-950 rounded-xl border border-slate-800 flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                        <i data-lucide="paperclip" class="w-4 h-4 text-indigo-400"></i>
+                        <span class="text-slate-300 text-xs">المرفق المبدئي (عرض سعر / فاتورة):</span>
+                    </div>
+                    <a href="${req.attachment_path}" target="_blank" class="px-3 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs flex items-center gap-1 transition">
+                        <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
+                        <span>عرض المرفق</span>
+                    </a>
+                </div>
+            ` : ''}
+
+            <!-- Approval Box -->
+            ${req.approved_by ? `
+                <div class="p-4 bg-slate-950 rounded-xl border border-blue-500/30 space-y-2">
+                    <div class="flex items-center justify-between border-b border-slate-850 pb-2">
+                        <span class="text-xs font-bold text-blue-400 flex items-center gap-1.5">
+                            <i data-lucide="shield-check" class="w-4 h-4"></i>
+                            <span>بيانات تعميد المدير المالي</span>
+                        </span>
+                        <span class="text-[10px] text-slate-500 font-mono">${escapeHtml(req.approved_at || '')}</span>
+                    </div>
+                    <div class="text-xs text-slate-300">
+                        تم بواسطة: <strong class="text-white">${escapeHtml(req.approved_by)}</strong>
+                    </div>
+                    ${req.approval_notes ? `<div class="text-xs text-slate-400">ملاحظات التعميد: <span class="text-slate-200">${escapeHtml(req.approval_notes)}</span></div>` : ''}
+                </div>
+            ` : ''}
+
+            <!-- Disbursement Details Box -->
+            ${req.status === 'disbursed' ? `
+                <div class="p-4 bg-slate-950 rounded-xl border border-emerald-500/30 space-y-3">
+                    <div class="flex items-center justify-between border-b border-slate-850 pb-2">
+                        <span class="text-xs font-bold text-emerald-400 flex items-center gap-1.5">
+                            <i data-lucide="wallet" class="w-4 h-4"></i>
+                            <span>بيانات الصرف المالي الفعلي</span>
+                        </span>
+                        <span class="text-sm font-black text-emerald-400 font-mono">${formatCurrency(req.disbursed_amount || req.amount)}</span>
+                    </div>
+                    <div class="grid grid-cols-2 gap-2 text-xs">
+                        <div>
+                            <span class="text-slate-400 block text-[10px]">تاريخ الصرف:</span>
+                            <strong class="text-white">${escapeHtml(req.disbursed_date || '')}</strong>
+                        </div>
+                        <div>
+                            <span class="text-slate-400 block text-[10px]">طريقة الصرف:</span>
+                            <strong class="text-white">${escapeHtml(req.payment_method || 'تحويل بنكي')}</strong>
+                        </div>
+                        <div>
+                            <span class="text-slate-400 block text-[10px]">الحساب / الخزينة:</span>
+                            <strong class="text-white">${escapeHtml(req.bank_name || '-')}</strong>
+                        </div>
+                        <div>
+                            <span class="text-slate-400 block text-[10px]">رقم المرجع / الحوالة:</span>
+                            <strong class="text-amber-400 font-mono">${escapeHtml(req.transfer_reference || '-')}</strong>
+                        </div>
+                    </div>
+                    <div class="text-xs text-slate-300">
+                        صُرف بواسطة: <strong class="text-white">${escapeHtml(req.disbursed_by || 'المدير المالي')}</strong>
+                    </div>
+                    ${req.disbursement_notes ? `<div class="text-[11px] text-slate-400">ملاحظات الصرف: <span class="text-slate-200">${escapeHtml(req.disbursement_notes)}</span></div>` : ''}
+                    
+                    ${req.disbursement_receipt_path ? `
+                        <div class="pt-2 border-t border-slate-850 flex items-center justify-between">
+                            <span class="text-[11px] text-slate-400">إشعار التحويل البنكي / سند الصرف:</span>
+                            <a href="${req.disbursement_receipt_path}" target="_blank" class="px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1 transition">
+                                <i data-lucide="file-check" class="w-3.5 h-3.5"></i>
+                                <span>عرض إشعار التحويل</span>
+                            </a>
+                        </div>
+                    ` : ''}
+                </div>
+            ` : ''}
+        `;
+
+        openModal('expense-request-detail-modal');
+        initLucide();
+    } catch (err) {
+        showToast('تعذر تحميل تفاصيل الطلب', 'error');
+    }
+}
+
+async function deleteExpenseRequest(id) {
+    if (!confirm('هل أنت متأكد من حذف طلب الصرف هذا؟')) return;
+    try {
+        const res = await fetch(`/api/expense-requests/${id}`, {
+            method: 'DELETE'
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+            showToast(data.message || 'تم حذف طلب الصرف بنجاح', 'success');
+            loadExpenseRequests();
+        } else {
+            showToast(data.error || 'تعذر حذف طلب الصرف', 'error');
+        }
+    } catch (e) {
+        showToast('فشل في الاتصال بالخادم', 'error');
+    }
+}
+
+function printSingleExpenseRequest() {
+    if (!currentViewedExpenseRequest) return;
+    const req = currentViewedExpenseRequest;
+    const printWin = window.open('', '_blank');
+    const isDisbursed = req.status === 'disbursed';
+
+    printWin.document.write(`
+        <!DOCTYPE html>
+        <html dir="rtl" lang="ar">
+        <head>
+            <meta charset="UTF-8">
+            <title>إذن صرف مصروف - ${escapeHtml(req.request_number)}</title>
+            <style>
+                body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 25px; color: #1e293b; line-height: 1.6; }
+                .header { text-align: center; border-bottom: 2px solid #0f172a; padding-bottom: 15px; margin-bottom: 25px; }
+                .company-name { font-size: 20px; font-weight: 900; color: #047857; margin-bottom: 4px; }
+                .doc-title { font-size: 16px; font-weight: bold; color: #334155; }
+                .meta-table, .data-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 13px; }
+                .meta-table td { padding: 6px 10px; }
+                .data-table th, .data-table td { border: 1px solid #cbd5e1; padding: 8px 12px; }
+                .data-table th { background: #f1f5f9; text-align: right; }
+                .amount-box { font-size: 18px; font-weight: 900; color: #047857; background: #ecfdf5; border: 1px solid #a7f3d0; padding: 10px 15px; border-radius: 8px; text-align: center; margin: 20px 0; }
+                .signatures { display: flex; justify-content: space-between; margin-top: 40px; padding-top: 20px; }
+                .sig-box { text-align: center; width: 30%; }
+                .sig-line { margin-top: 40px; border-top: 1px dashed #94a3b8; }
+            </style>
+        </head>
+        <body>
+            <div class="header">
+                <div class="company-name">شركة مقاولات السجيني</div>
+                <div class="doc-title">إذن وسند صرف مصروفات مالي (${escapeHtml(req.request_number)})</div>
+            </div>
+
+            <table class="meta-table">
+                <tr>
+                    <td><strong>رقم الطلب:</strong> ${escapeHtml(req.request_number)}</td>
+                    <td><strong>تاريخ الطلب:</strong> ${escapeHtml(req.request_date)}</td>
+                    <td><strong>حالة الطلب:</strong> ${escapeHtml(req.status === 'disbursed' ? 'تم الصرف الفعلي' : (req.status === 'approved' ? 'معمد بانتظار الصرف' : 'معلق'))}</td>
+                </tr>
+                <tr>
+                    <td><strong>مقدم الطلب:</strong> ${escapeHtml(req.requester_name)}</td>
+                    <td><strong>جهة الصرف / المستفيد:</strong> (${escapeHtml(req.beneficiary_type)}) ${escapeHtml(req.beneficiary_name)}</td>
+                    <td><strong>المشروع:</strong> ${escapeHtml(req.project_name || 'عام / إداري')}</td>
+                </tr>
+            </table>
+
+            <div class="amount-box">
+                المبلغ المطلوب: ${formatCurrency(req.amount)}
+                ${isDisbursed ? `<br><small style="font-size:12px;color:#0f766e;">المبلغ المنصرف فعلياً: ${formatCurrency(req.disbursed_amount || req.amount)} بتأريخ ${escapeHtml(req.disbursed_date || '')}</small>` : ''}
+            </div>
+
+            <table class="data-table">
+                <tr>
+                    <th style="width: 25%;">البيان وسبب الصرف:</th>
+                    <td>${escapeHtml(req.purpose)}</td>
+                </tr>
+                <tr>
+                    <th>تصنيف المصروف:</th>
+                    <td>${escapeHtml(req.category || 'نثريات وإداريات')}</td>
+                </tr>
+                ${req.approved_by ? `
+                <tr>
+                    <th>التعميد والاعتماد:</th>
+                    <td>عُمّد بواسطة: ${escapeHtml(req.approved_by)} بتاريخ ${escapeHtml(req.approved_at || '')} ${req.approval_notes ? ' - ملاحظات: ' + escapeHtml(req.approval_notes) : ''}</td>
+                </tr>` : ''}
+                ${isDisbursed ? `
+                <tr>
+                    <th>بيانات الصرف:</th>
+                    <td>طريقة الصرف: ${escapeHtml(req.payment_method)} | الحساب: ${escapeHtml(req.bank_name || '-')} | رقم المرجع: ${escapeHtml(req.transfer_reference || '-')} | صرف بواسطة: ${escapeHtml(req.disbursed_by || '')}</td>
+                </tr>` : ''}
+            </table>
+
+            <div class="signatures">
+                <div class="sig-box">
+                    <strong>مقدم الطلب</strong>
+                    <div class="sig-line">${escapeHtml(req.requester_name)}</div>
+                </div>
+                <div class="sig-box">
+                    <strong>المدير المالي (التعميد)</strong>
+                    <div class="sig-line">أ. ابوالنصر البغدادي</div>
+                </div>
+                <div class="sig-box">
+                    <strong>المستلم / الصارف</strong>
+                    <div class="sig-line">${escapeHtml(req.beneficiary_name)}</div>
+                </div>
+            </div>
+
+            <script>
+                window.onload = function() { window.print(); }
+            </script>
+        </body>
+        </html>
+    `);
+    printWin.document.close();
+}
+

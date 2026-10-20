@@ -264,6 +264,10 @@
                                 <i data-lucide="receipt" class="w-4 h-4 text-emerald-400"></i>
                                 <span data-i18n="quick_add_expense">تسجيل مصروف مع فاتورة</span>
                             </button>
+                            <button onclick="openModal('expense-request-modal'); toggleQuickMenu()" class="w-full text-right px-3 py-2.5 rounded-lg text-sm font-medium hover:bg-amber-600/20 hover:text-amber-400 flex items-center gap-2.5 transition">
+                                <i data-lucide="send" class="w-4 h-4 text-amber-400"></i>
+                                <span>طلب صرف مصروف (مورد / مقاول / موظف)</span>
+                            </button>
                             <button onclick="openModal('custody-request-modal'); toggleQuickMenu()" class="w-full text-right px-3 py-2.5 rounded-lg text-sm font-medium hover:bg-amber-600/20 hover:text-amber-400 flex items-center gap-2.5 transition">
                                 <i data-lucide="hand-coins" class="w-4 h-4 text-amber-400"></i>
                                 <span>طلب عهدة نقدية للمشروع</span>
@@ -727,8 +731,23 @@
         <!-- ========================================== -->
         <div id="tab-expenses" class="tab-content hidden space-y-6">
             
-            <!-- Expenses Controls and Summary Bar -->
-            <div class="bg-slate-850 p-6 rounded-2xl border border-slate-800 space-y-5">
+            <!-- Expenses Module Sub-Navigation Bar -->
+            <div class="flex items-center gap-2 p-1.5 bg-slate-850 rounded-2xl border border-slate-800 shadow-lg">
+                <button id="subtab-btn-expenses-invoices" onclick="switchExpensesSubtab('invoices')" class="flex-1 sm:flex-none px-4 sm:px-6 py-2.5 rounded-xl font-black text-xs sm:text-sm flex items-center justify-center gap-2 transition-all bg-emerald-600 text-white shadow-lg shadow-emerald-950/40">
+                    <i data-lucide="receipt" class="w-4 h-4"></i>
+                    <span>الفواتير والمصروفات المسجلة</span>
+                </button>
+                <button id="subtab-btn-expenses-requests" onclick="switchExpensesSubtab('requests')" class="flex-1 sm:flex-none px-4 sm:px-6 py-2.5 rounded-xl font-black text-xs sm:text-sm flex items-center justify-center gap-2 transition-all bg-slate-800/80 text-slate-300 hover:text-white hover:bg-slate-750">
+                    <i data-lucide="send" class="w-4 h-4 text-amber-400"></i>
+                    <span>طلبات الصرف والمصاريف (موردين / مقاولين / عهد)</span>
+                    <span id="badge-expense-requests-pending" class="px-2 py-0.5 text-[10px] rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30 font-bold hidden">0</span>
+                </button>
+            </div>
+
+            <!-- SUB-TAB 1: RECORDED EXPENSES & INVOICES -->
+            <div id="subtab-content-expenses-invoices" class="space-y-6">
+                <!-- Expenses Controls and Summary Bar -->
+                <div class="bg-slate-850 p-6 rounded-2xl border border-slate-800 space-y-5">
                 <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                     <div>
                         <h2 class="text-2xl font-black text-white">إدارة المصاريف وفواتير المشاريع</h2>
@@ -837,6 +856,171 @@
                     </table>
                 </div>
             </div>
+            <!-- END SUB-TAB 1: RECORDED EXPENSES & INVOICES -->
+
+            <!-- SUB-TAB 2: EXPENSE & PAYMENT REQUESTS (طلبات الصرف والمصاريف) -->
+            <div id="subtab-content-expenses-requests" class="hidden space-y-6">
+                <!-- Header & Action Buttons -->
+                <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 bg-slate-850 p-5 rounded-2xl border border-slate-800">
+                    <div class="space-y-1">
+                        <div class="flex items-center gap-2.5">
+                            <div class="p-2.5 rounded-xl bg-amber-500/20 text-amber-400">
+                                <i data-lucide="send" class="w-6 h-6"></i>
+                            </div>
+                            <div>
+                                <h2 class="text-2xl font-black text-white">طلبات الصرف والمصروفات</h2>
+                                <p class="text-xs text-slate-400">رفع طلبات صرف للموردين، المقاولين، ومصاريف المواقع، لاعتمادها وصرفها من المدير المالي</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2 w-full sm:w-auto">
+                        <button onclick="openModal('expense-request-modal')" class="flex-1 sm:flex-none px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-amber-950/40 transition">
+                            <i data-lucide="plus-circle" class="w-4 h-4"></i>
+                            <span>+ رفع طلب صرف جديد</span>
+                        </button>
+                        <button onclick="loadExpenseRequests()" class="px-3 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-300 hover:text-white text-xs font-bold flex items-center gap-1.5 transition" title="تحديث البيانات">
+                            <i data-lucide="rotate-cw" class="w-4 h-4"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- KPI Cards -->
+                <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                    <!-- Card 1: Pending -->
+                    <div class="bg-slate-850 p-4 rounded-2xl border border-amber-500/30 bg-amber-500/5 flex items-center justify-between">
+                        <div class="space-y-1">
+                            <span class="text-xs font-bold text-amber-400 block">بانتظار تعميد المدير المالي</span>
+                            <span id="req-kpi-pending-sum" class="text-xl font-black text-amber-400 font-mono">0.00 ر.س</span>
+                            <span id="req-kpi-pending-count" class="text-[10px] text-amber-400/80 block">0 طلب معلق</span>
+                        </div>
+                        <div class="p-3 rounded-xl bg-amber-500/10 text-amber-400">
+                            <i data-lucide="clock" class="w-6 h-6"></i>
+                        </div>
+                    </div>
+
+                    <!-- Card 2: Approved / Ready for Disburse -->
+                    <div class="bg-slate-850 p-4 rounded-2xl border border-blue-500/30 bg-blue-500/5 flex items-center justify-between">
+                        <div class="space-y-1">
+                            <span class="text-xs font-bold text-blue-400 block">معمدة (جاهزة للصرف الفعلي)</span>
+                            <span id="req-kpi-approved-sum" class="text-xl font-black text-blue-400 font-mono">0.00 ر.س</span>
+                            <span id="req-kpi-approved-count" class="text-[10px] text-blue-400/80 block">0 طلب جاهز للصرف</span>
+                        </div>
+                        <div class="p-3 rounded-xl bg-blue-500/10 text-blue-400">
+                            <i data-lucide="check-circle-2" class="w-6 h-6"></i>
+                        </div>
+                    </div>
+
+                    <!-- Card 3: Disbursed / Active -->
+                    <div class="bg-slate-850 p-4 rounded-2xl border border-emerald-500/30 bg-emerald-500/5 flex items-center justify-between">
+                        <div class="space-y-1">
+                            <span class="text-xs font-bold text-emerald-400 block">إجمالي المنصرف فعلياً</span>
+                            <span id="req-kpi-disbursed-sum" class="text-xl font-black text-emerald-400 font-mono">0.00 ر.س</span>
+                            <span id="req-kpi-disbursed-count" class="text-[10px] text-emerald-400/80 block">0 طلب مصروف ومرحل</span>
+                        </div>
+                        <div class="p-3 rounded-xl bg-emerald-500/10 text-emerald-400">
+                            <i data-lucide="wallet" class="w-6 h-6"></i>
+                        </div>
+                    </div>
+
+                    <!-- Card 4: Rejected -->
+                    <div class="bg-slate-850 p-4 rounded-2xl border border-slate-800 flex items-center justify-between">
+                        <div class="space-y-1">
+                            <span class="text-xs font-bold text-slate-400 block">طلبات مرفوضة</span>
+                            <span id="req-kpi-rejected-count" class="text-xl font-black text-rose-400 font-mono">0</span>
+                            <span class="text-[10px] text-slate-500 block">تم استبعادها</span>
+                        </div>
+                        <div class="p-3 rounded-xl bg-rose-500/10 text-rose-400">
+                            <i data-lucide="x-circle" class="w-6 h-6"></i>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Role Banner -->
+                <div id="expense-req-role-banner" class="bg-slate-850/80 p-3.5 rounded-xl border border-slate-800 flex items-center justify-between gap-3 text-xs">
+                    <div class="flex items-center gap-2">
+                        <i data-lucide="shield-check" class="w-4 h-4 text-amber-400 shrink-0"></i>
+                        <span class="text-slate-300">
+                            الحساب الحالي: <strong id="expense-req-user-badge" class="text-white">ابوالنصر البغدادي (المدير المالي)</strong> — 
+                            <span id="expense-req-permission-desc" class="text-emerald-400 font-semibold">تملك صلاحية التعميد والصرف الفعلي لطلبات المصاريف</span>
+                        </span>
+                    </div>
+                </div>
+
+                <!-- Filter & Search Toolbar -->
+                <div class="bg-slate-850 p-4 rounded-2xl border border-slate-800 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 text-xs">
+                    <!-- Status Filter Tabs -->
+                    <div class="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0 scrollbar-none">
+                        <button onclick="setExpenseRequestStatusFilter('')" id="req-filter-all" class="req-filter-btn px-3 py-1.5 rounded-lg font-bold bg-amber-500/20 text-amber-400 transition">
+                            الكل (<span id="req-count-all">0</span>)
+                        </button>
+                        <button onclick="setExpenseRequestStatusFilter('pending')" id="req-filter-pending" class="req-filter-btn px-3 py-1.5 rounded-lg font-bold text-slate-400 hover:text-white transition">
+                            ⏳ بانتظار التعميد (<span id="req-count-pending">0</span>)
+                        </button>
+                        <button onclick="setExpenseRequestStatusFilter('approved')" id="req-filter-approved" class="req-filter-btn px-3 py-1.5 rounded-lg font-bold text-slate-400 hover:text-white transition">
+                            🛡️ معمدة جاهزة للصرف (<span id="req-count-approved">0</span>)
+                        </button>
+                        <button onclick="setExpenseRequestStatusFilter('disbursed')" id="req-filter-disbursed" class="req-filter-btn px-3 py-1.5 rounded-lg font-bold text-slate-400 hover:text-white transition">
+                            💵 تم الصرف (<span id="req-count-disbursed">0</span>)
+                        </button>
+                        <button onclick="setExpenseRequestStatusFilter('rejected')" id="req-filter-rejected" class="req-filter-btn px-3 py-1.5 rounded-lg font-bold text-slate-400 hover:text-white transition">
+                            ❌ مرفوضة (<span id="req-count-rejected">0</span>)
+                        </button>
+                    </div>
+
+                    <!-- Search and Secondary Filters -->
+                    <div class="flex items-center gap-2">
+                        <select id="req-filter-beneficiary-type" onchange="loadExpenseRequests()" class="bg-slate-900 border border-slate-750 text-xs text-white rounded-xl px-2.5 py-1.5 outline-none focus:border-amber-500">
+                            <option value="">جميع الجهات</option>
+                            <option value="مورد">موردين</option>
+                            <option value="مقاول">مقاولي باطن</option>
+                            <option value="موظف">موظفين / عهد</option>
+                            <option value="عام">مصروف عام</option>
+                        </select>
+                        <select id="req-filter-project" onchange="loadExpenseRequests()" class="bg-slate-900 border border-slate-750 text-xs text-white rounded-xl px-2.5 py-1.5 outline-none focus:border-amber-500">
+                            <option value="">جميع المشاريع</option>
+                        </select>
+                        <div class="relative w-44">
+                            <input type="text" id="req-search-input" oninput="applyExpenseRequestFilters()" placeholder="بحث بالرقم أو المستفيد أو البيان..." class="w-full bg-slate-900 border border-slate-750 rounded-xl pr-7 pl-2.5 py-1.5 text-white text-xs focus:border-amber-500 outline-none">
+                            <i data-lucide="search" class="w-3.5 h-3.5 text-slate-500 absolute right-2.5 top-2 pointer-events-none"></i>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Table Container -->
+                <div class="bg-slate-850 rounded-2xl border border-slate-800 overflow-hidden shadow-xl">
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-right text-xs">
+                            <thead class="bg-slate-900/90 text-slate-400 font-bold border-b border-slate-800">
+                                <tr>
+                                    <th class="p-3.5">رقم الطلب</th>
+                                    <th class="p-3.5">تاريخ الطلب</th>
+                                    <th class="p-3.5">مقدم الطلب</th>
+                                    <th class="p-3.5">المستفيد / جهة الصرف</th>
+                                    <th class="p-3.5">المشروع</th>
+                                    <th class="p-3.5">البيان وسبب الصرف</th>
+                                    <th class="p-3.5 font-bold text-amber-400">المبلغ المطلوب</th>
+                                    <th class="p-3.5 text-center">الأولوية</th>
+                                    <th class="p-3.5 text-center">المرفق</th>
+                                    <th class="p-3.5 text-center">حالة الطلب</th>
+                                    <th class="p-3.5 text-center">إجراءات المدير المالي</th>
+                                </tr>
+                            </thead>
+                            <tbody id="expense-requests-table-body" class="divide-y divide-slate-800 text-slate-300">
+                                <tr>
+                                    <td colspan="11" class="text-center py-10 text-slate-500">
+                                        <div class="flex flex-col items-center gap-2">
+                                            <i data-lucide="loader" class="w-6 h-6 animate-spin text-amber-400"></i>
+                                            <span>جاري تحميل طلبات الصرف والمصاريف...</span>
+                                        </div>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+            </div>
+            <!-- END SUB-TAB 2: EXPENSE & PAYMENT REQUESTS -->
 
         </div>
 
@@ -2687,6 +2871,259 @@
     <!-- ========================================== -->
     <!-- MODALS SECTION -->
     <!-- ========================================== -->
+
+    <!-- ========================================== -->
+    <!-- EXPENSE REQUESTS MODALS (مودالات طلبات الصرف والمصاريف) -->
+    <!-- ========================================== -->
+
+    <!-- EXPENSE REQUEST MODAL 1: NEW EXPENSE REQUEST -->
+    <div id="expense-request-modal" class="modal-overlay hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+        <div class="bg-slate-900 rounded-2xl border border-slate-750 w-full max-w-xl shadow-2xl overflow-hidden animate-scaleUp">
+            <div class="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-850">
+                <div class="flex items-center gap-2.5">
+                    <div class="p-2 rounded-xl bg-amber-500/20 text-amber-400">
+                        <i data-lucide="send" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-base font-black text-white">رفع طلب صرف / مصروف جديد</h3>
+                        <p class="text-xs text-slate-400">يقدم للمدير المالي للاعتماد والتعميد، ويصرف في موعد استحقاقه</p>
+                    </div>
+                </div>
+                <button onclick="closeModal('expense-request-modal')" class="text-slate-400 hover:text-white p-1">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <form id="expense-request-form" onsubmit="submitExpenseRequest(event)" class="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div class="space-y-1">
+                        <label class="block text-xs font-bold text-slate-300">مقدم الطلب: <span class="text-rose-400">*</span></label>
+                        <input type="text" id="req-requester-name" required placeholder="اسم الموظف أو المهندس" class="w-full bg-slate-950 border border-slate-750 focus:border-amber-500 rounded-xl px-3 py-2 text-xs text-white outline-none">
+                    </div>
+                    <div class="space-y-1">
+                        <label class="block text-xs font-bold text-slate-300">المشروع التابع له: <span class="text-rose-400">*</span></label>
+                        <select id="req-project-id" class="w-full bg-slate-950 border border-slate-750 focus:border-amber-500 rounded-xl px-3 py-2 text-xs text-white outline-none">
+                            <option value="">مصروف عام / إداري (بدون مشروع)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Beneficiary Type & Entity Selection -->
+                <div class="p-3.5 bg-slate-950/80 rounded-xl border border-slate-800 space-y-3">
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div class="space-y-1">
+                            <label class="block text-xs font-bold text-amber-400">نوع جهة الصرف / المستفيد: <span class="text-rose-400">*</span></label>
+                            <select id="req-beneficiary-type" onchange="handleBeneficiaryTypeChange()" class="w-full bg-slate-900 border border-amber-500/50 focus:border-amber-400 rounded-xl px-3 py-2 text-xs text-white outline-none font-bold">
+                                <option value="مورد">📦 مورد (شراء مواد / توريدات)</option>
+                                <option value="مقاول">👷 مقاول باطن (مستخلص / أعمال مصنعية)</option>
+                                <option value="موظف">👤 موظف (سلفة / عهدة سريعة للموقع)</option>
+                                <option value="عام">🏢 جهة عامة / أخرى (رسوم، صيانة، إيجار...)</option>
+                            </select>
+                        </div>
+
+                        <!-- Dynamic Dropdown for registered suppliers or subcontractors -->
+                        <div id="req-beneficiary-select-wrapper" class="space-y-1">
+                            <label id="req-beneficiary-select-label" class="block text-xs font-bold text-slate-300">اختر من القائمة:</label>
+                            <select id="req-beneficiary-select" onchange="handleBeneficiarySelectChange()" class="w-full bg-slate-900 border border-slate-750 focus:border-amber-500 rounded-xl px-3 py-2 text-xs text-white outline-none">
+                                <option value="">-- اختر المورد --</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="space-y-1">
+                        <label class="block text-xs font-bold text-slate-300">اسم المستفيد النهائي / جهة الصرف: <span class="text-rose-400">*</span></label>
+                        <input type="text" id="req-beneficiary-name" required placeholder="مثال: شركة الراجحي للحديد، مقاول الدهانات فلان، أو اسم الشخص" class="w-full bg-slate-900 border border-slate-750 focus:border-amber-500 rounded-xl px-3 py-2 text-xs text-white outline-none">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div class="space-y-1">
+                        <label class="block text-xs font-bold text-slate-300">المبلغ المطلوب (ر.س): <span class="text-rose-400">*</span></label>
+                        <input type="number" id="req-amount" required step="0.01" min="1" placeholder="0.00" class="w-full bg-slate-950 border border-slate-750 focus:border-amber-500 rounded-xl px-3 py-2 text-xs text-white font-mono outline-none font-bold">
+                    </div>
+                    <div class="space-y-1">
+                        <label class="block text-xs font-bold text-slate-300">تصنيف المصروف:</label>
+                        <select id="req-category" class="w-full bg-slate-950 border border-slate-750 focus:border-amber-500 rounded-xl px-3 py-2 text-xs text-white outline-none">
+                            <option value="مواد بناء">مواد بناء</option>
+                            <option value="عمالة ومقاولين باطن">عمالة ومقاولين باطن</option>
+                            <option value="معدات وآليات">معدات وآليات</option>
+                            <option value="محروقات ونقل">محروقات ونقل</option>
+                            <option value="تراخيص وتأمينات">تراخيص وتأمينات</option>
+                            <option value="نثريات وإداريات" selected>نثريات وإداريات</option>
+                        </select>
+                    </div>
+                    <div class="space-y-1">
+                        <label class="block text-xs font-bold text-slate-300">درجة الأهمية:</label>
+                        <select id="req-priority" class="w-full bg-slate-950 border border-slate-750 focus:border-amber-500 rounded-xl px-3 py-2 text-xs text-white outline-none">
+                            <option value="عادي">عادي</option>
+                            <option value="عاجل">⚡ عاجل</option>
+                            <option value="طارئ">🚨 طارئ جداً</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="space-y-1">
+                    <label class="block text-xs font-bold text-slate-300">البيان وسبب طلب الصرف: <span class="text-rose-400">*</span></label>
+                    <textarea id="req-purpose" required rows="3" placeholder="اذكر بالتفصيل الغرض من الصرف وسببه (مثلاً: دفعة توريد حديد 16 ملم للموقع، مستخلص أعمال السباكة المرحلة الثانية، سداد رسوم فحص التربة...)" class="w-full bg-slate-950 border border-slate-750 focus:border-amber-500 rounded-xl p-3 text-xs text-white outline-none resize-none"></textarea>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div class="space-y-1">
+                        <label class="block text-xs font-bold text-slate-300">تاريخ الطلب: <span class="text-rose-400">*</span></label>
+                        <input type="date" id="req-date" required class="w-full bg-slate-950 border border-slate-750 focus:border-amber-500 rounded-xl px-3 py-2 text-xs text-white outline-none">
+                    </div>
+                    <div class="space-y-1">
+                        <label class="block text-xs font-bold text-slate-300">مرفق داعم (عرض سعر / فاتورة مبدئية):</label>
+                        <input type="file" id="req-attachment-file" class="w-full text-xs text-slate-400 file:mr-2 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-slate-800 file:text-slate-300 hover:file:bg-slate-750">
+                    </div>
+                </div>
+
+                <div class="space-y-1">
+                    <label class="block text-xs font-bold text-slate-300">ملاحظات إضافية:</label>
+                    <input type="text" id="req-notes" placeholder="أي تفاصيل أخرى توضح للمدير المالي..." class="w-full bg-slate-950 border border-slate-750 focus:border-amber-500 rounded-xl px-3 py-2 text-xs text-white outline-none">
+                </div>
+
+                <div class="flex items-center justify-end gap-2 pt-3 border-t border-slate-800">
+                    <button type="button" onclick="closeModal('expense-request-modal')" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-300 text-xs font-bold transition">إلغاء</button>
+                    <button type="submit" id="btn-submit-expense-request" class="px-5 py-2 rounded-xl bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-white text-xs font-bold flex items-center gap-1.5 shadow-lg shadow-amber-950/50 transition">
+                        <i data-lucide="send" class="w-4 h-4"></i>
+                        <span>إرسال الطلب للاعتماد والتعميد</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- EXPENSE REQUEST MODAL 2: DISBURSE EXPENSE REQUEST -->
+    <div id="expense-request-disburse-modal" class="modal-overlay hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+        <div class="bg-slate-900 rounded-2xl border border-slate-750 w-full max-w-lg shadow-2xl overflow-hidden animate-scaleUp">
+            <div class="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-850">
+                <div class="flex items-center gap-2.5">
+                    <div class="p-2 rounded-xl bg-emerald-500/20 text-emerald-400">
+                        <i data-lucide="wallet" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-base font-black text-white">صرف طلب المصروف (تسجيل الدفع الفعلي)</h3>
+                        <p class="text-xs text-slate-400">المدير المالي: تحويل المبلغ وخصمه من الكاش فلو وميزانية المشروع</p>
+                    </div>
+                </div>
+                <button onclick="closeModal('expense-request-disburse-modal')" class="text-slate-400 hover:text-white p-1">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <form id="expense-request-disburse-form" onsubmit="submitExpenseRequestDisbursement(event)" class="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
+                <input type="hidden" id="disburse-req-id">
+
+                <!-- Summary Info Card -->
+                <div class="p-3.5 bg-slate-950 rounded-xl border border-slate-800 space-y-1.5 text-xs">
+                    <div class="flex justify-between items-center">
+                        <span class="text-slate-400">طلب رقم: <strong id="disburse-req-number" class="text-amber-400 font-mono"></strong></span>
+                        <span class="text-slate-400">مقدم الطلب: <strong id="disburse-req-requester" class="text-white"></strong></span>
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <span class="text-slate-400">المستفيد: <strong id="disburse-req-beneficiary" class="text-white"></strong></span>
+                        <span class="text-slate-400">المشروع: <strong id="disburse-req-project" class="text-white"></strong></span>
+                    </div>
+                    <div class="flex justify-between items-center pt-1 border-t border-slate-850">
+                        <span class="text-slate-400">المبلغ المطلوب:</span>
+                        <span id="disburse-req-amount-badge" class="font-bold text-amber-400 font-mono text-sm"></span>
+                    </div>
+                    <p class="text-[11px] text-slate-400 pt-1 border-t border-slate-850">
+                        الغرض: <span id="disburse-req-purpose" class="text-slate-200"></span>
+                    </p>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div class="space-y-1">
+                        <label class="block text-xs font-bold text-slate-300">المبلغ المنصرف فعلياً (ر.س): <span class="text-rose-400">*</span></label>
+                        <input type="number" id="disburse-actual-amount" required step="0.01" min="1" class="w-full bg-slate-950 border border-slate-750 focus:border-emerald-500 rounded-xl px-3 py-2 text-xs text-white font-mono outline-none font-bold">
+                    </div>
+                    <div class="space-y-1">
+                        <label class="block text-xs font-bold text-slate-300">تاريخ الصرف الفعلي: <span class="text-rose-400">*</span></label>
+                        <input type="date" id="disburse-actual-date" required class="w-full bg-slate-950 border border-slate-750 focus:border-emerald-500 rounded-xl px-3 py-2 text-xs text-white outline-none">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div class="space-y-1">
+                        <label class="block text-xs font-bold text-slate-300">طريقة الصرف: <span class="text-rose-400">*</span></label>
+                        <select id="disburse-payment-method" class="w-full bg-slate-950 border border-slate-750 focus:border-emerald-500 rounded-xl px-3 py-2 text-xs text-white outline-none">
+                            <option value="تحويل بنكي">🏦 تحويل بنكي (خصم من كاش فلو البنك)</option>
+                            <option value="نقدي">💵 نقداً من الخزينة (صندوق الكاش)</option>
+                            <option value="شيك">📜 شيك مصرفي</option>
+                        </select>
+                    </div>
+                    <div class="space-y-1">
+                        <label class="block text-xs font-bold text-slate-300">الحساب المحول منه / الخزينة:</label>
+                        <input type="text" id="disburse-bank-name" placeholder="مثال: البنك الأهلي السعودي، الراجحي، الخزينة" class="w-full bg-slate-950 border border-slate-750 focus:border-emerald-500 rounded-xl px-3 py-2 text-xs text-white outline-none">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div class="space-y-1">
+                        <label class="block text-xs font-bold text-slate-300">رقم المرجع / الحوالة / الشيك:</label>
+                        <input type="text" id="disburse-transfer-ref" placeholder="رقم العملية البنكية أو الحوالة" class="w-full bg-slate-950 border border-slate-750 focus:border-emerald-500 rounded-xl px-3 py-2 text-xs text-white outline-none font-mono">
+                    </div>
+                    <div class="space-y-1">
+                        <label class="block text-xs font-bold text-slate-300">إشعار التحويل البنكي أو سند الصرف:</label>
+                        <input type="file" id="disburse-receipt-file" class="w-full text-xs text-slate-400 file:mr-2 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-slate-800 file:text-slate-300 hover:file:bg-slate-750">
+                    </div>
+                </div>
+
+                <div class="space-y-1">
+                    <label class="block text-xs font-bold text-slate-300">ملاحظات الصرف:</label>
+                    <input type="text" id="disburse-notes" placeholder="ملاحظات حول سداد الدفعة أو الصرف..." class="w-full bg-slate-950 border border-slate-750 focus:border-emerald-500 rounded-xl px-3 py-2 text-xs text-white outline-none">
+                </div>
+
+                <!-- Info Alert -->
+                <div class="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-[11px] text-emerald-300 flex items-center gap-2">
+                    <i data-lucide="info" class="w-4 h-4 shrink-0"></i>
+                    <span>سيتم ترحيل هذا المبلغ فوراً كمصروف معتمد رسمي يخصم من الكاش فلو وميزانية المشروع.</span>
+                </div>
+
+                <div class="flex items-center justify-end gap-2 pt-3 border-t border-slate-800">
+                    <button type="button" onclick="closeModal('expense-request-disburse-modal')" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-300 text-xs font-bold transition">إلغاء</button>
+                    <button type="submit" id="btn-submit-disburse" class="px-5 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white text-xs font-bold flex items-center gap-1.5 shadow-lg shadow-emerald-950/50 transition">
+                        <i data-lucide="check" class="w-4 h-4"></i>
+                        <span>تأكيد الصرف والخصم المالي الفوري</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- EXPENSE REQUEST MODAL 3: VIEW DETAILS -->
+    <div id="expense-request-detail-modal" class="modal-overlay hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+        <div class="bg-slate-900 rounded-2xl border border-slate-750 w-full max-w-xl shadow-2xl overflow-hidden animate-scaleUp">
+            <div class="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-850">
+                <div class="flex items-center gap-2.5">
+                    <div class="p-2 rounded-xl bg-indigo-500/20 text-indigo-400">
+                        <i data-lucide="file-text" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-base font-black text-white">تفاصيل طلب الصرف <span id="detail-req-number" class="text-amber-400 font-mono"></span></h3>
+                        <p class="text-xs text-slate-400">بيانات الطلب، مسار التعميد، وتفاصيل الصرف الفعلي</p>
+                    </div>
+                </div>
+                <button onclick="closeModal('expense-request-detail-modal')" class="text-slate-400 hover:text-white p-1">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <div id="detail-req-content" class="p-6 space-y-4 max-h-[80vh] overflow-y-auto text-xs">
+                <!-- Dynamically populated via JS -->
+            </div>
+
+            <div class="flex items-center justify-between px-6 py-3 border-t border-slate-800 bg-slate-850">
+                <button onclick="printSingleExpenseRequest()" class="px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-300 text-xs font-bold flex items-center gap-1.5 transition">
+                    <i data-lucide="printer" class="w-3.5 h-3.5"></i>
+                    <span>طباعة إذن الصرف</span>
+                </button>
+                <button onclick="closeModal('expense-request-detail-modal')" class="px-4 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-300 text-xs font-bold transition">إغلاق</button>
+            </div>
+        </div>
+    </div>
 
     <!-- 1. EXPENSE & INVOICE MODAL -->
     <div id="expense-modal" class="modal-overlay hidden fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
@@ -6188,7 +6625,7 @@
 
     <!-- Scripts -->
     <script src="/static/js/i18n.js?v=20261020_v1"></script>
-    <script src="/static/js/app.js?v=20261020_v5"></script>
+    <script src="/static/js/app.js?v=20261020_v6"></script>
     <script>
     (function() {
         try {

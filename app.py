@@ -1562,6 +1562,14 @@ def create_expense():
     ))
     expense_id = cursor.lastrowid
 
+    # If project uses manual budget mode, automatically deduct this expense from manual_remaining_budget
+    if project_id:
+        cursor.execute('''
+            UPDATE projects
+            SET manual_remaining_budget = MAX(0.0, COALESCE(manual_remaining_budget, 0) - ?)
+            WHERE id = ? AND budget_mode = 'manual' AND manual_remaining_budget IS NOT NULL
+        ''', (amount, project_id))
+
     # If linked to an employee custody account, deduct expense from custody balance
     if custody_id:
         cursor.execute('''
@@ -2023,9 +2031,31 @@ def update_expense(expense_id):
         ''', (project_id, f"تم تعديل فاتورة المورد '{s_n}' بسعر {unit_price:,.2f} ر.س أعلى من المتفق عليه ({quoted_unit_price:,.2f} ر.س) بزيادة إجمالية {total_variance:,.2f} ر.س!"))
 
     # If project changed, sync linked supplier_payments and subcontractor_payments
-    if project_id != existing.get('project_id'):
+    old_proj_id = existing.get('project_id')
+    old_amt = float(existing.get('amount') or 0)
+    if project_id != old_proj_id:
         cursor.execute('UPDATE supplier_payments SET project_id = ? WHERE expense_id = ?', (project_id, expense_id))
         cursor.execute('UPDATE subcontractor_payments SET project_id = ? WHERE expense_id = ?', (project_id, expense_id))
+        # Revert on old project
+        cursor.execute('''
+            UPDATE projects
+            SET manual_remaining_budget = COALESCE(manual_remaining_budget, 0) + ?
+            WHERE id = ? AND budget_mode = 'manual' AND manual_remaining_budget IS NOT NULL
+        ''', (old_amt, old_proj_id))
+        # Deduct from new project
+        cursor.execute('''
+            UPDATE projects
+            SET manual_remaining_budget = MAX(0.0, COALESCE(manual_remaining_budget, 0) - ?)
+            WHERE id = ? AND budget_mode = 'manual' AND manual_remaining_budget IS NOT NULL
+        ''', (amount, project_id))
+    else:
+        diff = amount - old_amt
+        if abs(diff) > 0.001:
+            cursor.execute('''
+                UPDATE projects
+                SET manual_remaining_budget = MAX(0.0, COALESCE(manual_remaining_budget, 0) - ?)
+                WHERE id = ? AND budget_mode = 'manual' AND manual_remaining_budget IS NOT NULL
+            ''', (diff, project_id))
 
     conn.commit()
     conn.close()
@@ -2095,6 +2125,19 @@ def transfer_expense_project(expense_id):
         f"تم نقل مصروف بقيمة {exp['amount']:,.2f} ر.س بنجاح من مشروع ({old_p_name}) إلى مشروع ({new_p_name})"
     ))
 
+    # Adjust manual remaining budget on old and new projects
+    exp_amount = float(exp.get('amount') or 0)
+    cursor.execute('''
+        UPDATE projects
+        SET manual_remaining_budget = COALESCE(manual_remaining_budget, 0) + ?
+        WHERE id = ? AND budget_mode = 'manual' AND manual_remaining_budget IS NOT NULL
+    ''', (exp_amount, old_project_id))
+    cursor.execute('''
+        UPDATE projects
+        SET manual_remaining_budget = MAX(0.0, COALESCE(manual_remaining_budget, 0) - ?)
+        WHERE id = ? AND budget_mode = 'manual' AND manual_remaining_budget IS NOT NULL
+    ''', (exp_amount, new_project_id))
+
     conn.commit()
     conn.close()
 
@@ -2142,6 +2185,14 @@ def delete_expense(expense_id):
     cursor.execute('DELETE FROM expense_items WHERE expense_id = ?', (expense_id,))
     cursor.execute('DELETE FROM expenses WHERE id = ?', (expense_id,))
     
+    # Refund to project manual_remaining_budget if project is in manual mode
+    if proj_id:
+        cursor.execute('''
+            UPDATE projects
+            SET manual_remaining_budget = COALESCE(manual_remaining_budget, 0) + ?
+            WHERE id = ? AND budget_mode = 'manual' AND manual_remaining_budget IS NOT NULL
+        ''', (amt, proj_id))
+
     cursor.execute('''
         INSERT INTO notifications (project_id, type, title, message)
         VALUES (?, 'info', 'حذف فاتورة / مصروف', ?)
@@ -2971,6 +3022,12 @@ def add_subcontractor_payment(sub_id):
         ''', (target_project_id, f"{payment_type} - {sub_name}", amount, payment_method, sub_name, payment_date, receipt_file_path, receipt_file_name, notes or 'سند صرف مقاول باطن'))
         exp_id = cursor.lastrowid
         cursor.execute('UPDATE subcontractor_payments SET expense_id = ? WHERE id = ?', (exp_id, subpay_id))
+
+        cursor.execute('''
+            UPDATE projects
+            SET manual_remaining_budget = MAX(0.0, COALESCE(manual_remaining_budget, 0) - ?)
+            WHERE id = ? AND budget_mode = 'manual' AND manual_remaining_budget IS NOT NULL
+        ''', (amount, target_project_id))
 
     conn.commit()
     conn.close()
@@ -5817,6 +5874,12 @@ def disburse_custody(custody_id):
             disbursed_date,
             custody_id
         ))
+
+        cursor.execute('''
+            UPDATE projects
+            SET manual_remaining_budget = MAX(0.0, COALESCE(manual_remaining_budget, 0) - ?)
+            WHERE id = ? AND budget_mode = 'manual' AND manual_remaining_budget IS NOT NULL
+        ''', (disbursed_amount, row['project_id']))
 
     cursor.execute('''
         INSERT INTO notifications (project_id, type, title, message)

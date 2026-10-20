@@ -48,7 +48,7 @@
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
     <!-- Custom CSS -->
-    <link rel="stylesheet" href="/static/css/app.css?v=20261006_3">
+    <link rel="stylesheet" href="/static/css/app.css?v=20261020_v2">
     <!-- Theme Initializer (prevents FOUC) -->
     <script>
         (function() {
@@ -1534,6 +1534,10 @@
                             <p class="text-xs text-slate-400 mt-0.5">متابعة كافة دفعات ومستخلصات المشاريع مع إمكانية تسجيل التحصيل الفوري أو تعديل السداد بنقرة واحدة</p>
                         </div>
                         <div class="flex items-center gap-2">
+                            <button onclick="window.print()" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-200 border border-slate-700 text-xs font-bold flex items-center gap-1.5 shadow transition">
+                                <i data-lucide="printer" class="w-3.5 h-3.5 text-emerald-400"></i>
+                                <span>طباعة الجدول</span>
+                            </button>
                             <button onclick="openDirectReceiveModal()" class="px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold flex items-center gap-1.5 shadow transition">
                                 <i data-lucide="plus-circle" class="w-3.5 h-3.5"></i>
                                 <span>تسجيل تحصيل سريع</span>
@@ -1542,7 +1546,7 @@
                     </div>
                     
                     <div class="overflow-x-auto">
-                        <table class="w-full text-right text-xs">
+                        <table id="cf-all-payments-table" class="w-full text-right text-xs">
                             <thead class="bg-slate-900/80 text-slate-400 font-bold border-b border-slate-800">
                                 <tr>
                                     <th class="p-3">المشروع</th>
@@ -1554,7 +1558,7 @@
                                     <th class="p-3">المحصل فعلياً</th>
                                     <th class="p-3">المتبقي للتحصيل</th>
                                     <th class="p-3">الحالة</th>
-                                    <th class="p-3 text-center">الإجراء المالي</th>
+                                    <th class="p-3 text-center print:hidden">الإجراء المالي</th>
                                 </tr>
                             </thead>
                             <tbody id="cf-all-payments-table-body" class="divide-y divide-slate-800">
@@ -1722,10 +1726,14 @@
                     </div>
                     
                     <!-- Export & Print Actions -->
-                    <div class="flex items-center gap-2.5 w-full lg:w-auto">
-                        <button onclick="printOfficialReport()" class="flex-1 lg:flex-none px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-200 border border-slate-700 text-xs font-bold flex items-center justify-center gap-2 transition">
+                    <div class="flex items-center gap-2.5 w-full lg:w-auto flex-wrap">
+                        <button onclick="printOfficialReport('current')" class="flex-1 lg:flex-none px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-200 border border-slate-700 text-xs font-bold flex items-center justify-center gap-2 transition shadow" title="طباعة الجدول والقسم المفتوح حالياً">
                             <i data-lucide="printer" class="w-4 h-4 text-emerald-400"></i>
-                            <span>طباعة التقرير الرسمي (A4)</span>
+                            <span>طباعة القسم الحالي (A4)</span>
+                        </button>
+                        <button onclick="printOfficialReport('all')" class="flex-1 lg:flex-none px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-200 border border-slate-700 text-xs font-bold flex items-center justify-center gap-2 transition shadow" title="طباعة كافة أقسام التقرير المالي">
+                            <i data-lucide="file-text" class="w-4 h-4 text-amber-400"></i>
+                            <span>طباعة التقرير الشامل (الكل)</span>
                         </button>
                         <button onclick="exportDetailedReportExcel()" class="flex-1 lg:flex-none px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-emerald-950/40 transition">
                             <i data-lucide="file-spreadsheet" class="w-4 h-4"></i>
@@ -2009,7 +2017,7 @@
                                     <th class="p-3 text-rose-400 font-bold">شامل الضريبة</th>
                                     <th class="p-3">طريقة الدفع</th>
                                     <th class="p-3">المستلم</th>
-                                    <th class="p-3 text-center">الفاتورة المرفقة</th>
+                                    <th class="p-3 text-center print:hidden">الفاتورة المرفقة</th>
                                 </tr>
                             </thead>
                             <tbody id="rep-expenses-tbody" class="divide-y divide-slate-800 text-slate-300">
@@ -6173,7 +6181,7 @@
 
     <!-- Scripts -->
     <script src="/static/js/i18n.js?v=20261020_v1"></script>
-    <script src="/static/js/app.js?v=20261020_v1"></script>
+    <script src="/static/js/app.js?v=20261020_v2"></script>
     <script>
     (function() {
         try {

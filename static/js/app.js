@@ -6482,7 +6482,7 @@ function renderRepExpensesTable(expenses) {
             <td class="p-3 font-black text-rose-400 whitespace-nowrap text-sm">${formatCurrency(e.amount)}</td>
             <td class="p-3 text-slate-400 whitespace-nowrap">${typeof tr === 'function' ? tr(e.payment_method || 'نقدي') : (e.payment_method || 'نقدي')}</td>
             <td class="p-3 text-slate-300 whitespace-nowrap">${e.paid_to || e.paid_by || '-'}</td>
-            <td class="p-3 text-center whitespace-nowrap">
+            <td class="p-3 text-center whitespace-nowrap print:hidden">
                 ${e.invoice_file_path ? `
                     <button onclick="viewInvoice('${e.invoice_file_path}', '${e.title}')" class="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-bold hover:underline">
                         ${isEn ? 'Preview Voucher' : 'معاينة الفاتورة'}
@@ -6494,7 +6494,10 @@ function renderRepExpensesTable(expenses) {
     });
 }
 
+let currentActiveReportSubTab = 'projects';
+
 function switchReportSubTab(subTabId) {
+    currentActiveReportSubTab = subTabId;
     document.querySelectorAll('.rep-pane').forEach(el => el.classList.add('hidden'));
     document.querySelectorAll('.rep-subtab-btn').forEach(btn => {
         btn.classList.remove('text-emerald-400', 'border-b-2', 'border-emerald-400');
@@ -6532,14 +6535,31 @@ function setReportDateRange(type) {
     loadDetailedReports();
 }
 
-function printOfficialReport() {
-    // Show all report panes during print so the printed report is truly complete
-    document.querySelectorAll('.rep-pane').forEach(el => el.classList.remove('hidden'));
-    window.print();
-    // Restore active sub-tab after print dialog closes
-    setTimeout(() => {
-        switchReportSubTab('projects');
-    }, 1000);
+function printOfficialReport(mode = 'current') {
+    const isEn = typeof currentLang !== 'undefined' && currentLang === 'en';
+    
+    // Ensure header metadata is populated
+    const printDate = document.getElementById('print-current-date');
+    if (printDate) printDate.innerText = new Date().toLocaleString(isEn ? 'en-US' : 'ar-SA');
+    const printRange = document.getElementById('print-range-label');
+    const selProj = document.getElementById('rep-filter-project');
+    const projText = selProj && selProj.selectedIndex > 0 ? selProj.options[selProj.selectedIndex].text : (isEn ? 'All Company Sites' : 'كافة مشاريع الشركة');
+    if (printRange) printRange.innerText = projText;
+
+    if (mode === 'all') {
+        // Show all report panes for comprehensive print
+        document.querySelectorAll('.rep-pane').forEach(el => el.classList.remove('hidden'));
+        window.print();
+        setTimeout(() => {
+            switchReportSubTab(currentActiveReportSubTab || 'projects');
+        }, 1000);
+    } else {
+        // Print only the currently active subtab
+        document.querySelectorAll('.rep-pane').forEach(el => el.classList.add('hidden'));
+        const activePane = document.getElementById(`rep-pane-${currentActiveReportSubTab}`);
+        if (activePane) activePane.classList.remove('hidden');
+        window.print();
+    }
 }
 
 function exportDetailedReportExcel() {
@@ -6929,7 +6949,7 @@ function renderRepClientPaymentsReport(reportList) {
                                 </span>
                             `}
                         </td>
-                        <td class="p-2.5 text-center">
+                        <td class="p-2.5 text-center print:hidden">
                             <div class="flex items-center justify-center gap-1">
                                 <button onclick="openReceivePaymentModal(${cp.id}, '${escapeHtml(cp.milestone_name)}', ${cp.amount_with_tax}, ${proj.project_id})" class="p-1.5 rounded-lg ${isPaid ? 'bg-slate-800 text-emerald-400 hover:bg-emerald-500 hover:text-white' : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm'} transition" title="تسجيل سداد / تحصيل">
                                     <i data-lucide="receipt" class="w-3.5 h-3.5"></i>
@@ -6979,7 +6999,7 @@ function renderRepClientPaymentsReport(reportList) {
                             <th class="p-2.5 text-amber-400">${isEn ? 'Remaining' : 'المتبقي'}</th>
                             <th class="p-2.5 text-slate-400">${isEn ? 'Due Date' : 'تاريخ الاستحقاق'}</th>
                             <th class="p-2.5 text-center">${isEn ? 'Status' : 'حالة التحصيل'}</th>
-                            <th class="p-2.5 text-center w-28">${isEn ? 'Actions' : 'إجراءات السداد'}</th>
+                            <th class="p-2.5 text-center w-28 print:hidden">${isEn ? 'Actions' : 'إجراءات السداد'}</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-slate-800">
@@ -8369,6 +8389,17 @@ function renderCashFlowChart(phases) {
 }
 
 function printCashFlowReport() {
+    const isEn = typeof currentLang !== 'undefined' && currentLang === 'en';
+    const printDate = document.getElementById('cf-print-date');
+    if (printDate) printDate.innerText = new Date().toLocaleString(isEn ? 'en-US' : 'ar-SA');
+    const printMeta = document.getElementById('cf-print-meta');
+    if (printMeta && currentCashFlowData && currentCashFlowData.summary) {
+        printMeta.innerText = `الرصيد الفعلي الحالي: ${formatMoney(currentCashFlowData.summary.current_actual_cash || 0)} • مقبوضات العملاء: ${formatMoney(currentCashFlowData.summary.total_client_payments_received || 0)}`;
+    }
+    const printScope = document.getElementById('cf-print-scope');
+    if (printScope) {
+        printScope.innerText = selectedCashFlowProjectId ? (document.querySelector('.cf-scope-pill.active')?.innerText || 'مشروع محدد') : 'كافة المشاريع (الموحد)';
+    }
     window.print();
 }
 
@@ -8568,7 +8599,7 @@ function renderCashFlowPaymentsTable() {
                 <td class="p-3 font-mono font-bold text-emerald-400 text-xs">${formatMoney(receivedAmount)}</td>
                 <td class="p-3 font-mono font-bold ${remainingAmount > 0 ? 'text-amber-400' : 'text-slate-500'} text-xs">${formatMoney(remainingAmount)}</td>
                 <td class="p-3">${statusBadge}</td>
-                <td class="p-3 text-center">${actionHtml}</td>
+                <td class="p-3 text-center print:hidden">${actionHtml}</td>
             </tr>
         `;
     });
@@ -8585,7 +8616,8 @@ function renderCashFlowPaymentsTable() {
                 <td class="p-3 font-mono text-slate-400 font-bold">${formatMoney(totTaxSum)}</td>
                 <td class="p-3 font-mono text-emerald-400 font-black">${formatMoney(totRecSum)}</td>
                 <td class="p-3 font-mono text-amber-400 font-black">${formatMoney(totRemSum)}</td>
-                <td class="p-3" colspan="2"></td>
+                <td class="p-3 text-center"></td>
+                <td class="p-3 print:hidden"></td>
             </tr>
         `;
     }

@@ -802,7 +802,7 @@ function generateDistinctHslColors(count) {
 
 function renderExpenseChart(categoryData) {
     const ctx = document.getElementById('expensesPieChart');
-    if (!ctx) return;
+    if (!ctx || typeof Chart === 'undefined') return;
 
     if (categoryData && Array.isArray(categoryData)) {
         cachedDashboardCategoryData = categoryData;
@@ -1429,10 +1429,73 @@ function renderTasksKanban(tasks) {
         return card;
     };
 
-    todoTasks.forEach(t => todoCol && todoCol.appendChild(renderCard(t)));
-    inprogressTasks.forEach(t => inprogressCol && inprogressCol.appendChild(renderCard(t)));
-    pendingTasks.forEach(t => pendingCol && pendingCol.appendChild(renderCard(t)));
-    doneTasks.forEach(t => doneCol && doneCol.appendChild(renderCard(t)));
+    const emptyBanner = document.getElementById('tasks-empty-banner');
+    if (emptyBanner) {
+        if (tasks.length === 0) {
+            emptyBanner.classList.remove('hidden');
+        } else {
+            emptyBanner.classList.add('hidden');
+        }
+    }
+
+    if (todoCol) {
+        if (todoTasks.length === 0) {
+            todoCol.innerHTML = `
+                <div class="h-44 flex flex-col items-center justify-center text-center p-4 rounded-xl border-2 border-dashed border-slate-750/70 text-slate-500">
+                    <i data-lucide="inbox" class="w-6 h-6 mb-2 text-slate-600"></i>
+                    <span class="text-xs font-semibold text-slate-400">${isEn ? 'No pending tasks' : 'لا توجد مهام قيد التجهيز'}</span>
+                    <button type="button" onclick="openModal('task-modal')" class="mt-2.5 px-3 py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 text-[11px] font-bold flex items-center gap-1 transition">
+                        <i data-lucide="plus" class="w-3 h-3"></i>
+                        <span>${isEn ? 'Add Task' : 'إسناد مهمة'}</span>
+                    </button>
+                </div>
+            `;
+        } else {
+            todoTasks.forEach(t => todoCol.appendChild(renderCard(t)));
+        }
+    }
+
+    if (inprogressCol) {
+        if (inprogressTasks.length === 0) {
+            inprogressCol.innerHTML = `
+                <div class="h-44 flex flex-col items-center justify-center text-center p-4 rounded-xl border-2 border-dashed border-slate-750/70 text-slate-500">
+                    <i data-lucide="clock" class="w-6 h-6 mb-2 text-slate-600"></i>
+                    <span class="text-xs font-semibold text-slate-400">${isEn ? 'No tasks in progress' : 'لا توجد مهام جارية حالياً'}</span>
+                    <span class="text-[10px] text-slate-500 mt-1">${isEn ? 'Tasks being executed will appear here' : 'المهام قيد التنفيذ بالموقع تظهر هنا'}</span>
+                </div>
+            `;
+        } else {
+            inprogressTasks.forEach(t => inprogressCol.appendChild(renderCard(t)));
+        }
+    }
+
+    if (pendingCol) {
+        if (pendingTasks.length === 0) {
+            pendingCol.innerHTML = `
+                <div class="h-44 flex flex-col items-center justify-center text-center p-4 rounded-xl border-2 border-dashed border-purple-500/20 text-slate-500">
+                    <i data-lucide="shield-alert" class="w-6 h-6 mb-2 text-purple-400/50"></i>
+                    <span class="text-xs font-semibold text-purple-300/80">${isEn ? 'No tasks pending approval' : 'لا مهام بانتظار التعميد'}</span>
+                    <span class="text-[10px] text-slate-500 mt-1">${isEn ? 'Tasks submitted for sign-off arrive here' : 'المهام المنتهية التي تنتظر الاعتماد تظهر هنا'}</span>
+                </div>
+            `;
+        } else {
+            pendingTasks.forEach(t => pendingCol.appendChild(renderCard(t)));
+        }
+    }
+
+    if (doneCol) {
+        if (doneTasks.length === 0) {
+            doneCol.innerHTML = `
+                <div class="h-44 flex flex-col items-center justify-center text-center p-4 rounded-xl border-2 border-dashed border-slate-750/70 text-slate-500">
+                    <i data-lucide="check-circle" class="w-6 h-6 mb-2 text-slate-600"></i>
+                    <span class="text-xs font-semibold text-slate-400">${isEn ? 'No completed tasks yet' : 'لا توجد مهام مكتملة بعد'}</span>
+                    <span class="text-[10px] text-slate-500 mt-1">${isEn ? 'Approved tasks will be archived here' : 'المهام المعمدة نهائياً تُحفظ هنا'}</span>
+                </div>
+            `;
+        } else {
+            doneTasks.forEach(t => doneCol.appendChild(renderCard(t)));
+        }
+    }
 
     initLucide();
 }
@@ -2785,7 +2848,26 @@ function renderDocumentsGrid(docs) {
     const isEn = typeof currentLang !== 'undefined' && currentLang === 'en';
 
     if (docs.length === 0) {
-        grid.innerHTML = `<div class="col-span-4 text-center py-12 text-slate-500">${isEn ? 'No blueprints or documents uploaded currently' : 'لا توجد مخططات أو مستندات مرفوعة حالياً'}</div>`;
+        grid.innerHTML = `
+            <div class="col-span-1 md:col-span-2 lg:col-span-4 bg-slate-850/90 rounded-2xl border-2 border-dashed border-slate-750 p-10 text-center space-y-4">
+                <div class="w-16 h-16 rounded-2xl bg-purple-500/10 border border-purple-500/20 text-purple-400 flex items-center justify-center mx-auto shadow-inner">
+                    <i data-lucide="folder-archive" class="w-8 h-8"></i>
+                </div>
+                <div class="max-w-md mx-auto space-y-1">
+                    <h3 class="text-base font-bold text-white">${isEn ? 'No blueprints or engineering documents uploaded yet' : 'لا توجد مخططات أو مستندات هندسية مرفوعة حالياً'}</h3>
+                    <p class="text-xs text-slate-400 leading-relaxed">
+                        ${isEn ? 'The digital blueprint archive is empty. You can upload architectural drawings, structural blueprints, municipal licenses, and technical inspection reports.' : 'الأرشيف السحابي للمخططات فارغ حالياً. يمكنك أرشفة الرسومات المعمارية والإنشائية، رخص البناء، وتقارير الفحص الفني بصيغ PDF أو صور عالية الدقة وربطها بالمشاريع.'}
+                    </p>
+                </div>
+                <div class="pt-2">
+                    <button type="button" onclick="openModal('document-modal')" class="px-5 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs inline-flex items-center gap-2 shadow-lg shadow-purple-950/40 transition">
+                        <i data-lucide="upload" class="w-4 h-4"></i>
+                        <span>${isEn ? 'Upload First Blueprint or Document' : 'رفع أول مخطط أو وثيقة للمشروع'}</span>
+                    </button>
+                </div>
+            </div>
+        `;
+        initLucide();
         return;
     }
 
@@ -6571,7 +6653,7 @@ function renderRepCategories(categories, totalSpent) {
 
     // Chart
     const ctx = document.getElementById('repCategoriesChart');
-    if (ctx) {
+    if (ctx && typeof Chart !== 'undefined') {
         const labels = categories.map(c => typeof tr === 'function' ? tr(c.category) : c.category);
         const amounts = categories.map(c => c.total);
         const colors = ['#10b981', '#f59e0b', '#3b82f6', '#ec4899', '#8b5cf6', '#64748b'];

@@ -739,21 +739,134 @@ async function loadDashboard() {
 }
 
 // ----------------- EXPENSE CHART (CHART.JS) -----------------
+let cachedDashboardCategoryData = [];
+let expenseChartDisplayMode = 'top'; // 'top' or 'all'
+
+function setExpenseChartMode(mode) {
+    expenseChartDisplayMode = mode;
+    const btnTop = document.getElementById('exp-chart-mode-top');
+    const btnAll = document.getElementById('exp-chart-mode-all');
+    if (btnTop && btnAll) {
+        if (mode === 'top') {
+            btnTop.className = 'px-2.5 py-1 rounded-lg transition bg-amber-500/20 text-amber-300';
+            btnAll.className = 'px-2.5 py-1 rounded-lg transition text-slate-400 hover:text-white';
+        } else {
+            btnAll.className = 'px-2.5 py-1 rounded-lg transition bg-amber-500/20 text-amber-300';
+            btnTop.className = 'px-2.5 py-1 rounded-lg transition text-slate-400 hover:text-white';
+        }
+    }
+    renderExpenseChart();
+}
+
+function normalizeExpenseCategoryName(cat) {
+    const c = (cat || 'عام').trim();
+    if (['حفر', 'أعمال الحفر', 'أعمال الإحلال'].includes(c)) return 'حفر وإحلال';
+    if (['عزل', 'مواد عزل', 'أعمال العزل'].includes(c)) return 'عزل ومواد عزل';
+    if (['خرسانة', 'خرسانة جاهزة'].includes(c)) return 'خرسانة جاهزة';
+    if (['تجهيز موقع', 'تجهيز الموقع', 'تجهيز الموقع والدعاية', 'لوحات وتجهيز الموقع'].includes(c)) return 'تجهيز الموقع';
+    if (['رواتب', 'رواتب وأجور'].includes(c)) return 'رواتب وأجور';
+    if (['مواد بناء', 'مواد بناء وأسمنت'].includes(c)) return 'مواد بناء وأسمنت';
+    if (['مكافآت وإشراف', 'بدلات ومكافآت'].includes(c)) return 'بدلات ومكافآت';
+    return c;
+}
+
+// 12 curated, distinct, high-contrast colors for dark mode
+const DISTINCT_EXPENSE_PALETTE = [
+    '#10b981', // 1. زمردي (Emerald Green)
+    '#f59e0b', // 2. كهرماني ذهبي (Amber Gold)
+    '#3b82f6', // 3. أزرق ملكي (Royal Blue)
+    '#f43f5e', // 4. وردي فاقع (Rose Red / Pink)
+    '#8b5cf6', // 5. بنفسجي (Purple)
+    '#06b6d4', // 6. تركواز سماوي (Cyan / Teal)
+    '#ea580c', // 7. برتقالي صريح (Vivid Orange)
+    '#6366f1', // 8. نيلي إنديجو (Indigo)
+    '#14b8a6', // 9. تيل بحري (Sea Teal)
+    '#d946ef', // 10. فوشيا (Fuchsia)
+    '#84cc16', // 11. ليموني أخضر (Lime)
+    '#64748b'  // 12. رمادي أردوازي للبنود الأخرى (Slate Gray for Others)
+];
+
+function generateDistinctHslColors(count) {
+    const list = [];
+    for (let i = 0; i < count; i++) {
+        const hue = Math.round((i * 137.508) % 360);
+        const sat = 78 + (i % 3) * 5;
+        const light = 52 + (i % 2) * 6;
+        list.push(`hsl(${hue}, ${sat}%, ${light}%)`);
+    }
+    return list;
+}
+
 function renderExpenseChart(categoryData) {
     const ctx = document.getElementById('expensesPieChart');
     if (!ctx) return;
 
-    const labels = (categoryData || []).map(c => c.category);
-    const amounts = (categoryData || []).map(c => c.total);
+    if (categoryData && Array.isArray(categoryData)) {
+        cachedDashboardCategoryData = categoryData;
+    }
+    const rawData = cachedDashboardCategoryData || [];
+    if (!rawData.length) {
+        if (expensesChartInstance) expensesChartInstance.destroy();
+        return;
+    }
 
-    const colors = [
-        '#10b981', // emerald
-        '#f59e0b', // amber
-        '#3b82f6', // blue
-        '#ec4899', // pink
-        '#8b5cf6', // purple
-        '#64748b'  // slate
-    ];
+    // Step 1: Normalize category variations to reduce accidental duplicates
+    const aggregated = {};
+    rawData.forEach(item => {
+        const normName = normalizeExpenseCategoryName(item.category);
+        const amt = parseFloat(item.total) || 0;
+        aggregated[normName] = (aggregated[normName] || 0) + amt;
+    });
+
+    const sortedList = Object.entries(aggregated)
+        .map(([category, total]) => ({ category, total }))
+        .sort((a, b) => b.total - a.total);
+
+    const grandTotal = sortedList.reduce((sum, item) => sum + item.total, 0);
+
+    // Update center donut total label
+    const centerTotalEl = document.getElementById('expensesPieCenterTotal');
+    if (centerTotalEl) {
+        centerTotalEl.innerText = formatCurrency(grandTotal);
+    }
+
+    let finalItems = [];
+    let sliceColors = [];
+
+    if (expenseChartDisplayMode === 'top' && sortedList.length > 8) {
+        // Mode: Top 7 Categories + "أخرى وبنود متنوعة"
+        const topSlice = sortedList.slice(0, 7);
+        const otherSlice = sortedList.slice(7);
+        const otherTotal = otherSlice.reduce((s, it) => s + it.total, 0);
+
+        finalItems = [...topSlice];
+        if (otherTotal > 0) {
+            finalItems.push({
+                category: 'أخرى وبنود متنوعة',
+                total: otherTotal,
+                isOther: true
+            });
+        }
+
+        // Each of the top categories gets a guaranteed unique color
+        sliceColors = finalItems.map((_, idx) => {
+            if (idx === finalItems.length - 1 && finalItems[idx].isOther) {
+                return '#64748b'; // Slate gray for "Other"
+            }
+            return DISTINCT_EXPENSE_PALETTE[idx % (DISTINCT_EXPENSE_PALETTE.length - 1)];
+        });
+    } else {
+        // Mode: All categories
+        finalItems = sortedList;
+        if (finalItems.length <= DISTINCT_EXPENSE_PALETTE.length) {
+            sliceColors = DISTINCT_EXPENSE_PALETTE.slice(0, finalItems.length);
+        } else {
+            sliceColors = generateDistinctHslColors(finalItems.length);
+        }
+    }
+
+    const labels = finalItems.map(c => c.category);
+    const amounts = finalItems.map(c => c.total);
 
     if (expensesChartInstance) {
         expensesChartInstance.destroy();
@@ -765,43 +878,78 @@ function renderExpenseChart(categoryData) {
             labels: labels,
             datasets: [{
                 data: amounts,
-                backgroundColor: colors.slice(0, labels.length),
+                backgroundColor: sliceColors,
+                hoverBackgroundColor: sliceColors,
                 borderColor: '#1e293b',
-                borderWidth: 2,
+                borderWidth: 2.5,
+                hoverOffset: 6
             }]
         },
         options: {
             responsive: true,
             maintainAspectRatio: false,
+            animation: {
+                animateRotate: true,
+                animateScale: false,
+                duration: 600
+            },
             plugins: {
                 legend: {
                     display: false
                 },
                 tooltip: {
                     rtl: true,
+                    backgroundColor: 'rgba(15, 23, 42, 0.95)',
+                    titleColor: '#f8fafc',
+                    bodyColor: '#cbd5e1',
+                    borderColor: '#334155',
+                    borderWidth: 1,
+                    padding: 10,
+                    boxPadding: 6,
+                    usePointStyle: true,
                     callbacks: {
                         label: function(context) {
-                            return ` ${context.label}: ${formatCurrency(context.raw)}`;
+                            const val = context.raw || 0;
+                            const pct = grandTotal > 0 ? ((val / grandTotal) * 100).toFixed(1) : 0;
+                            return ` ${context.label}: ${formatCurrency(val)} (${pct}%)`;
                         }
                     }
                 }
             },
-            cutout: '68%'
+            cutout: '70%'
         }
     });
 
-    // Populate custom legend
+    // Populate custom legend with distinct colored dots and exact percentages
     const legendEl = document.getElementById('chart-legend');
     if (legendEl) {
         legendEl.innerHTML = '';
-        labels.forEach((lbl, i) => {
-            const item = document.createElement('div');
-            item.className = 'flex items-center gap-1.5 truncate';
-            item.innerHTML = `
-                <span class="w-2.5 h-2.5 rounded-full" style="background-color: ${colors[i % colors.length]}"></span>
-                <span class="text-slate-300 truncate">${lbl}</span>
+        finalItems.forEach((item, i) => {
+            const pct = grandTotal > 0 ? ((item.total / grandTotal) * 100).toFixed(1) : 0;
+            const color = sliceColors[i];
+            const div = document.createElement('div');
+            div.className = 'flex items-center justify-between gap-1.5 p-1 rounded-lg hover:bg-slate-800/60 transition cursor-default';
+            div.setAttribute('title', `${item.category}: ${formatCurrency(item.total)} (${pct}%)`);
+            div.innerHTML = `
+                <div class="flex items-center gap-2 truncate min-w-0">
+                    <span class="w-2.5 h-2.5 rounded-full shrink-0 shadow-sm" style="background-color: ${color};"></span>
+                    <span class="text-slate-300 truncate text-[11px] font-medium">${escapeHtml(item.category)}</span>
+                </div>
+                <span class="font-mono text-[10.5px] font-bold text-slate-400 shrink-0 mr-1">${pct}%</span>
             `;
-            legendEl.appendChild(item);
+            div.addEventListener('mouseenter', () => {
+                if (expensesChartInstance) {
+                    expensesChartInstance.setActiveElements([{ datasetIndex: 0, index: i }]);
+                    expensesChartInstance.update();
+                }
+            });
+            div.addEventListener('mouseleave', () => {
+                if (expensesChartInstance) {
+                    expensesChartInstance.setActiveElements([]);
+                    expensesChartInstance.update();
+                }
+            });
+            legendEl.appendChild(div);
         });
     }
 }

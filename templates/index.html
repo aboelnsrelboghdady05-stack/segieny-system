@@ -508,21 +508,31 @@
 
                 <!-- Right 1 Col: Expense Distribution Chart -->
                 <div class="bg-slate-850 p-6 rounded-2xl border border-slate-800 shadow-xl space-y-4 flex flex-col">
-                    <div class="flex items-center gap-2.5">
-                        <div class="p-2 rounded-xl bg-amber-500/10 text-amber-400">
-                            <i data-lucide="pie-chart" class="w-5 h-5"></i>
+                    <div class="flex items-center justify-between gap-2">
+                        <div class="flex items-center gap-2.5">
+                            <div class="p-2 rounded-xl bg-amber-500/10 text-amber-400">
+                                <i data-lucide="pie-chart" class="w-5 h-5"></i>
+                            </div>
+                            <div>
+                                <h3 class="font-extrabold text-lg text-white">توزيع المصروفات</h3>
+                                <p class="text-xs text-slate-400">حسب بنود البناء والتوريدات</p>
+                            </div>
                         </div>
-                        <div>
-                            <h3 class="font-extrabold text-lg text-white">توزيع المصروفات</h3>
-                            <p class="text-xs text-slate-400">حسب بنود البناء والتوريدات</p>
+                        <div class="inline-flex p-1 bg-slate-900 rounded-xl border border-slate-750 text-[11px] font-bold shrink-0">
+                            <button id="exp-chart-mode-top" onclick="setExpenseChartMode('top')" class="px-2.5 py-1 rounded-lg transition bg-amber-500/20 text-amber-300">أبرز البنود</button>
+                            <button id="exp-chart-mode-all" onclick="setExpenseChartMode('all')" class="px-2.5 py-1 rounded-lg transition text-slate-400 hover:text-white">الكل</button>
                         </div>
                     </div>
 
-                    <div class="flex-1 flex items-center justify-center relative min-h-[220px]">
+                    <div class="flex-1 flex items-center justify-center relative min-h-[230px]">
                         <canvas id="expensesPieChart"></canvas>
+                        <div id="expensesPieCenterLabel" class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none text-center">
+                            <span class="text-[10px] font-bold text-slate-400">إجمالي المصروفات</span>
+                            <span id="expensesPieCenterTotal" class="text-sm font-black text-white mt-0.5 font-mono">0 ر.س</span>
+                        </div>
                     </div>
 
-                    <div id="chart-legend" class="grid grid-cols-2 gap-2 text-xs pt-2 border-t border-slate-750">
+                    <div id="chart-legend" class="grid grid-cols-2 gap-2 text-xs pt-2.5 border-t border-slate-750 max-h-48 overflow-y-auto custom-scrollbar">
                         <!-- Dynamically populated -->
                     </div>
                 </div>
@@ -6162,8 +6172,8 @@
     </div>
 
     <!-- Scripts -->
-    <script src="/static/js/i18n.js?v=20261019_v6"></script>
-    <script src="/static/js/app.js?v=20261019_v6"></script>
+    <script src="/static/js/i18n.js?v=20261020_v1"></script>
+    <script src="/static/js/app.js?v=20261020_v1"></script>
     <script>
     (function() {
         try {

@@ -21,6 +21,40 @@ app.config['MAX_CONTENT_LENGTH'] = 32 * 1024 * 1024  # 32 MB max upload
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
+def save_uploaded_file_persistent(file_obj, filename, uploaded_by=None):
+    """
+    حفظ دائم للمرفقات والفواتير محلياً وفي قاعدة البيانات السحابية Turso.
+    يضمن بقاء المرفقات للأبد حتى بعد إعادة تشغيل سيرفر Render.
+    """
+    clean_fn = os.path.basename(filename)
+    full_path = os.path.join(app.config['UPLOAD_FOLDER'], clean_fn)
+    
+    file_bytes = file_obj.read()
+    file_obj.seek(0)
+    
+    # 1. حفظ في الكاش المحلي
+    try:
+        with open(full_path, 'wb') as f:
+            f.write(file_bytes)
+    except Exception as e:
+        print(f"Local file write error for {clean_fn}: {e}")
+        
+    # 2. حفظ سحابي دائم في Turso
+    try:
+        import base64, mimetypes
+        b64 = base64.b64encode(file_bytes).decode('ascii')
+        mime = mimetypes.guess_type(clean_fn)[0] or 'application/octet-stream'
+        size = len(file_bytes)
+        conn = database.get_db_connection()
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT OR REPLACE INTO system_files (filename, file_data, mime_type, file_size, uploaded_by)
+            VALUES (?, ?, ?, ?, ?)
+        """, (clean_fn, b64, mime, size, uploaded_by))
+        conn.commit()
+    except Exception as e:
+        print(f"Turso persistent storage error for {clean_fn}: {e}")
+
 def check_is_financial_manager(user_id=None, user_role='', user_name='', cursor=None):
     """
     التحقق من صلاحية المدير المالي (أ. ابوالنصر البغدادي) أو الإدارة العامة
@@ -68,7 +102,34 @@ def index():
 # Serve Uploaded Files (Invoices, Receipts, Blueprints)
 @app.route('/uploads/<path:filename>')
 def uploaded_file(filename):
-    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+    clean_fn = os.path.basename(filename)
+    local_path = os.path.join(app.config['UPLOAD_FOLDER'], clean_fn)
+    
+    # 1. إذا كان الملف موجوداً على القرص المحلي يتم إرساله فوراً
+    if os.path.exists(local_path) and os.path.getsize(local_path) > 0:
+        return send_from_directory(app.config['UPLOAD_FOLDER'], clean_fn)
+
+    # 2. إذا أعيد تشغيل سيرفر Render ومُسح القرص المحلي، يتم جلبه فوراً من التخزين السحابي Turso
+    try:
+        import base64, io
+        conn = database.get_db_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT file_data, mime_type FROM system_files WHERE filename = ?", (clean_fn,))
+        row = cur.fetchone()
+        if row and row['file_data']:
+            file_bytes = base64.b64decode(row['file_data'])
+            # حفظ نسخة كاش على القرص لتسريع الطلبات القادمة
+            try:
+                with open(local_path, 'wb') as f:
+                    f.write(file_bytes)
+            except Exception:
+                pass
+            mimetype = row['mime_type'] or 'application/octet-stream'
+            return send_file(io.BytesIO(file_bytes), mimetype=mimetype)
+    except Exception as e:
+        print(f"Error restoring file {clean_fn} from cloud DB: {e}")
+
+    return jsonify({"error": "المرفق غير متوفر. قد يكون تم رفعه قبل تفعيل الأرشيف السحابي الدائم ويحتاج لإعادة إرفاقه."}), 404
 
 # System Backup Endpoint (تحميل نسخة احتياطية فورية من قاعدة البيانات)
 @app.route('/api/system/backup', methods=['GET'])
@@ -1521,8 +1582,7 @@ def create_expense():
             original_filename = secure_filename(file.filename) or f"invoice_{uuid.uuid4().hex[:8]}.jpg"
             ext = original_filename.rsplit('.', 1)[1].lower() if '.' in original_filename else 'jpg'
             stored_name = f"inv_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}.{ext}"
-            file_path = os.path.join(app.config['UPLOAD_FOLDER'], stored_name)
-            file.save(file_path)
+            save_uploaded_file_persistent(file, stored_name)
             invoice_file_path = f"/uploads/{stored_name}"
             invoice_file_name = original_filename
 
@@ -1986,8 +2046,7 @@ def update_expense(expense_id):
             original_filename = secure_filename(file.filename) or f"invoice_{uuid.uuid4().hex[:8]}.jpg"
             ext = original_filename.rsplit('.', 1)[1].lower() if '.' in original_filename else 'jpg'
             stored_name = f"inv_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}.{ext}"
-            file_path = os.path.join(app.config['UPLOAD_FOLDER'], stored_name)
-            file.save(file_path)
+            save_uploaded_file_persistent(file, stored_name)
             invoice_file_path = f"/uploads/{stored_name}"
             invoice_file_name = original_filename
 
@@ -2676,7 +2735,7 @@ def add_supplier_payment(supplier_id):
         ext = orig.rsplit('.', 1)[1].lower() if '.' in orig else ''
         if ext in ('png', 'jpg', 'jpeg', 'gif', 'webp', 'pdf'):
             stored = f"suppay_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}.{ext}"
-            file.save(os.path.join(app.config['UPLOAD_FOLDER'], stored))
+            save_uploaded_file_persistent(file, stored)
             receipt_file_path = f"/uploads/{stored}"
             receipt_file_name = orig
 
@@ -3225,7 +3284,7 @@ def add_subcontractor_payment(sub_id):
             orig = secure_filename(file.filename) or 'receipt.jpg'
             ext = orig.rsplit('.', 1)[1].lower() if '.' in orig else 'jpg'
             stored = f"subpay_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}.{ext}"
-            file.save(os.path.join(app.config['UPLOAD_FOLDER'], stored))
+            save_uploaded_file_persistent(file, stored)
             receipt_file_path = f"/uploads/{stored}"
             receipt_file_name = orig
 
@@ -4326,8 +4385,8 @@ def upload_document():
     ext = original_filename.rsplit('.', 1)[1].lower() if '.' in original_filename else 'pdf'
     stored_name = f"doc_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}.{ext}"
     full_path = os.path.join(app.config['UPLOAD_FOLDER'], stored_name)
-    file.save(full_path)
-    file_size = os.path.getsize(full_path)
+    save_uploaded_file_persistent(file, stored_name, uploaded_by=uploaded_by)
+    file_size = os.path.getsize(full_path) if os.path.exists(full_path) else len(file.read())
 
     conn = database.get_db_connection()
     cursor = conn.cursor()
@@ -5518,7 +5577,7 @@ def send_chat_message():
             orig = secure_filename(file.filename) or 'chat_file.jpg'
             ext = orig.rsplit('.', 1)[1].lower() if '.' in orig else 'jpg'
             stored = f"chat_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}.{ext}"
-            file.save(os.path.join(app.config['UPLOAD_FOLDER'], stored))
+            save_uploaded_file_persistent(file, stored)
             attachment_path = f"/uploads/{stored}"
             attachment_name = orig
 
@@ -6002,8 +6061,7 @@ def create_custody_request():
         if file and file.filename and allowed_file(file.filename):
             receipt_file_name = secure_filename(file.filename)
             unique_name = f"custody_{uuid.uuid4().hex[:8]}_{receipt_file_name}"
-            file_path = os.path.join(app.config['UPLOAD_FOLDER'], unique_name)
-            file.save(file_path)
+            save_uploaded_file_persistent(file, unique_name)
             receipt_file_path = f"/uploads/{unique_name}"
 
     payment_method = data.get('payment_method') or 'تحويل بنكي'
@@ -6144,8 +6202,7 @@ def disburse_custody(custody_id):
         if file and file.filename and allowed_file(file.filename):
             receipt_file_name = secure_filename(file.filename)
             unique_name = f"custody_disburse_{uuid.uuid4().hex[:8]}_{receipt_file_name}"
-            file_path = os.path.join(app.config['UPLOAD_FOLDER'], unique_name)
-            file.save(file_path)
+            save_uploaded_file_persistent(file, unique_name)
             receipt_file_path = f"/uploads/{unique_name}"
 
     cursor.execute('''
@@ -6593,8 +6650,7 @@ def create_expense_request():
         if file and file.filename and allowed_file(file.filename):
             attachment_name = secure_filename(file.filename)
             unique_name = f"req_{uuid.uuid4().hex[:8]}_{attachment_name}"
-            file_path = os.path.join(app.config['UPLOAD_FOLDER'], unique_name)
-            file.save(file_path)
+            save_uploaded_file_persistent(file, unique_name)
             attachment_path = f"/uploads/{unique_name}"
 
     cursor.execute('''
@@ -6775,8 +6831,7 @@ def disburse_expense_request(req_id):
         if file and file.filename and allowed_file(file.filename):
             receipt_name = secure_filename(file.filename)
             unique_name = f"disb_{uuid.uuid4().hex[:8]}_{receipt_name}"
-            file_path = os.path.join(app.config['UPLOAD_FOLDER'], unique_name)
-            file.save(file_path)
+            save_uploaded_file_persistent(file, unique_name)
             disbursement_receipt_path = f"/uploads/{unique_name}"
             disbursement_receipt_name = receipt_name
 

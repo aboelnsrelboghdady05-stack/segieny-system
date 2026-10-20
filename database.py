@@ -747,6 +747,19 @@ def init_db():
     )
     ''')
 
+    # Cloud-persistent file storage (survives Render restarts and redeployments)
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS system_files (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        filename TEXT UNIQUE NOT NULL,
+        file_data TEXT NOT NULL,
+        mime_type TEXT,
+        file_size INTEGER DEFAULT 0,
+        uploaded_by TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    ''')
+
     conn.commit()
 
     # Seed initial data if empty

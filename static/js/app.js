@@ -3844,11 +3844,20 @@ function viewInvoice(filePath, title) {
     const modal = document.getElementById('lightbox-modal');
     const img = document.getElementById('lightbox-img');
     const iframe = document.getElementById('lightbox-iframe');
+    const errBox = document.getElementById('lightbox-error');
     const titleEl = document.getElementById('lightbox-title');
     const downloadLink = document.getElementById('lightbox-download-link');
 
     titleEl.innerText = title || 'معاينة الفاتورة والمستند';
     downloadLink.href = filePath;
+
+    if (errBox) errBox.classList.add('hidden');
+
+    img.onerror = () => {
+        img.classList.add('hidden');
+        if (errBox) errBox.classList.remove('hidden');
+        initLucide();
+    };
 
     if (filePath.toLowerCase().endsWith('.pdf')) {
         img.classList.add('hidden');

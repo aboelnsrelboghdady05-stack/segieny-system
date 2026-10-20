@@ -1681,29 +1681,128 @@ async function loadExpenses() {
     }
 }
 
+// ----------------- FINANCIAL MANAGER EXPENSE APPROVALS -----------------
+async function approveExpense(id) {
+    if (!isFinancialManagerUser()) {
+        showToast('عفواً، تعميد المصروفات والفواتير هو صلاحية حصرية للمدير المالي (أ. ابوالنصر البغدادي).', 'error');
+        return;
+    }
+    if (!confirm('هل أنت متأكد من تعميد هذه الفاتورة/المصروف؟\nسيتم اعتمادها رسمياً وخصمها من الكاش فلو وميزانية المشروع/العهدة.')) return;
+
+    const u = currentUser || JSON.parse(localStorage.getItem('segieny_auth_user') || '{}');
+    try {
+        const res = await fetch(`/api/expenses/${id}/approve`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                user_id: u.id,
+                user_role: u.role,
+                user_name: u.name
+            })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+            showToast(data.message || 'تم تعميد الفاتورة بنجاح!', 'success');
+            if (currentTab === 'expenses') loadExpenses();
+            if (currentTab === 'cashflow' && typeof loadCashFlow === 'function') loadCashFlow();
+            if (typeof currentProjectDetailData !== 'undefined' && currentProjectDetailData) openProjectDetails(currentProjectDetailData.id);
+            if (typeof currentViewedCustodyId !== 'undefined' && currentViewedCustodyId) {
+                const cModal = document.getElementById('custody-expenses-modal');
+                if (cModal && !cModal.classList.contains('hidden')) {
+                    viewCustodyExpenses(currentViewedCustodyId);
+                }
+            }
+            if (typeof loadCustody === 'function') loadCustody();
+            loadDashboard();
+        } else {
+            showToast(data.error || 'تعذر تعميد الفاتورة', 'error');
+        }
+    } catch (e) {
+        showToast('فشل في الاتصال بالخادم', 'error');
+    }
+}
+
+async function rejectExpense(id) {
+    if (!isFinancialManagerUser()) {
+        showToast('عفواً، صلاحية رفض المصروفات مقتصرة على المدير المالي (أ. ابوالنصر البغدادي).', 'error');
+        return;
+    }
+    const reason = prompt('يرجى كتابة سبب رفض هذه الفاتورة:');
+    if (reason === null) return;
+    if (!reason.trim()) {
+        showToast('يرجى توضيح سبب الرفض', 'warning');
+        return;
+    }
+
+    const u = currentUser || JSON.parse(localStorage.getItem('segieny_auth_user') || '{}');
+    try {
+        const res = await fetch(`/api/expenses/${id}/reject`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                user_id: u.id,
+                user_role: u.role,
+                user_name: u.name,
+                reason: reason.trim()
+            })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+            showToast(data.message || 'تم رفض الفاتورة وتحديث الحسابات', 'success');
+            if (currentTab === 'expenses') loadExpenses();
+            if (currentTab === 'cashflow' && typeof loadCashFlow === 'function') loadCashFlow();
+            if (typeof currentProjectDetailData !== 'undefined' && currentProjectDetailData) openProjectDetails(currentProjectDetailData.id);
+            if (typeof currentViewedCustodyId !== 'undefined' && currentViewedCustodyId) {
+                const cModal = document.getElementById('custody-expenses-modal');
+                if (cModal && !cModal.classList.contains('hidden')) {
+                    viewCustodyExpenses(currentViewedCustodyId);
+                }
+            }
+            if (typeof loadCustody === 'function') loadCustody();
+            loadDashboard();
+        } else {
+            showToast(data.error || 'تعذر رفض الفاتورة', 'error');
+        }
+    } catch (e) {
+        showToast('فشل في الاتصال بالخادم', 'error');
+    }
+}
+
 function renderExpensesTable(expenses) {
     const tbody = document.getElementById('expenses-table-body');
     if (!tbody) return;
     tbody.innerHTML = '';
 
     const isEn = typeof currentLang !== 'undefined' && currentLang === 'en';
+    const isFinManager = isFinancialManagerUser();
     let totalSum = 0;
     let totalNoTax = 0;
     let totalTax = 0;
     let receiptsCount = 0;
+    let pendingCount = 0;
+    let pendingSum = 0;
     const catCounts = {};
 
     if (expenses.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="12" class="p-6 text-center text-slate-500">${isEn ? 'No expenses matching the search criteria' : 'لا توجد مصروفات مسجلة مطابقة لمعايير البحث'}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="13" class="p-6 text-center text-slate-500">${isEn ? 'No expenses matching the search criteria' : 'لا توجد مصروفات مسجلة مطابقة لمعايير البحث'}</td></tr>`;
     }
 
     expenses.forEach(e => {
-        totalSum += e.amount;
-        const noTax = (e.amount_without_tax && e.amount_without_tax > 0) ? e.amount_without_tax : e.amount;
-        totalNoTax += noTax;
-        totalTax += (e.tax_amount || 0);
-        if (e.invoice_file_path) receiptsCount++;
-        catCounts[e.category] = (catCounts[e.category] || 0) + e.amount;
+        const isApproved = (e.approval_status || 'approved') === 'approved';
+        const isPending = e.approval_status === 'pending';
+        const isRejected = e.approval_status === 'rejected';
+
+        if (isApproved) {
+            totalSum += e.amount;
+            const noTax = (e.amount_without_tax && e.amount_without_tax > 0) ? e.amount_without_tax : e.amount;
+            totalNoTax += noTax;
+            totalTax += (e.tax_amount || 0);
+            if (e.invoice_file_path) receiptsCount++;
+            catCounts[e.category] = (catCounts[e.category] || 0) + e.amount;
+        } else if (isPending) {
+            pendingCount++;
+            pendingSum += e.amount;
+        }
 
         const isTaxInv = e.is_tax_invoice === 1 || e.tax_amount > 0;
         const taxBadge = isTaxInv ? `
@@ -1716,8 +1815,50 @@ function renderExpensesTable(expenses) {
             <span class="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-800 text-slate-400 border border-slate-700">${isEn ? 'Non-Tax' : 'بدون ضريبة'}</span>
         `;
 
+        let approvalBadge = '';
+        if (isPending) {
+            approvalBadge = `
+                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30 animate-pulse" title="المصروف معلق ولم يُخصم من التدفق النقدي أو العهدة لحين تعميده">
+                    <i data-lucide="clock" class="w-3 h-3"></i>
+                    <span>بانتظار التعميد</span>
+                </span>
+                ${e.created_by ? `<div class="text-[9px] text-slate-400 mt-0.5" title="المدخل">بواسطة: ${escapeHtml(e.created_by)}</div>` : ''}
+            `;
+        } else if (isRejected) {
+            approvalBadge = `
+                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/15 text-rose-400 border border-rose-500/30" title="سبب الرفض: ${escapeHtml(e.approval_notes || 'مرفوض')}">
+                    <i data-lucide="x-circle" class="w-3 h-3"></i>
+                    <span>مرفوضة</span>
+                </span>
+                ${e.approval_notes ? `<div class="text-[9px] text-rose-400 mt-0.5" title="سبب الرفض">${escapeHtml(e.approval_notes)}</div>` : ''}
+            `;
+        } else {
+            approvalBadge = `
+                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30" title="معمد من: ${escapeHtml(e.approved_by || 'المدير المالي')}">
+                    <i data-lucide="shield-check" class="w-3 h-3"></i>
+                    <span>معمدة ✓</span>
+                </span>
+                ${e.approved_by ? `<div class="text-[9px] text-emerald-400/80 mt-0.5" title="المعتمد">${escapeHtml(e.approved_by)}</div>` : ''}
+            `;
+        }
+
+        let approvalActions = '';
+        if (isFinManager && isPending) {
+            approvalActions = `
+                <button onclick="approveExpense(${e.id})" title="تعميد الفاتورة والخصم من الحسابات" class="px-2 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[10px] inline-flex items-center gap-1 shadow transition">
+                    <i data-lucide="shield-check" class="w-3.5 h-3.5"></i>
+                    <span>تعميد</span>
+                </button>
+                <button onclick="rejectExpense(${e.id})" title="رفض الفاتورة" class="p-1 text-rose-400 hover:text-white rounded hover:bg-rose-600/30 transition">
+                    <i data-lucide="x" class="w-3.5 h-3.5"></i>
+                </button>
+            `;
+        }
+
+        const noTax = (e.amount_without_tax && e.amount_without_tax > 0) ? e.amount_without_tax : e.amount;
+
         const row = document.createElement('tr');
-        row.className = 'hover:bg-slate-800/60 transition';
+        row.className = `hover:bg-slate-800/60 transition ${isPending ? 'bg-amber-500/5' : ''}`;
         row.innerHTML = `
             <td class="p-3.5 whitespace-nowrap text-slate-400 font-mono text-xs">${e.expense_date}</td>
             <td class="p-3.5 whitespace-nowrap font-mono text-xs">
@@ -1765,7 +1906,11 @@ function renderExpensesTable(expenses) {
                 `}
             </td>
             <td class="p-3.5 text-center whitespace-nowrap">
+                ${approvalBadge}
+            </td>
+            <td class="p-3.5 text-center whitespace-nowrap">
                 <div class="flex items-center justify-center gap-1">
+                    ${approvalActions}
                     <button onclick="openTransferExpenseModal(${e.id})" title="${isEn ? 'Transfer to Another Project' : 'نقل المصروف لمشروع آخر'}" class="p-1.5 text-slate-400 hover:text-emerald-400 rounded-lg hover:bg-slate-800 transition">
                         <i data-lucide="arrow-right-left" class="w-4 h-4"></i>
                     </button>
@@ -2765,6 +2910,12 @@ async function submitExpenseForm(e) {
         formData.append('payment_status', document.getElementById('expense-payment-status')?.value || 'paid');
         formData.append('paid_amount', document.getElementById('expense-paid-amount')?.value || '');
 
+        const currAuthUser = currentUser || JSON.parse(localStorage.getItem('segieny_auth_user') || '{}');
+        formData.append('user_id', currAuthUser.id || '');
+        formData.append('user_role', currAuthUser.role || '');
+        formData.append('user_name', currAuthUser.name || '');
+        formData.append('created_by', currAuthUser.name ? `${currAuthUser.name} (${currAuthUser.role || 'فريق العمل'})` : (document.getElementById('expense-paid-by')?.value || 'مسؤول'));
+
         if (isGeneralMode) {
             // General expense without supplier
             formData.append('supplier_id', '');
@@ -2819,10 +2970,12 @@ async function submitExpenseForm(e) {
         const data = await res.json();
 
         if (data.success) {
-            if (data.has_price_increase) {
+            if (data.approval_status === 'pending') {
+                showToast('تم تسجيل الفاتورة بنجاح وهي بانتظار تعميد المدير المالي ولن تُخصم إلا بعد التعميد', 'info');
+            } else if (data.has_price_increase) {
                 showToast(`⚠️ تنبيه: تم رصد زيادة بسعر الفاتورة عن عرض السعر بمقدار +${formatCurrency(data.total_variance)} ر.س!`, 'warning');
             } else {
-                showToast(editId ? 'تم تحديث بيانات المصروف والفاتورة بنجاح!' : 'تم تسجيل المصروف بنجاح!');
+                showToast(editId ? 'تم تحديث بيانات المصروف والفاتورة بنجاح!' : 'تم تسجيل المصروف وتعميده بنجاح!');
             }
             closeModal('expense-modal');
             resetExpenseModal();
@@ -3766,10 +3919,15 @@ async function openProjectDetails(projectId) {
         // 2. Render project expenses
         const expTbody = document.getElementById('detail-expenses-tbody');
         expTbody.innerHTML = '';
+        const isFinManager = isFinancialManagerUser();
         if ((p.expenses || []).length === 0) {
-            expTbody.innerHTML = `<tr><td colspan="9" class="p-4 text-center text-slate-500">لا توجد مصاريف مسجلة لهذا المشروع بعد</td></tr>`;
+            expTbody.innerHTML = `<tr><td colspan="10" class="p-4 text-center text-slate-500">لا توجد مصاريف مسجلة لهذا المشروع بعد</td></tr>`;
         } else {
             p.expenses.forEach(e => {
+                const isApproved = (e.approval_status || 'approved') === 'approved';
+                const isPending = e.approval_status === 'pending';
+                const isRejected = e.approval_status === 'rejected';
+
                 const isTaxInv = e.is_tax_invoice === 1 || e.tax_amount > 0;
                 const taxBadge = isTaxInv ? `
                     <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
@@ -3779,9 +3937,32 @@ async function openProjectDetails(projectId) {
                     <div class="text-[10px] text-emerald-400 font-bold mt-0.5">مسترد: ${formatCurrency(e.tax_amount || 0)}</div>
                 ` : `<span class="px-2 py-0.5 rounded text-[10px] bg-slate-800 text-slate-400 border border-slate-700">بدون ضريبة</span>`;
 
+                let appBadge = '';
+                if (isPending) {
+                    appBadge = `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30 animate-pulse"><i data-lucide="clock" class="w-3 h-3"></i><span>بانتظار التعميد</span></span>`;
+                } else if (isRejected) {
+                    appBadge = `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/15 text-rose-400 border border-rose-500/30" title="${escapeHtml(e.approval_notes || '')}"><i data-lucide="x-circle" class="w-3 h-3"></i><span>مرفوضة</span></span>`;
+                } else {
+                    appBadge = `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30" title="${escapeHtml(e.approved_by || 'معمد')}"><i data-lucide="shield-check" class="w-3 h-3"></i><span>معمدة ✓</span></span>`;
+                }
+
+                let appActions = '';
+                if (isFinManager && isPending) {
+                    appActions = `
+                        <button onclick="approveExpense(${e.id})" title="تعميد الفاتورة والخصم من الحسابات" class="px-2 py-0.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[10px] inline-flex items-center gap-1 transition">
+                            <i data-lucide="shield-check" class="w-3 h-3"></i>
+                            <span>تعميد</span>
+                        </button>
+                        <button onclick="rejectExpense(${e.id})" title="رفض الفاتورة" class="p-1 text-rose-400 hover:text-white rounded hover:bg-rose-600/30 transition">
+                            <i data-lucide="x" class="w-3.5 h-3.5"></i>
+                        </button>
+                    `;
+                }
+
                 const noTax = (e.amount_without_tax && e.amount_without_tax > 0) ? e.amount_without_tax : e.amount;
 
                 const tr = document.createElement('tr');
+                tr.className = isPending ? 'bg-amber-500/5' : '';
                 tr.innerHTML = `
                     <td class="p-2.5 text-slate-400 whitespace-nowrap">${e.expense_date}</td>
                     <td class="p-2.5 font-bold text-white">
@@ -3799,7 +3980,11 @@ async function openProjectDetails(projectId) {
                         ` : '<span class="text-slate-600">-</span>'}
                     </td>
                     <td class="p-2.5 text-center whitespace-nowrap">
+                        ${appBadge}
+                    </td>
+                    <td class="p-2.5 text-center whitespace-nowrap">
                         <div class="flex items-center justify-center gap-1">
+                            ${appActions}
                             <button onclick="openTransferExpenseModal(${e.id})" title="نقل المصروف لمشروع آخر" class="p-1 text-slate-400 hover:text-emerald-400 rounded hover:bg-slate-800 transition">
                                 <i data-lucide="arrow-right-left" class="w-3.5 h-3.5"></i>
                             </button>
@@ -5673,9 +5858,17 @@ function generateProjectReportHtml(p) {
         const cat = e.category || 'عام';
         const catIdx = sortedCats.findIndex(function(c) { return c[0] === cat; });
         const catColor = catIdx >= 0 ? PALETTE[catIdx % PALETTE.length] : '#64748b';
-        expensesRows += '<tr><td style="text-align:center;color:#64748b;">' + (idx+1) + '</td><td style="font-family:monospace;font-size:9px;white-space:nowrap;">' + (e.expense_date || '-') + '</td><td><strong>' + escapeHtml(e.title) + '</strong></td><td><span style="background:' + catColor + '22;color:' + catColor + ';padding:1px 5px;border-radius:3px;font-size:8.5px;font-weight:700;border:1px solid ' + catColor + '55;">' + escapeHtml(cat) + '</span></td><td style="font-size:9px;">' + escapeHtml(e.paid_to || '-') + '</td><td style="font-family:monospace;font-weight:700;color:#dc2626;text-align:left;">' + formatCurrency(amt) + '</td><td style="text-align:center;"><span style="font-size:8.5px;background:' + (e.is_tax_invoice ? '#eff6ff' : '#f8fafc') + ';color:' + (e.is_tax_invoice ? '#2563eb' : '#64748b') + ';padding:1px 4px;border-radius:3px;border:1px solid ' + (e.is_tax_invoice ? '#bfdbfe' : '#e2e8f0') + ';">' + (e.is_tax_invoice ? '🧾 ضريبية' : 'بدون') + '</span></td></tr>';
+        const isApproved = (e.approval_status || 'approved') === 'approved';
+        const isPending = e.approval_status === 'pending';
+        const stBadge = isApproved 
+            ? '<span style="font-size:8px;background:#f0fdf4;color:#166534;padding:1px 4px;border-radius:3px;border:1px solid #86efac;font-weight:700;">معمد ✓</span>'
+            : isPending
+            ? '<span style="font-size:8px;background:#fffbeb;color:#b45309;padding:1px 4px;border-radius:3px;border:1px solid #fde68a;font-weight:700;">بانتظار التعميد</span>'
+            : '<span style="font-size:8px;background:#fff1f2;color:#9f1239;padding:1px 4px;border-radius:3px;border:1px solid #fecdd3;font-weight:700;">مرفوض</span>';
+
+        expensesRows += '<tr><td style="text-align:center;color:#64748b;">' + (idx+1) + '</td><td style="font-family:monospace;font-size:9px;white-space:nowrap;">' + (e.expense_date || '-') + '</td><td><strong>' + escapeHtml(e.title) + '</strong></td><td><span style="background:' + catColor + '22;color:' + catColor + ';padding:1px 5px;border-radius:3px;font-size:8.5px;font-weight:700;border:1px solid ' + catColor + '55;">' + escapeHtml(cat) + '</span></td><td style="font-size:9px;">' + escapeHtml(e.paid_to || '-') + '</td><td style="font-family:monospace;font-weight:700;color:#dc2626;text-align:left;">' + formatCurrency(amt) + '</td><td style="text-align:center;"><span style="font-size:8.5px;background:' + (e.is_tax_invoice ? '#eff6ff' : '#f8fafc') + ';color:' + (e.is_tax_invoice ? '#2563eb' : '#64748b') + ';padding:1px 4px;border-radius:3px;border:1px solid ' + (e.is_tax_invoice ? '#bfdbfe' : '#e2e8f0') + ';">' + (e.is_tax_invoice ? '🧾 ضريبية' : 'بدون') + '</span></td><td style="text-align:center;">' + stBadge + '</td></tr>';
     });
-    if (!expensesRows) expensesRows = '<tr><td colspan="7" style="text-align:center;color:#64748b;padding:10px;">لا توجد مصروفات</td></tr>';
+    if (!expensesRows) expensesRows = '<tr><td colspan="8" style="text-align:center;color:#64748b;padding:10px;">لا توجد مصروفات</td></tr>';
 
     // Subcontractors
     let subsSection = '';
@@ -5700,7 +5893,7 @@ function generateProjectReportHtml(p) {
     }).join('');
 
     // Build full HTML
-    const printHtml = '<!DOCTYPE html>\n<html dir="rtl" lang="ar">\n<head>\n<meta charset="UTF-8">\n<title>تقرير - ' + escapeHtml(p.name) + '</title>\n<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap" rel="stylesheet">\n<style>\n*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}\n@page{size:A4;margin:12mm 10mm 10mm 10mm;}\nbody{font-family:\'Cairo\',system-ui,sans-serif;background:#fff;color:#1e293b;font-size:10.5px;line-height:1.45;-webkit-print-color-adjust:exact;print-color-adjust:exact;}\n.action-bar{background:#f1f5f9;border-bottom:1px solid #e2e8f0;padding:8px 14px;display:flex;align-items:center;gap:10px;}\n.btn-print{background:#059669;color:#fff;border:none;padding:7px 22px;font-size:13px;font-weight:700;border-radius:6px;cursor:pointer;font-family:inherit;}\n@media print{.action-bar{display:none!important;}}\n.report-header{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #1e293b;padding-bottom:8px;margin-bottom:10px;}\n.company-name{font-size:17px;font-weight:900;color:#1e293b;}\n.company-sub{font-size:10px;color:#059669;font-weight:700;margin-top:2px;}\n.report-badge{display:inline-block;background:#1e293b;color:#fff;font-weight:800;font-size:11.5px;padding:3px 12px;border-radius:5px;margin-top:5px;}\n.header-meta{text-align:left;font-size:9.5px;color:#64748b;line-height:1.7;}\n.header-meta strong{color:#1e293b;}\n.info-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;border:1px solid #e2e8f0;border-radius:6px;padding:7px 8px;background:#f8fafc;margin-bottom:10px;}\n.info-label{font-size:8.5px;color:#64748b;font-weight:600;display:block;}\n.info-value{font-size:11px;font-weight:800;color:#0f172a;}\n.kpi-row{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:8px;}\n.kpi-card{border-radius:7px;padding:8px 10px;border:1px solid;text-align:center;}\n.kpi-card .kpi-label{font-size:8.5px;font-weight:700;margin-bottom:3px;}\n.kpi-card .kpi-value{font-size:13px;font-weight:900;font-family:monospace;}\n.kpi-slate{background:#f8fafc;border-color:#cbd5e1;color:#1e293b;}\n.kpi-red{background:#fff1f2;border-color:#fecdd3;}\n.kpi-red .kpi-value{color:#dc2626;}\n.kpi-green{background:#f0fdf4;border-color:#bbf7d0;}\n.kpi-green .kpi-value{color:#059669;}\n.kpi-amber{background:#fffbeb;border-color:#fde68a;}\n.kpi-amber .kpi-value{color:#d97706;}\n.kpi-blue{background:#eff6ff;border-color:#bfdbfe;}\n.kpi-blue .kpi-value{color:#2563eb;}\n.kpi-purple{background:#faf5ff;border-color:#e9d5ff;}\n.kpi-purple .kpi-value{color:#7c3aed;}\n.kpi-teal{background:#f0fdfa;border-color:#99f6e4;}\n.kpi-teal .kpi-value{color:#0f766e;}\n.cf-banner{display:flex;align-items:center;justify-content:space-between;border-radius:8px;padding:10px 14px;margin-bottom:10px;border:1.5px solid;}\n.cf-banner.surplus{background:#f0fdf4;border-color:#059669;}\n.cf-banner.deficit{background:#fff1f2;border-color:#e11d48;}\n.cf-banner-label{font-weight:900;font-size:12px;}\n.cf-banner.surplus .cf-banner-label{color:#065f46;}\n.cf-banner.deficit .cf-banner-label{color:#9f1239;}\n.cf-banner-sub{font-size:9px;color:#475569;margin-top:2px;}\n.cf-banner-val{font-size:20px;font-weight:900;font-family:monospace;}\n.cf-banner.surplus .cf-banner-val{color:#059669;}\n.cf-banner.deficit .cf-banner-val{color:#dc2626;}\n.dash-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;}\n.dash-card{border:1px solid #e2e8f0;border-radius:7px;padding:9px 11px;background:#fff;}\n.dash-card-title{font-size:10.5px;font-weight:900;color:#1e293b;margin-bottom:7px;border-bottom:1px solid #f1f5f9;padding-bottom:4px;}\n.section-title{font-size:11.5px;font-weight:900;border-right:4px solid #059669;padding-right:8px;margin:12px 0 6px 0;color:#1e293b;}\ntable{width:100%;border-collapse:collapse;margin-bottom:6px;font-size:9.5px;}\nth{background:#1e293b;color:#fff;font-weight:700;padding:5px 6px;text-align:right;font-size:9.5px;border:1px solid #334155;}\ntd{border:1px solid #e2e8f0;padding:4px 5px;text-align:right;vertical-align:middle;}\ntr:nth-child(even) td{background:#f8fafc;}\n.total-row td{background:#1e293b!important;color:#fff!important;font-weight:900;padding:5px 6px;}\n.sigs{display:flex;justify-content:space-between;margin-top:18px;padding-top:12px;border-top:2px solid #1e293b;page-break-inside:avoid;}\n.sig-col{width:30%;text-align:center;font-size:9.5px;font-weight:700;}\n.sig-line{margin-top:30px;border-top:1px solid #94a3b8;padding-top:4px;font-size:9px;color:#64748b;}\n.cf-legend{display:flex;gap:12px;font-size:8.5px;margin-bottom:5px;flex-wrap:wrap;}\n.no-break{page-break-inside:avoid;}\n@media print{body{font-size:9.5px;}table{page-break-inside:auto;}tr{page-break-inside:avoid;page-break-after:auto;}thead{display:table-header-group;}tfoot{display:table-footer-group;}.section-title{page-break-after:avoid;}svg{display:block!important;}}\n</style>\n</head>\n<body>\n<div class="action-bar"><button class="btn-print" onclick="window.print()">🖨️ طباعة / حفظ PDF</button><span style="color:#64748b;font-size:10.5px;margin-right:10px;">يتضمن: لوحة المؤشرات · التدفق النقدي · الرسوم البيانية · جداول البيانات</span></div>\n<div class="report-header"><div><div class="company-name">شركة مقاولات السجيني العامة</div><div class="company-sub">إدارة المشاريع الإنشائية · الرقابة المالية · تحليل التدفقات النقدية</div><div class="report-badge">📋 تقرير الموقف التنفيذي والمالي المتكامل</div></div><div class="header-meta"><div><strong>كود المشروع:</strong> ' + escapeHtml(p.code || 'PRJ-000') + '</div><div><strong>تاريخ التقرير:</strong> ' + todayStr + '</div><div><strong>وقت الاستخراج:</strong> ' + printTimeStr + '</div><div><strong>حالة المشروع:</strong> ' + (p.status === 'completed' ? '<strong style="color:#059669">مكتمل ✓</strong>' : '<strong style="color:#d97706">جاري التنفيذ</strong>') + '</div><div><strong>نسبة الإنجاز:</strong> <strong style="color:#2563eb;">' + progressPct + '%</strong></div></div></div>\n<div class="info-grid"><div><span class="info-label">اسم المشروع</span><span class="info-value">' + escapeHtml(p.name) + '</span></div><div><span class="info-label">العميل / المالك</span><span class="info-value">' + escapeHtml(p.client_name || '-') + '</span></div><div><span class="info-label">الموقع</span><span class="info-value">' + escapeHtml(p.location || '-') + '</span></div><div><span class="info-label">مدير المشروع</span><span class="info-value">' + escapeHtml(p.manager_name || 'م. السجيني') + '</span></div><div><span class="info-label">تاريخ البدء</span><span class="info-value" style="font-family:monospace;">' + escapeHtml(p.start_date || '-') + '</span></div><div><span class="info-label">تاريخ التسليم</span><span class="info-value" style="font-family:monospace;">' + escapeHtml(p.end_date || '-') + '</span></div><div><span class="info-label">نسبة التحصيل</span><span class="info-value" style="color:#d97706;">' + colRate + '%</span></div><div><span class="info-label">نسبة الإنجاز</span><span class="info-value" style="color:#059669;">' + progressPct + '%</span></div></div>\n' + topKpiHtml + '\n<div class="cf-banner ' + (netCashFlow >= 0 ? 'surplus' : 'deficit') + '"><div><div class="cf-banner-label">📊 الرقابة على التدفقات النقدية ومطابقة حساب البنك (الرصيد الفعلي الحالي في البنك: ' + formatCurrency(bankBalance) + ')</div><div class="cf-banner-sub">المحصل من العميل: <strong>' + formatCurrency(totalReceived) + '</strong> | إجمالي المنصرف: <strong>' + formatCurrency(totalSpent) + '</strong> | المتبقي كمصروف (الميزانية المتبقية): <strong>' + formatCurrency(remainingBudget) + '</strong> | المتبقي للتحصيل: <strong>' + formatCurrency(totalPending) + '</strong></div></div><div style="text-align:left;"><div class="cf-banner-val">' + formatCurrency(projectedFinalBankCash) + '</div><div style="font-size:9px;color:#475569;font-weight:700;">رصيد البنك المتوقع عند اكتمال هذا المشروع</div></div></div>\n<div class="dash-grid no-break"><div class="dash-card"><div class="dash-card-title">📊 مؤشرات الأداء المقارن</div><div style="margin-bottom:9px;"><div style="display:flex;justify-content:space-between;font-size:9.5px;margin-bottom:3px;font-weight:700;"><span>🏗️ نسبة الإنجاز الميداني</span><span style="color:#059669;">' + progressPct + '%</span></div>' + svgHBar(progressPct, '#059669', '#dcfce7', 290, 11) + '</div><div style="margin-bottom:9px;"><div style="display:flex;justify-content:space-between;font-size:9.5px;margin-bottom:3px;font-weight:700;"><span>💸 نسبة استهلاك الميزانية</span><span style="color:' + (budgetBurnPct > 90 ? '#dc2626' : '#2563eb') + ';">' + budgetBurnPct + '%</span></div>' + svgHBar(budgetBurnPct, budgetBurnPct > 90 ? '#dc2626' : '#2563eb', '#eff6ff', 290, 11) + '</div><div style="margin-bottom:9px;"><div style="display:flex;justify-content:space-between;font-size:9.5px;margin-bottom:3px;font-weight:700;"><span>💰 نسبة التحصيل من قيمة العقد</span><span style="color:#d97706;">' + collectionPct + '%</span></div>' + svgHBar(collectionPct, '#d97706', '#fffbeb', 290, 11) + '</div><div><div style="display:flex;justify-content:space-between;font-size:9.5px;margin-bottom:3px;font-weight:700;"><span>💸 بنود الصرف (أعلى 5 فئات)</span></div>' + catBarsHtml + '</div></div><div class="dash-card"><div class="dash-card-title">🍩 توزيع بنود الصرف حسب الفئة</div><div style="display:flex;align-items:center;gap:10px;"><svg width="120" height="120" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0;">' + donutPaths + '<text x="60" y="57" text-anchor="middle" font-size="8" fill="#64748b">إجمالي</text><text x="60" y="68" text-anchor="middle" font-size="7.5" fill="#1e293b" font-weight="bold">' + (totalExpensesSum/1000).toFixed(0) + 'k</text></svg><div style="flex:1;">' + (donutLegend || '<div style="color:#94a3b8;font-size:9px;">لا بيانات</div>') + '</div></div></div></div>\n<div class="dash-card no-break" style="margin-bottom:10px;"><div class="dash-card-title">📉 مخطط التدفقات النقدية التراكمي (الرصيد الجاري للمشروع)</div><div class="cf-legend"><span><span style="display:inline-block;width:14px;height:8px;background:#059669;opacity:0.5;border-radius:2px;"></span> التحصيل من العميل</span><span><span style="display:inline-block;width:14px;height:8px;background:#e11d48;opacity:0.5;border-radius:2px;"></span> المصروفات</span><span><span style="display:inline-block;width:14px;height:3px;background:#2563eb;border-radius:1px;margin-top:3px;"></span> الرصيد التراكمي</span></div>' + buildCashFlowSVG(cfRows) + '</div>\n<div class="section-title">💵 1. جدول التدفقات النقدية الشهرية للمشروع (المنفذ الفعلي والمتبقي لإتمام المشروع)</div>\n<table><thead><tr><th style="width:110px;">الفترة / الشهر</th><th>التحصيل (دخل)</th><th>المصروفات (خروج)</th><th>صافي التدفق</th><th>الرصيد التراكمي</th></tr></thead><tbody>' + cfTableRows + '</tbody><tfoot><tr class="total-row"><td style="text-align:center;">إجمالي المنفذ الفعلي حتى تاريخه (' + cfRows.length + ' شهر)</td><td style="font-family:monospace;">' + formatCurrency(totalReceived) + '</td><td style="font-family:monospace;">' + formatCurrency(totalSpent) + '</td><td style="font-family:monospace;">' + (netCashFlow >= 0 ? '+' : '') + formatCurrency(netCashFlow) + '</td><td style="font-family:monospace;">' + (netCashFlow >= 0 ? '+' : '') + formatCurrency(netCashFlow) + '</td></tr><tr style="background:#1e3a8a;color:#fff;font-weight:900;"><td style="text-align:center;padding:5px 6px;">✨ الإجمالي الشامل التقديري للمشروع (المنفذ + المتبقي)</td><td style="font-family:monospace;padding:5px 6px;color:#86efac;">' + formatCurrency(totalReceived + totalPending) + '</td><td style="font-family:monospace;padding:5px 6px;color:#fecdd3;">' + formatCurrency(totalSpent + remainingBudget) + '</td><td style="font-family:monospace;padding:5px 6px;color:#93c5fd;">' + (projectedFinalProjectProfit >= 0 ? '+' : '') + formatCurrency(projectedFinalProjectProfit) + '</td><td style="font-family:monospace;padding:5px 6px;color:#fef08a;">رصيد البنك: ' + formatCurrency(projectedFinalBankCash) + '</td></tr></tfoot></table>\n' + clientPaymentsSectionHtml + '\n<div class="section-title">🏗️ 3. مراحل التنفيذ الفني والإنجاز الميداني (WBS)</div>\n<table><thead><tr><th style="width:25px;">م</th><th>اسم المرحلة</th><th style="width:50px;text-align:center;">الوزن %</th><th style="width:100px;text-align:center;">نسبة الإنجاز</th><th>سعر التكلفة</th><th>سعر البيع</th><th style="width:65px;text-align:center;">الحالة</th></tr></thead><tbody>' + phasesRows + '</tbody><tfoot><tr class="total-row"><td colspan="2" style="text-align:center;">الإجمالي (' + (p.phases || []).length + ' مرحلة)</td><td style="text-align:center;">' + totalPhasesWeight.toFixed(0) + '%</td><td style="text-align:center;">' + progressPct + '%</td><td style="font-family:monospace;">' + formatCurrency(totalPhasesCost) + '</td><td style="font-family:monospace;">' + formatCurrency(totalPhasesSelling) + '</td><td></td></tr></tfoot></table>\n' + subsSection + '\n<div class="section-title">📑 ' + (subsSection ? '5' : '4') + '. سجل كافة مصروفات وفواتير المشروع (' + exps.length + ' بند)</div>\n<table><thead><tr><th style="width:22px;">م</th><th style="width:72px;">التاريخ</th><th>بيان الصرف / الفاتورة</th><th style="width:75px;">الفئة</th><th style="width:80px;">الجهة / المدفوع له</th><th style="width:90px;">المبلغ</th><th style="width:62px;text-align:center;">نوع الفاتورة</th></tr></thead><tbody>' + expensesRows + '</tbody><tfoot><tr class="total-row"><td colspan="5" style="text-align:center;">إجمالي كافة مصروفات المشروع (' + exps.length + ' بند)</td><td style="font-family:monospace;">' + formatCurrency(totalExpensesSum) + '</td><td></td></tr></tfoot></table>\n<div class="sigs no-break"><div class="sig-col"><div>المهندس الميداني</div><div style="font-size:8px;color:#64748b;margin-top:3px;">' + escapeHtml(p.manager_name || '-') + '</div><div class="sig-line">التوقيع: ................................</div></div><div class="sig-col"><div>المراجعة المالية</div><div style="font-size:8px;color:#64748b;margin-top:3px;">الإدارة المالية</div><div class="sig-line">التوقيع: ................................</div></div><div class="sig-col"><div>اعتماد مدير عام المشاريع</div><div style="font-size:8px;color:#64748b;margin-top:3px;">شركة مقاولات السجيني</div><div class="sig-line">الختم الرسمي: ..........................</div></div></div>\n<div style="text-align:center;margin-top:8px;font-size:8px;color:#94a3b8;border-top:1px solid #e2e8f0;padding-top:5px;">تم إعداد هذا التقرير بواسطة نظام إدارة مشاريع السجيني — ' + todayStr + ' — كافة الأرقام بالريال السعودي (ر.س)</div>\n</body>\n</html>';
+    const printHtml = '<!DOCTYPE html>\n<html dir="rtl" lang="ar">\n<head>\n<meta charset="UTF-8">\n<title>تقرير - ' + escapeHtml(p.name) + '</title>\n<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap" rel="stylesheet">\n<style>\n*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}\n@page{size:A4;margin:12mm 10mm 10mm 10mm;}\nbody{font-family:\'Cairo\',system-ui,sans-serif;background:#fff;color:#1e293b;font-size:10.5px;line-height:1.45;-webkit-print-color-adjust:exact;print-color-adjust:exact;}\n.action-bar{background:#f1f5f9;border-bottom:1px solid #e2e8f0;padding:8px 14px;display:flex;align-items:center;gap:10px;}\n.btn-print{background:#059669;color:#fff;border:none;padding:7px 22px;font-size:13px;font-weight:700;border-radius:6px;cursor:pointer;font-family:inherit;}\n@media print{.action-bar{display:none!important;}}\n.report-header{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #1e293b;padding-bottom:8px;margin-bottom:10px;}\n.company-name{font-size:17px;font-weight:900;color:#1e293b;}\n.company-sub{font-size:10px;color:#059669;font-weight:700;margin-top:2px;}\n.report-badge{display:inline-block;background:#1e293b;color:#fff;font-weight:800;font-size:11.5px;padding:3px 12px;border-radius:5px;margin-top:5px;}\n.header-meta{text-align:left;font-size:9.5px;color:#64748b;line-height:1.7;}\n.header-meta strong{color:#1e293b;}\n.info-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;border:1px solid #e2e8f0;border-radius:6px;padding:7px 8px;background:#f8fafc;margin-bottom:10px;}\n.info-label{font-size:8.5px;color:#64748b;font-weight:600;display:block;}\n.info-value{font-size:11px;font-weight:800;color:#0f172a;}\n.kpi-row{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:8px;}\n.kpi-card{border-radius:7px;padding:8px 10px;border:1px solid;text-align:center;}\n.kpi-card .kpi-label{font-size:8.5px;font-weight:700;margin-bottom:3px;}\n.kpi-card .kpi-value{font-size:13px;font-weight:900;font-family:monospace;}\n.kpi-slate{background:#f8fafc;border-color:#cbd5e1;color:#1e293b;}\n.kpi-red{background:#fff1f2;border-color:#fecdd3;}\n.kpi-red .kpi-value{color:#dc2626;}\n.kpi-green{background:#f0fdf4;border-color:#bbf7d0;}\n.kpi-green .kpi-value{color:#059669;}\n.kpi-amber{background:#fffbeb;border-color:#fde68a;}\n.kpi-amber .kpi-value{color:#d97706;}\n.kpi-blue{background:#eff6ff;border-color:#bfdbfe;}\n.kpi-blue .kpi-value{color:#2563eb;}\n.kpi-purple{background:#faf5ff;border-color:#e9d5ff;}\n.kpi-purple .kpi-value{color:#7c3aed;}\n.kpi-teal{background:#f0fdfa;border-color:#99f6e4;}\n.kpi-teal .kpi-value{color:#0f766e;}\n.cf-banner{display:flex;align-items:center;justify-content:space-between;border-radius:8px;padding:10px 14px;margin-bottom:10px;border:1.5px solid;}\n.cf-banner.surplus{background:#f0fdf4;border-color:#059669;}\n.cf-banner.deficit{background:#fff1f2;border-color:#e11d48;}\n.cf-banner-label{font-weight:900;font-size:12px;}\n.cf-banner.surplus .cf-banner-label{color:#065f46;}\n.cf-banner.deficit .cf-banner-label{color:#9f1239;}\n.cf-banner-sub{font-size:9px;color:#475569;margin-top:2px;}\n.cf-banner-val{font-size:20px;font-weight:900;font-family:monospace;}\n.cf-banner.surplus .cf-banner-val{color:#059669;}\n.cf-banner.deficit .cf-banner-val{color:#dc2626;}\n.dash-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;}\n.dash-card{border:1px solid #e2e8f0;border-radius:7px;padding:9px 11px;background:#fff;}\n.dash-card-title{font-size:10.5px;font-weight:900;color:#1e293b;margin-bottom:7px;border-bottom:1px solid #f1f5f9;padding-bottom:4px;}\n.section-title{font-size:11.5px;font-weight:900;border-right:4px solid #059669;padding-right:8px;margin:12px 0 6px 0;color:#1e293b;}\ntable{width:100%;border-collapse:collapse;margin-bottom:6px;font-size:9.5px;}\nth{background:#1e293b;color:#fff;font-weight:700;padding:5px 6px;text-align:right;font-size:9.5px;border:1px solid #334155;}\ntd{border:1px solid #e2e8f0;padding:4px 5px;text-align:right;vertical-align:middle;}\ntr:nth-child(even) td{background:#f8fafc;}\n.total-row td{background:#1e293b!important;color:#fff!important;font-weight:900;padding:5px 6px;}\n.sigs{display:flex;justify-content:space-between;margin-top:18px;padding-top:12px;border-top:2px solid #1e293b;page-break-inside:avoid;}\n.sig-col{width:30%;text-align:center;font-size:9.5px;font-weight:700;}\n.sig-line{margin-top:30px;border-top:1px solid #94a3b8;padding-top:4px;font-size:9px;color:#64748b;}\n.cf-legend{display:flex;gap:12px;font-size:8.5px;margin-bottom:5px;flex-wrap:wrap;}\n.no-break{page-break-inside:avoid;}\n@media print{body{font-size:9.5px;}table{page-break-inside:auto;}tr{page-break-inside:avoid;page-break-after:auto;}thead{display:table-header-group;}tfoot{display:table-footer-group;}.section-title{page-break-after:avoid;}svg{display:block!important;}}\n</style>\n</head>\n<body>\n<div class="action-bar"><button class="btn-print" onclick="window.print()">🖨️ طباعة / حفظ PDF</button><span style="color:#64748b;font-size:10.5px;margin-right:10px;">يتضمن: لوحة المؤشرات · التدفق النقدي · الرسوم البيانية · جداول البيانات</span></div>\n<div class="report-header"><div><div class="company-name">شركة مقاولات السجيني العامة</div><div class="company-sub">إدارة المشاريع الإنشائية · الرقابة المالية · تحليل التدفقات النقدية</div><div class="report-badge">📋 تقرير الموقف التنفيذي والمالي المتكامل</div></div><div class="header-meta"><div><strong>كود المشروع:</strong> ' + escapeHtml(p.code || 'PRJ-000') + '</div><div><strong>تاريخ التقرير:</strong> ' + todayStr + '</div><div><strong>وقت الاستخراج:</strong> ' + printTimeStr + '</div><div><strong>حالة المشروع:</strong> ' + (p.status === 'completed' ? '<strong style="color:#059669">مكتمل ✓</strong>' : '<strong style="color:#d97706">جاري التنفيذ</strong>') + '</div><div><strong>نسبة الإنجاز:</strong> <strong style="color:#2563eb;">' + progressPct + '%</strong></div></div></div>\n<div class="info-grid"><div><span class="info-label">اسم المشروع</span><span class="info-value">' + escapeHtml(p.name) + '</span></div><div><span class="info-label">العميل / المالك</span><span class="info-value">' + escapeHtml(p.client_name || '-') + '</span></div><div><span class="info-label">الموقع</span><span class="info-value">' + escapeHtml(p.location || '-') + '</span></div><div><span class="info-label">مدير المشروع</span><span class="info-value">' + escapeHtml(p.manager_name || 'م. السجيني') + '</span></div><div><span class="info-label">تاريخ البدء</span><span class="info-value" style="font-family:monospace;">' + escapeHtml(p.start_date || '-') + '</span></div><div><span class="info-label">تاريخ التسليم</span><span class="info-value" style="font-family:monospace;">' + escapeHtml(p.end_date || '-') + '</span></div><div><span class="info-label">نسبة التحصيل</span><span class="info-value" style="color:#d97706;">' + colRate + '%</span></div><div><span class="info-label">نسبة الإنجاز</span><span class="info-value" style="color:#059669;">' + progressPct + '%</span></div></div>\n' + topKpiHtml + '\n<div class="cf-banner ' + (netCashFlow >= 0 ? 'surplus' : 'deficit') + '"><div><div class="cf-banner-label">📊 الرقابة على التدفقات النقدية ومطابقة حساب البنك (الرصيد الفعلي الحالي في البنك: ' + formatCurrency(bankBalance) + ')</div><div class="cf-banner-sub">المحصل من العميل: <strong>' + formatCurrency(totalReceived) + '</strong> | إجمالي المنصرف: <strong>' + formatCurrency(totalSpent) + '</strong> | المتبقي كمصروف (الميزانية المتبقية): <strong>' + formatCurrency(remainingBudget) + '</strong> | المتبقي للتحصيل: <strong>' + formatCurrency(totalPending) + '</strong></div></div><div style="text-align:left;"><div class="cf-banner-val">' + formatCurrency(projectedFinalBankCash) + '</div><div style="font-size:9px;color:#475569;font-weight:700;">رصيد البنك المتوقع عند اكتمال هذا المشروع</div></div></div>\n<div class="dash-grid no-break"><div class="dash-card"><div class="dash-card-title">📊 مؤشرات الأداء المقارن</div><div style="margin-bottom:9px;"><div style="display:flex;justify-content:space-between;font-size:9.5px;margin-bottom:3px;font-weight:700;"><span>🏗️ نسبة الإنجاز الميداني</span><span style="color:#059669;">' + progressPct + '%</span></div>' + svgHBar(progressPct, '#059669', '#dcfce7', 290, 11) + '</div><div style="margin-bottom:9px;"><div style="display:flex;justify-content:space-between;font-size:9.5px;margin-bottom:3px;font-weight:700;"><span>💸 نسبة استهلاك الميزانية</span><span style="color:' + (budgetBurnPct > 90 ? '#dc2626' : '#2563eb') + ';">' + budgetBurnPct + '%</span></div>' + svgHBar(budgetBurnPct, budgetBurnPct > 90 ? '#dc2626' : '#2563eb', '#eff6ff', 290, 11) + '</div><div style="margin-bottom:9px;"><div style="display:flex;justify-content:space-between;font-size:9.5px;margin-bottom:3px;font-weight:700;"><span>💰 نسبة التحصيل من قيمة العقد</span><span style="color:#d97706;">' + collectionPct + '%</span></div>' + svgHBar(collectionPct, '#d97706', '#fffbeb', 290, 11) + '</div><div><div style="display:flex;justify-content:space-between;font-size:9.5px;margin-bottom:3px;font-weight:700;"><span>💸 بنود الصرف (أعلى 5 فئات)</span></div>' + catBarsHtml + '</div></div><div class="dash-card"><div class="dash-card-title">🍩 توزيع بنود الصرف حسب الفئة</div><div style="display:flex;align-items:center;gap:10px;"><svg width="120" height="120" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0;">' + donutPaths + '<text x="60" y="57" text-anchor="middle" font-size="8" fill="#64748b">إجمالي</text><text x="60" y="68" text-anchor="middle" font-size="7.5" fill="#1e293b" font-weight="bold">' + (totalExpensesSum/1000).toFixed(0) + 'k</text></svg><div style="flex:1;">' + (donutLegend || '<div style="color:#94a3b8;font-size:9px;">لا بيانات</div>') + '</div></div></div></div>\n<div class="dash-card no-break" style="margin-bottom:10px;"><div class="dash-card-title">📉 مخطط التدفقات النقدية التراكمي (الرصيد الجاري للمشروع)</div><div class="cf-legend"><span><span style="display:inline-block;width:14px;height:8px;background:#059669;opacity:0.5;border-radius:2px;"></span> التحصيل من العميل</span><span><span style="display:inline-block;width:14px;height:8px;background:#e11d48;opacity:0.5;border-radius:2px;"></span> المصروفات</span><span><span style="display:inline-block;width:14px;height:3px;background:#2563eb;border-radius:1px;margin-top:3px;"></span> الرصيد التراكمي</span></div>' + buildCashFlowSVG(cfRows) + '</div>\n<div class="section-title">💵 1. جدول التدفقات النقدية الشهرية للمشروع (المنفذ الفعلي والمتبقي لإتمام المشروع)</div>\n<table><thead><tr><th style="width:110px;">الفترة / الشهر</th><th>التحصيل (دخل)</th><th>المصروفات (خروج)</th><th>صافي التدفق</th><th>الرصيد التراكمي</th></tr></thead><tbody>' + cfTableRows + '</tbody><tfoot><tr class="total-row"><td style="text-align:center;">إجمالي المنفذ الفعلي حتى تاريخه (' + cfRows.length + ' شهر)</td><td style="font-family:monospace;">' + formatCurrency(totalReceived) + '</td><td style="font-family:monospace;">' + formatCurrency(totalSpent) + '</td><td style="font-family:monospace;">' + (netCashFlow >= 0 ? '+' : '') + formatCurrency(netCashFlow) + '</td><td style="font-family:monospace;">' + (netCashFlow >= 0 ? '+' : '') + formatCurrency(netCashFlow) + '</td></tr><tr style="background:#1e3a8a;color:#fff;font-weight:900;"><td style="text-align:center;padding:5px 6px;">✨ الإجمالي الشامل التقديري للمشروع (المنفذ + المتبقي)</td><td style="font-family:monospace;padding:5px 6px;color:#86efac;">' + formatCurrency(totalReceived + totalPending) + '</td><td style="font-family:monospace;padding:5px 6px;color:#fecdd3;">' + formatCurrency(totalSpent + remainingBudget) + '</td><td style="font-family:monospace;padding:5px 6px;color:#93c5fd;">' + (projectedFinalProjectProfit >= 0 ? '+' : '') + formatCurrency(projectedFinalProjectProfit) + '</td><td style="font-family:monospace;padding:5px 6px;color:#fef08a;">رصيد البنك: ' + formatCurrency(projectedFinalBankCash) + '</td></tr></tfoot></table>\n' + clientPaymentsSectionHtml + '\n<div class="section-title">🏗️ 3. مراحل التنفيذ الفني والإنجاز الميداني (WBS)</div>\n<table><thead><tr><th style="width:25px;">م</th><th>اسم المرحلة</th><th style="width:50px;text-align:center;">الوزن %</th><th style="width:100px;text-align:center;">نسبة الإنجاز</th><th>سعر التكلفة</th><th>سعر البيع</th><th style="width:65px;text-align:center;">الحالة</th></tr></thead><tbody>' + phasesRows + '</tbody><tfoot><tr class="total-row"><td colspan="2" style="text-align:center;">الإجمالي (' + (p.phases || []).length + ' مرحلة)</td><td style="text-align:center;">' + totalPhasesWeight.toFixed(0) + '%</td><td style="text-align:center;">' + progressPct + '%</td><td style="font-family:monospace;">' + formatCurrency(totalPhasesCost) + '</td><td style="font-family:monospace;">' + formatCurrency(totalPhasesSelling) + '</td><td></td></tr></tfoot></table>\n' + subsSection + '\n<div class="section-title">📑 ' + (subsSection ? '5' : '4') + '. سجل كافة مصروفات وفواتير المشروع (' + exps.length + ' بند)</div>\n<table><thead><tr><th style="width:22px;">م</th><th style="width:72px;">التاريخ</th><th>بيان الصرف / الفاتورة</th><th style="width:75px;">الفئة</th><th style="width:80px;">الجهة / المدفوع له</th><th style="width:90px;">المبلغ</th><th style="width:62px;text-align:center;">نوع الفاتورة</th><th style="width:65px;text-align:center;">التعميد</th></tr></thead><tbody>' + expensesRows + '</tbody><tfoot><tr class="total-row"><td colspan="5" style="text-align:center;">إجمالي كافة مصروفات المشروع (' + exps.length + ' بند)</td><td style="font-family:monospace;">' + formatCurrency(totalExpensesSum) + '</td><td colspan="2"></td></tr></tfoot></table>\n<div class="sigs no-break"><div class="sig-col"><div>المهندس الميداني</div><div style="font-size:8px;color:#64748b;margin-top:3px;">' + escapeHtml(p.manager_name || '-') + '</div><div class="sig-line">التوقيع: ................................</div></div><div class="sig-col"><div>المراجعة المالية</div><div style="font-size:8px;color:#64748b;margin-top:3px;">الإدارة المالية</div><div class="sig-line">التوقيع: ................................</div></div><div class="sig-col"><div>اعتماد مدير عام المشاريع</div><div style="font-size:8px;color:#64748b;margin-top:3px;">شركة مقاولات السجيني</div><div class="sig-line">الختم الرسمي: ..........................</div></div></div>\n<div style="text-align:center;margin-top:8px;font-size:8px;color:#94a3b8;border-top:1px solid #e2e8f0;padding-top:5px;">تم إعداد هذا التقرير بواسطة نظام إدارة مشاريع السجيني — ' + todayStr + ' — كافة الأرقام بالريال السعودي (ر.س)</div>\n</body>\n</html>';
 
     return printHtml;
 }
@@ -12154,6 +12347,7 @@ async function viewCustodyExpenses(custodyId) {
         const expenses = data.expenses || [];
         const disbursed = c.disbursed_amount || c.amount || 0;
         const totalSpent = data.total_spent || 0;
+        const pendingSpent = data.pending_spent || 0;
         const remaining = Math.max(0, disbursed - totalSpent);
 
         // Update stats
@@ -12169,6 +12363,9 @@ async function viewCustodyExpenses(custodyId) {
         const spentEl = document.getElementById('cust-exp-spent');
         if (spentEl) spentEl.innerText = `${formatCurrency(totalSpent)} ر.س`;
 
+        const pendEl = document.getElementById('cust-exp-pending');
+        if (pendEl) pendEl.innerText = `${formatCurrency(pendingSpent)} ر.س`;
+
         const remEl = document.getElementById('cust-exp-remaining');
         if (remEl) remEl.innerText = `${formatCurrency(remaining)} ر.س`;
 
@@ -12181,8 +12378,35 @@ async function viewCustodyExpenses(custodyId) {
             return;
         }
 
+        const isFinManager = isFinancialManagerUser();
         let html = '';
         expenses.forEach(exp => {
+            const isApproved = (exp.approval_status || 'approved') === 'approved';
+            const isPending = exp.approval_status === 'pending';
+            const isRejected = exp.approval_status === 'rejected';
+
+            let appBadge = '';
+            if (isPending) {
+                appBadge = `<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30 animate-pulse" title="معلقة ولم تُخصم من رصيد العهدة حتى الآن"><i data-lucide="clock" class="w-3 h-3"></i><span>بانتظار التعميد</span></span>`;
+            } else if (isRejected) {
+                appBadge = `<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-500/15 text-rose-400 border border-rose-500/30" title="${escapeHtml(exp.approval_notes || '')}"><i data-lucide="x-circle" class="w-3 h-3"></i><span>مرفوضة</span></span>`;
+            } else {
+                appBadge = `<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30" title="${escapeHtml(exp.approved_by || 'معمد')}"><i data-lucide="shield-check" class="w-3 h-3"></i><span>معمدة ✓</span></span>`;
+            }
+
+            let appActions = '';
+            if (isFinManager && isPending) {
+                appActions = `
+                    <button onclick="approveExpense(${exp.id})" class="px-2 py-0.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[10px] inline-flex items-center gap-0.5" title="تعميد الفاتورة وخصمها من رصيد العهدة">
+                        <i data-lucide="shield-check" class="w-3 h-3"></i>
+                        <span>تعميد</span>
+                    </button>
+                    <button onclick="rejectExpense(${exp.id})" class="p-1 text-rose-400 hover:text-white rounded hover:bg-rose-600/30" title="رفض الفاتورة">
+                        <i data-lucide="x" class="w-3.5 h-3.5"></i>
+                    </button>
+                `;
+            }
+
             const fileBtn = exp.invoice_file_path ? `
                 <button onclick="viewInvoice('${exp.invoice_file_path}', '${escapeHtml(exp.title)}')" class="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500 hover:text-white text-[10px] font-bold inline-flex items-center gap-1 transition">
                     <i data-lucide="eye" class="w-3 h-3"></i>
@@ -12191,7 +12415,7 @@ async function viewCustodyExpenses(custodyId) {
             ` : '<span class="text-slate-600 text-[10px]">بدون مرفق</span>';
 
             html += `
-                <tr class="hover:bg-slate-800/40 transition">
+                <tr class="hover:bg-slate-800/40 transition ${isPending ? 'bg-amber-500/5' : ''}">
                     <td class="p-2.5 font-mono text-slate-400 whitespace-nowrap text-xs">${escapeHtml(exp.expense_date)}</td>
                     <td class="p-2.5 font-bold text-white text-xs">${escapeHtml(exp.title)}</td>
                     <td class="p-2.5 text-slate-300 text-xs">${escapeHtml(exp.project_name || 'مصروف عام')}</td>
@@ -12201,8 +12425,10 @@ async function viewCustodyExpenses(custodyId) {
                     </td>
                     <td class="p-2.5 font-mono font-bold text-rose-400 text-left text-xs whitespace-nowrap">${formatCurrency(exp.amount)} ر.س</td>
                     <td class="p-2.5 text-center whitespace-nowrap">${fileBtn}</td>
+                    <td class="p-2.5 text-center whitespace-nowrap">${appBadge}</td>
                     <td class="p-2.5 text-center whitespace-nowrap">
                         <div class="flex items-center justify-center gap-1">
+                            ${appActions}
                             <button onclick="editCustodyExpense(${exp.id})" class="p-1 text-slate-400 hover:text-amber-400 rounded hover:bg-slate-750 transition" title="تعديل بيانات الفاتورة">
                                 <i data-lucide="edit-3" class="w-3.5 h-3.5"></i>
                             </button>

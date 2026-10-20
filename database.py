@@ -204,6 +204,22 @@ def init_db():
         cursor.execute("ALTER TABLE expenses ADD COLUMN payment_status TEXT DEFAULT 'paid'")
     if 'payment_date' not in exp_cols:
         cursor.execute("ALTER TABLE expenses ADD COLUMN payment_date TEXT DEFAULT NULL")
+    if 'approval_status' not in exp_cols:
+        try: cursor.execute("ALTER TABLE expenses ADD COLUMN approval_status TEXT DEFAULT 'approved'")
+        except: pass
+    if 'approved_by' not in exp_cols:
+        try: cursor.execute("ALTER TABLE expenses ADD COLUMN approved_by TEXT")
+        except: pass
+    if 'approved_at' not in exp_cols:
+        try: cursor.execute("ALTER TABLE expenses ADD COLUMN approved_at TEXT")
+        except: pass
+    if 'approval_notes' not in exp_cols:
+        try: cursor.execute("ALTER TABLE expenses ADD COLUMN approval_notes TEXT")
+        except: pass
+    if 'created_by' not in exp_cols:
+        try: cursor.execute("ALTER TABLE expenses ADD COLUMN created_by TEXT")
+        except: pass
+    cursor.execute("UPDATE expenses SET approval_status = 'approved', approved_by = COALESCE(approved_by, 'ابوالنصر البغدادي (المدير المالي)') WHERE approval_status IS NULL OR approval_status = ''")
     cursor.execute("UPDATE expenses SET paid_amount = amount WHERE paid_amount IS NULL AND (payment_status = 'paid' OR payment_status IS NULL)")
     cursor.execute("UPDATE expenses SET paid_amount = 0.0 WHERE payment_status = 'unpaid' AND (paid_amount > 0 OR paid_amount IS NULL) AND NOT EXISTS (SELECT 1 FROM supplier_payments WHERE supplier_payments.expense_id = expenses.id)")
     cursor.execute("UPDATE expenses SET payment_date = expense_date WHERE payment_date IS NULL AND payment_status = 'paid'")

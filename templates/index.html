@@ -827,6 +827,7 @@
                                 <th class="p-3.5">طريقة الدفع</th>
                                 <th class="p-3.5">المستلم / الصارف</th>
                                 <th class="p-3.5 text-center">الفاتورة / الإيصال</th>
+                                <th class="p-3.5 text-center">حالة التعميد</th>
                                 <th class="p-3.5 text-center">إجراءات</th>
                             </tr>
                         </thead>
@@ -3921,6 +3922,7 @@
                                 <th class="p-3 text-rose-400 font-bold">شامل الضريبة</th>
                                 <th class="p-3">المستلم</th>
                                 <th class="p-3 text-center">الفاتورة</th>
+                                <th class="p-3 text-center">التعميد</th>
                                 <th class="p-3 text-center">إجراءات</th>
                             </tr>
                         </thead>
@@ -5300,22 +5302,26 @@
             </div>
 
             <!-- Summary KPI Strip -->
-            <div class="p-4 bg-slate-850/60 border-b border-slate-800 grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+            <div class="p-4 bg-slate-850/60 border-b border-slate-800 grid grid-cols-2 sm:grid-cols-5 gap-3 text-xs">
                 <div class="bg-slate-900 p-2.5 rounded-xl border border-slate-800">
                     <span class="text-slate-400 block text-[10px]">المبلغ المنصرف للعهدة</span>
                     <span id="cust-exp-disbursed" class="text-sm font-black text-white font-mono">0.00 ر.س</span>
                 </div>
                 <div class="bg-slate-900 p-2.5 rounded-xl border border-slate-800">
-                    <span class="text-slate-400 block text-[10px]">إجمالي الفواتير المسددة</span>
+                    <span class="text-slate-400 block text-[10px]">المنصرف الفعلي (معمد)</span>
                     <span id="cust-exp-spent" class="text-sm font-black text-rose-400 font-mono">0.00 ر.س</span>
                 </div>
                 <div class="bg-slate-900 p-2.5 rounded-xl border border-slate-800">
-                    <span class="text-slate-400 block text-[10px]">الرصيد المتبقي بالعهدة</span>
+                    <span class="text-amber-400 font-bold block text-[10px]">معلق بانتظار التعميد</span>
+                    <span id="cust-exp-pending" class="text-sm font-black text-amber-400 font-mono">0.00 ر.س</span>
+                </div>
+                <div class="bg-slate-900 p-2.5 rounded-xl border border-slate-800">
+                    <span class="text-emerald-400 font-bold block text-[10px]">الرصيد المتاح بالعهدة</span>
                     <span id="cust-exp-remaining" class="text-sm font-black text-emerald-400 font-mono">0.00 ر.س</span>
                 </div>
                 <div class="bg-slate-900 p-2.5 rounded-xl border border-slate-800">
                     <span class="text-slate-400 block text-[10px]">عدد الفواتير</span>
-                    <span id="cust-exp-count" class="text-sm font-black text-amber-400 font-mono">0</span>
+                    <span id="cust-exp-count" class="text-sm font-black text-blue-400 font-mono">0</span>
                 </div>
             </div>
 
@@ -5331,6 +5337,7 @@
                                 <th class="p-2.5">البند / المورد</th>
                                 <th class="p-2.5 text-left font-mono">المبلغ</th>
                                 <th class="p-2.5 text-center">المرفق</th>
+                                <th class="p-2.5 text-center">حالة التعميد</th>
                                 <th class="p-2.5 text-center">الإجراءات</th>
                             </tr>
                         </thead>
@@ -6181,7 +6188,7 @@
 
     <!-- Scripts -->
     <script src="/static/js/i18n.js?v=20261020_v1"></script>
-    <script src="/static/js/app.js?v=20261020_v3"></script>
+    <script src="/static/js/app.js?v=20261020_v5"></script>
     <script>
     (function() {
         try {

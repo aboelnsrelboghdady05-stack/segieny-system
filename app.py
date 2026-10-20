@@ -21,6 +21,42 @@ app.config['MAX_CONTENT_LENGTH'] = 32 * 1024 * 1024  # 32 MB max upload
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
+def check_is_financial_manager(user_id=None, user_role='', user_name='', cursor=None):
+    """
+    التحقق من صلاحية المدير المالي (أ. ابوالنصر البغدادي) أو الإدارة العامة
+    """
+    is_fin = False
+    manager_title = 'ابوالنصر البغدادي (المدير المالي)'
+    
+    if user_id and cursor:
+        try:
+            cursor.execute('SELECT id, name, role, username FROM team_members WHERE id = ?', (user_id,))
+            u = cursor.fetchone()
+            if u:
+                r = (u['role'] or '').lower()
+                un = (u['username'] or '').lower()
+                nm = u['name'] or ''
+                if 'مدير مالي' in r or 'المدير المالي' in r or un == 'baghdadi' or 'ابوالنصر' in nm or 'financial' in r:
+                    is_fin = True
+                    manager_title = f"{nm} (المدير المالي)"
+                elif 'مدير عام' in r or 'المدير العام' in r or un == 'nawaf' or 'نواف' in nm or u['id'] == 1:
+                    is_fin = True
+                    manager_title = f"{nm} (المدير العام)"
+        except Exception:
+            pass
+
+    if not is_fin:
+        r_str = (user_role or '').lower()
+        n_str = (user_name or '').lower()
+        if 'مدير مالي' in r_str or 'المدير المالي' in r_str or 'ابوالنصر' in n_str or 'baghdadi' in n_str or 'financial' in r_str:
+            is_fin = True
+            manager_title = f"{user_name or 'ابوالنصر البغدادي'} (المدير المالي)"
+        elif 'مدير عام' in r_str or 'المدير العام' in r_str or 'نواف' in n_str or 'admin' in r_str:
+            is_fin = True
+            manager_title = f"{user_name or 'الإدارة العامة'} (المدير العام)"
+
+    return is_fin, manager_title
+
 # Initialize database
 database.init_db()
 
@@ -68,7 +104,7 @@ def get_dashboard_stats():
     cursor.execute('SELECT COALESCE(SUM(contract_value), 0) FROM projects')
     total_contract_value = cursor.fetchone()[0]
 
-    cursor.execute('SELECT COALESCE(SUM(amount), 0), COALESCE(SUM(amount_without_tax), 0), COALESCE(SUM(tax_amount), 0) FROM expenses')
+    cursor.execute("SELECT COALESCE(SUM(amount), 0), COALESCE(SUM(amount_without_tax), 0), COALESCE(SUM(tax_amount), 0) FROM expenses WHERE COALESCE(approval_status, 'approved') = 'approved'")
     exp_stat_row = cursor.fetchone()
     total_expenses = exp_stat_row[0]
     total_expenses_without_tax = exp_stat_row[1]
@@ -117,12 +153,12 @@ def get_dashboard_stats():
     cursor.execute('SELECT COALESCE(SUM(total_amount), 0) FROM supplier_quotations')
     suppliers_total_quoted = cursor.fetchone()[0]
 
-    cursor.execute('SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE supplier_id IS NOT NULL')
+    cursor.execute("SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE supplier_id IS NOT NULL AND COALESCE(approval_status, 'approved') = 'approved'")
     suppliers_total_paid = cursor.fetchone()[0]
 
     suppliers_total_remaining = max(0.0, suppliers_total_quoted - suppliers_total_paid)
 
-    cursor.execute('SELECT COUNT(*), COALESCE(SUM(total_variance), 0) FROM expenses WHERE has_price_increase = 1')
+    cursor.execute("SELECT COUNT(*), COALESCE(SUM(total_variance), 0) FROM expenses WHERE has_price_increase = 1 AND COALESCE(approval_status, 'approved') = 'approved'")
     v_stat_row = cursor.fetchone()
     suppliers_price_increases_count = v_stat_row[0] or 0
     suppliers_total_variance = v_stat_row[1] or 0.0
@@ -130,7 +166,7 @@ def get_dashboard_stats():
     # Recent projects with progress & spending
     cursor.execute('''
         SELECT p.*,
-            (SELECT COALESCE(SUM(e.amount), 0) FROM expenses e WHERE e.project_id = p.id) AS total_spent,
+            (SELECT COALESCE(SUM(e.amount), 0) FROM expenses e WHERE e.project_id = p.id AND COALESCE(e.approval_status, 'approved') = 'approved') AS total_spent,
             (SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id) AS task_count,
             (SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id AND t.status = 'done') AS completed_task_count
         FROM projects p
@@ -143,6 +179,7 @@ def get_dashboard_stats():
     cursor.execute('''
         SELECT category, SUM(amount) as total
         FROM expenses
+        WHERE COALESCE(approval_status, 'approved') = 'approved'
         GROUP BY category
         ORDER BY total DESC
     ''')
@@ -191,7 +228,7 @@ def get_projects():
     cursor = conn.cursor()
     cursor.execute('''
         SELECT p.*,
-            (SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE project_id = p.id) AS total_spent,
+            (SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE project_id = p.id AND COALESCE(approval_status, 'approved') = 'approved') AS total_spent,
             (SELECT COUNT(*) FROM tasks WHERE project_id = p.id) AS total_tasks,
             (SELECT COUNT(*) FROM tasks WHERE project_id = p.id AND status = 'done') AS done_tasks,
             (SELECT COUNT(*) FROM documents WHERE project_id = p.id) AS doc_count
@@ -237,7 +274,7 @@ def get_project_details(project_id):
         
         # Calculate actual spent per item
         for it in items:
-            cursor.execute('SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE item_id = ?', (it['id'],))
+            cursor.execute("SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE item_id = ? AND COALESCE(approval_status, 'approved') = 'approved'", (it['id'],))
             it_spent = float(cursor.fetchone()[0] or 0)
             cost_price = float(it.get('cost_price') or 0)
             selling_price = float(it.get('selling_price') or 0)
@@ -292,7 +329,8 @@ def get_project_details(project_id):
         # Actual phase expenditure (from phase expenses or linked item expenses)
         cursor.execute('''
             SELECT COALESCE(SUM(amount), 0) FROM expenses 
-            WHERE phase_id = ? OR item_id IN (SELECT id FROM phase_items WHERE phase_id = ?)
+            WHERE (phase_id = ? OR item_id IN (SELECT id FROM phase_items WHERE phase_id = ?))
+              AND COALESCE(approval_status, 'approved') = 'approved'
         ''', (ph['id'], ph['id']))
         ph_spent = float(cursor.fetchone()[0] or 0)
         eff_cost = float(ph.get('effective_cost') or 0)
@@ -329,11 +367,17 @@ def get_project_details(project_id):
     conn.commit()
 
     # Total Spent & Recoverable Input Tax
-    cursor.execute('SELECT COALESCE(SUM(amount), 0), COALESCE(SUM(amount_without_tax), 0), COALESCE(SUM(tax_amount), 0) FROM expenses WHERE project_id = ?', (project_id,))
+    cursor.execute("SELECT COALESCE(SUM(amount), 0), COALESCE(SUM(amount_without_tax), 0), COALESCE(SUM(tax_amount), 0) FROM expenses WHERE project_id = ? AND COALESCE(approval_status, 'approved') = 'approved'", (project_id,))
     exp_p_row = cursor.fetchone()
     total_spent = float(exp_p_row[0] or 0)
     total_spent_without_tax = float(exp_p_row[1] or 0)
     total_tax_refundable = float(exp_p_row[2] or 0)
+
+    # Pending unapproved expenses
+    cursor.execute("SELECT COALESCE(SUM(amount), 0), COUNT(*) FROM expenses WHERE project_id = ? AND approval_status = 'pending'", (project_id,))
+    pend_exp_row = cursor.fetchone()
+    project_data['pending_expenses_amount'] = float(pend_exp_row[0] or 0)
+    project_data['pending_expenses_count'] = int(pend_exp_row[1] or 0)
 
     contract_val = float(project_data.get('contract_value') or 0.0)
     effective_selling = contract_val if contract_val > 0 else total_phases_selling
@@ -1536,6 +1580,23 @@ def create_expense():
     else:
         payment_date = None
 
+    user_id = data.get('user_id')
+    user_role = data.get('user_role') or ''
+    user_name = data.get('user_name') or ''
+    created_by = data.get('created_by') or (f"{user_name} ({user_role})" if user_name and user_role else user_name) or paid_by or 'فريق العمل'
+
+    is_fin, manager_title = check_is_financial_manager(user_id, user_role, user_name, cursor)
+    if is_fin:
+        approval_status = 'approved'
+        approved_by = manager_title
+        approved_at = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        approval_notes = 'تعميد مباشر من المدير المالي'
+    else:
+        approval_status = 'pending'
+        approved_by = None
+        approved_at = None
+        approval_notes = None
+
     cursor.execute('''
         INSERT INTO expenses (
             project_id, phase_id, item_id, title, category, amount, 
@@ -1546,9 +1607,9 @@ def create_expense():
             item_quantity, unit_price, quoted_unit_price,
             price_variance, total_variance, has_price_increase,
             items_json, payment_status, paid_amount, payment_date,
-            custody_id
+            custody_id, approval_status, approved_by, approved_at, approval_notes, created_by
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''', (
         project_id, phase_id, item_id, title, category, amount, 
         payment_method, paid_by, paid_to, expense_date, 
@@ -1558,32 +1619,38 @@ def create_expense():
         item_quantity, unit_price, quoted_unit_price,
         price_variance, total_variance, has_price_increase,
         items_json_str, payment_status, paid_amount, payment_date,
-        custody_id
+        custody_id, approval_status, approved_by, approved_at, approval_notes, created_by
     ))
     expense_id = cursor.lastrowid
 
-    # If project uses manual budget mode, automatically deduct this expense from manual_remaining_budget
-    if project_id:
-        cursor.execute('''
-            UPDATE projects
-            SET manual_remaining_budget = MAX(0.0, COALESCE(manual_remaining_budget, 0) - ?)
-            WHERE id = ? AND budget_mode = 'manual' AND manual_remaining_budget IS NOT NULL
-        ''', (amount, project_id))
-
-    # If linked to an employee custody account, deduct expense from custody balance
-    if custody_id:
-        cursor.execute('''
-            UPDATE custody_requests
-            SET spent_amount = COALESCE(spent_amount, 0) + ?
-            WHERE id = ?
-        ''', (amount, custody_id))
-        cursor.execute('SELECT employee_name, request_number FROM custody_requests WHERE id = ?', (custody_id,))
-        c_emp_row = cursor.fetchone()
-        if c_emp_row:
+    # Deduct from project budget & custody ONLY IF approved by Financial Manager
+    if approval_status == 'approved':
+        if project_id:
             cursor.execute('''
-                INSERT INTO notifications (project_id, type, title, message)
-                VALUES (?, 'custody', 'صرف فاتورة من العهدة', ?)
-            ''', (project_id, f"تم صرف الفاتورة '{title}' بمبلغ {amount:,.2f} ر.س خصماً من عهدة {c_emp_row['employee_name']} ({c_emp_row['request_number']})"))
+                UPDATE projects
+                SET manual_remaining_budget = MAX(0.0, COALESCE(manual_remaining_budget, 0) - ?)
+                WHERE id = ? AND budget_mode = 'manual' AND manual_remaining_budget IS NOT NULL
+            ''', (amount, project_id))
+
+        if custody_id:
+            cursor.execute('''
+                UPDATE custody_requests
+                SET spent_amount = COALESCE(spent_amount, 0) + ?
+                WHERE id = ?
+            ''', (amount, custody_id))
+            cursor.execute('SELECT employee_name, request_number FROM custody_requests WHERE id = ?', (custody_id,))
+            c_emp_row = cursor.fetchone()
+            if c_emp_row:
+                cursor.execute('''
+                    INSERT INTO notifications (project_id, type, title, message)
+                    VALUES (?, 'custody', 'صرف فاتورة من العهدة (معمدة)', ?)
+                ''', (project_id, f"تم صرف الفاتورة '{title}' بمبلغ {amount:,.2f} ر.س خصماً من عهدة {c_emp_row['employee_name']} ({c_emp_row['request_number']})"))
+    else:
+        # Pending approval: do NOT deduct from cashflow or custody! Notify Financial Manager
+        cursor.execute('''
+            INSERT INTO notifications (project_id, type, title, message)
+            VALUES (?, 'expense', 'فاتورة جديدة بانتظار تعميد المدير المالي', ?)
+        ''', (project_id, f"قام {created_by} بتسجيل فاتورة/مصروف '{title}' بمبلغ {amount:,.2f} ر.س — معلقة بانتظار تعميد المدير المالي ولن يتم خصمها من الكاش فلو أو العهدة إلا بعد التعميد."))
 
     # Insert line items into expense_items table
     if items_data:
@@ -1655,7 +1722,8 @@ def create_expense():
     return jsonify({
         'success': True, 
         'id': expense_id, 
-        'message': 'تم تسجيل المصروف والفاتورة بنجاح',
+        'approval_status': approval_status,
+        'message': 'تم تسجيل الفاتورة وتعميدها فورياً بنجاح' if approval_status == 'approved' else 'تم تسجيل الفاتورة بنجاح وبانتظار تعميد المدير المالي ولن تُخصم إلا بعد التعميد',
         'has_price_increase': bool(has_price_increase),
         'price_variance': price_variance,
         'total_variance': total_variance
@@ -1991,16 +2059,18 @@ def update_expense(expense_id):
         expense_id
     ))
 
-    # Adjust custody spent_amount if custody was/is involved
-    if old_custody_id and old_custody_id == custody_id:
-        diff = amount - old_amount
-        if abs(diff) > 0.001:
-            cursor.execute('UPDATE custody_requests SET spent_amount = MAX(0, COALESCE(spent_amount, 0) + ?) WHERE id = ?', (diff, custody_id))
-    elif old_custody_id != custody_id:
-        if old_custody_id:
-            cursor.execute('UPDATE custody_requests SET spent_amount = MAX(0, COALESCE(spent_amount, 0) - ?) WHERE id = ?', (old_amount, old_custody_id))
-        if custody_id:
-            cursor.execute('UPDATE custody_requests SET spent_amount = COALESCE(spent_amount, 0) + ? WHERE id = ?', (amount, custody_id))
+    # Adjust custody spent_amount if custody was/is involved AND expense is approved
+    is_approved = (existing.get('approval_status') or 'approved') == 'approved'
+    if is_approved:
+        if old_custody_id and old_custody_id == custody_id:
+            diff = amount - old_amount
+            if abs(diff) > 0.001:
+                cursor.execute('UPDATE custody_requests SET spent_amount = MAX(0, COALESCE(spent_amount, 0) + ?) WHERE id = ?', (diff, custody_id))
+        elif old_custody_id != custody_id:
+            if old_custody_id:
+                cursor.execute('UPDATE custody_requests SET spent_amount = MAX(0, COALESCE(spent_amount, 0) - ?) WHERE id = ?', (old_amount, old_custody_id))
+            if custody_id:
+                cursor.execute('UPDATE custody_requests SET spent_amount = COALESCE(spent_amount, 0) + ? WHERE id = ?', (amount, custody_id))
 
     # If items provided, replace rows in expense_items
     if has_items_payload:
@@ -2154,7 +2224,7 @@ def transfer_expense_project(expense_id):
 def delete_expense(expense_id):
     conn = database.get_db_connection()
     cursor = conn.cursor()
-    cursor.execute('SELECT invoice_file_path, project_id, title, amount, custody_id FROM expenses WHERE id = ?', (expense_id,))
+    cursor.execute('SELECT invoice_file_path, project_id, title, amount, custody_id, approval_status FROM expenses WHERE id = ?', (expense_id,))
     row = cursor.fetchone()
     if not row:
         conn.close()
@@ -2165,6 +2235,8 @@ def delete_expense(expense_id):
     title = row[2]
     amt = row[3]
     custody_id = row[4]
+    approval_status = row[5] or 'approved'
+    is_approved = (approval_status == 'approved')
 
     if file_path:
         local_p = os.path.join(BASE_DIR, file_path.lstrip('/'))
@@ -2174,8 +2246,8 @@ def delete_expense(expense_id):
             except Exception:
                 pass
 
-    # If expense was deducted from a custody account, return amount to custody balance
-    if custody_id:
+    # If expense was approved and deducted from a custody account, return amount to custody balance
+    if is_approved and custody_id:
         cursor.execute('''
             UPDATE custody_requests
             SET spent_amount = MAX(0, COALESCE(spent_amount, 0) - ?)
@@ -2185,8 +2257,8 @@ def delete_expense(expense_id):
     cursor.execute('DELETE FROM expense_items WHERE expense_id = ?', (expense_id,))
     cursor.execute('DELETE FROM expenses WHERE id = ?', (expense_id,))
     
-    # Refund to project manual_remaining_budget if project is in manual mode
-    if proj_id:
+    # Refund to project manual_remaining_budget if project is in manual mode and expense was approved
+    if is_approved and proj_id:
         cursor.execute('''
             UPDATE projects
             SET manual_remaining_budget = COALESCE(manual_remaining_budget, 0) + ?
@@ -2201,6 +2273,159 @@ def delete_expense(expense_id):
     conn.commit()
     conn.close()
     return jsonify({'success': True, 'message': 'تم حذف المصروف والفاتورة بنجاح وتحديث كافة الأرصدة تلقائياً'})
+
+
+@app.route('/api/expenses/<int:expense_id>/approve', methods=['POST'])
+def approve_expense(expense_id):
+    if request.is_json:
+        data = request.json or {}
+    else:
+        data = request.form.to_dict()
+
+    user_id = data.get('user_id')
+    user_role = data.get('user_role') or ''
+    user_name = data.get('user_name') or ''
+    approval_notes = data.get('approval_notes', '').strip() or 'تم التعميد بواسطة المدير المالي'
+
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+
+    is_fin, manager_title = check_is_financial_manager(user_id, user_role, user_name, cursor)
+    if not is_fin:
+        conn.close()
+        return jsonify({'error': 'عفواً، تعميد المصروفات والفواتير هو صلاحية حصرية للمدير المالي (أ. ابوالنصر البغدادي).'}), 403
+
+    cursor.execute('SELECT * FROM expenses WHERE id = ?', (expense_id,))
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        return jsonify({'error': 'المصروف غير موجود'}), 404
+
+    exp = dict(row)
+    if (exp.get('approval_status') or 'approved') == 'approved':
+        conn.close()
+        return jsonify({'success': True, 'message': 'هذا المصروف معمد بالفعل مسبقاً.'})
+
+    amount = float(exp.get('amount') or 0.0)
+    project_id = exp.get('project_id')
+    custody_id = exp.get('custody_id')
+    title = exp.get('title') or 'فاتورة'
+    now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+    cursor.execute('''
+        UPDATE expenses
+        SET approval_status = 'approved',
+            approved_by = ?,
+            approved_at = ?,
+            approval_notes = ?
+        WHERE id = ?
+    ''', (manager_title, now_str, approval_notes, expense_id))
+
+    # Apply project budget deduction upon approval
+    if project_id:
+        cursor.execute('''
+            UPDATE projects
+            SET manual_remaining_budget = MAX(0.0, COALESCE(manual_remaining_budget, 0) - ?)
+            WHERE id = ? AND budget_mode = 'manual' AND manual_remaining_budget IS NOT NULL
+        ''', (amount, project_id))
+
+    # Apply custody deduction upon approval
+    c_info = ""
+    if custody_id:
+        cursor.execute('''
+            UPDATE custody_requests
+            SET spent_amount = COALESCE(spent_amount, 0) + ?
+            WHERE id = ?
+        ''', (amount, custody_id))
+        cursor.execute('SELECT employee_name, request_number FROM custody_requests WHERE id = ?', (custody_id,))
+        c_emp = cursor.fetchone()
+        if c_emp:
+            c_info = f" خصماً من عهدة {c_emp['employee_name']} ({c_emp['request_number']})"
+
+    cursor.execute('''
+        INSERT INTO notifications (project_id, type, title, message)
+        VALUES (?, 'expense', 'تم تعميد المصروف من المدير المالي', ?)
+    ''', (project_id, f"تم تعميد الفاتورة '{title}' بمبلغ {amount:,.2f} ر.س{c_info} بواسطة {manager_title} وخُصمت رسمياً من الحسابات."))
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({
+        'success': True,
+        'message': f"تم تعميد الفاتورة '{title}' بنجاح وتطبيق الخصم المالي."
+    })
+
+
+@app.route('/api/expenses/<int:expense_id>/reject', methods=['POST'])
+def reject_expense(expense_id):
+    if request.is_json:
+        data = request.json or {}
+    else:
+        data = request.form.to_dict()
+
+    user_id = data.get('user_id')
+    user_role = data.get('user_role') or ''
+    user_name = data.get('user_name') or ''
+    reason = data.get('reason', '').strip() or data.get('approval_notes', '').strip() or 'مرفوضة من الإدارة المالية'
+
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+
+    is_fin, manager_title = check_is_financial_manager(user_id, user_role, user_name, cursor)
+    if not is_fin:
+        conn.close()
+        return jsonify({'error': 'عفواً، رفض أو تعميد المصروفات هو صلاحية حصرية للمدير المالي (أ. ابوالنصر البغدادي).'}), 403
+
+    cursor.execute('SELECT * FROM expenses WHERE id = ?', (expense_id,))
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        return jsonify({'error': 'المصروف غير موجود'}), 404
+
+    exp = dict(row)
+    was_approved = (exp.get('approval_status') or 'approved') == 'approved'
+    amount = float(exp.get('amount') or 0.0)
+    project_id = exp.get('project_id')
+    custody_id = exp.get('custody_id')
+    title = exp.get('title') or 'فاتورة'
+    now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+    # If it was previously approved, refund deducted amounts
+    if was_approved:
+        if project_id:
+            cursor.execute('''
+                UPDATE projects
+                SET manual_remaining_budget = COALESCE(manual_remaining_budget, 0) + ?
+                WHERE id = ? AND budget_mode = 'manual' AND manual_remaining_budget IS NOT NULL
+            ''', (amount, project_id))
+        if custody_id:
+            cursor.execute('''
+                UPDATE custody_requests
+                SET spent_amount = MAX(0.0, COALESCE(spent_amount, 0) - ?)
+                WHERE id = ?
+            ''', (amount, custody_id))
+
+    cursor.execute('''
+        UPDATE expenses
+        SET approval_status = 'rejected',
+            approved_by = ?,
+            approved_at = ?,
+            approval_notes = ?
+        WHERE id = ?
+    ''', (manager_title, now_str, reason, expense_id))
+
+    cursor.execute('''
+        INSERT INTO notifications (project_id, type, title, message)
+        VALUES (?, 'warning', 'تم رفض الفاتورة من المدير المالي', ?)
+    ''', (project_id, f"تم رفض الفاتورة '{title}' بمبلغ {amount:,.2f} ر.س من قبل {manager_title}. السبب: {reason}"))
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({
+        'success': True,
+        'message': f"تم رفض الفاتورة '{title}' وتحديث الحسابات بنجاح."
+    })
 
 # ----------------- SUPPLIERS & QUOTATIONS API -----------------
 @app.route('/api/suppliers', methods=['GET'])
@@ -3735,6 +3960,7 @@ def get_cashflow():
               OR payment_method LIKE '%شيك%'
               OR (payment_status = 'paid' AND payment_method NOT IN ('آجل', 'نقدي'))
           )
+          AND COALESCE(approval_status, 'approved') = 'approved'
     ''')
     bank_expenses_spent = float(cursor.fetchone()[0] or 0.0)
 
@@ -3742,12 +3968,13 @@ def get_cashflow():
     cursor.execute('''
         SELECT COALESCE(SUM(amount), 0)
         FROM expenses
-        WHERE custody_id IS NOT NULL OR payment_method LIKE '%عهدة%'
+        WHERE (custody_id IS NOT NULL OR payment_method LIKE '%عهدة%')
+          AND COALESCE(approval_status, 'approved') = 'approved'
     ''')
     custody_expenses_spent = float(cursor.fetchone()[0] or 0.0)
 
     # 3. Total all project expenses for reference
-    cursor.execute('SELECT COALESCE(SUM(amount), 0) FROM expenses')
+    cursor.execute("SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE COALESCE(approval_status, 'approved') = 'approved'")
     total_all_expenses = float(cursor.fetchone()[0] or 0.0)
 
     # 4. Bank Custody Net Outflow
@@ -3811,7 +4038,7 @@ def get_cashflow():
         company_tot_contract += contract_val
         
         # Expenses
-        cursor.execute('SELECT phase_id, amount FROM expenses WHERE project_id = ?', (pid,))
+        cursor.execute("SELECT phase_id, amount FROM expenses WHERE project_id = ? AND COALESCE(approval_status, 'approved') = 'approved'", (pid,))
         exp_rows = cursor.fetchall()
         tot_spent = sum(float(e['amount'] or 0.0) for e in exp_rows)
         spent_by_phase = {}
@@ -6183,7 +6410,8 @@ def get_custody_expenses(custody_id):
     ''', (custody_id,))
     expenses = [dict(r) for r in cursor.fetchall()]
 
-    total_spent = sum(float(x.get('amount') or 0) for x in expenses)
+    total_spent = sum(float(x.get('amount') or 0) for x in expenses if x.get('approval_status', 'approved') == 'approved')
+    pending_spent = sum(float(x.get('amount') or 0) for x in expenses if x.get('approval_status') == 'pending')
     disbursed = float(custody.get('disbursed_amount') or custody.get('amount') or 0)
     remaining = max(0.0, disbursed - total_spent)
 
@@ -6193,6 +6421,7 @@ def get_custody_expenses(custody_id):
         'expenses': expenses,
         'count': len(expenses),
         'total_spent': total_spent,
+        'pending_spent': pending_spent,
         'remaining_balance': remaining
     })
 

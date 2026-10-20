@@ -4671,10 +4671,12 @@ def generate_hr_payroll():
             0.0, 0.0, 0.0, adv_deduct, net, emp['iban'] or '', 'pending'
         ))
 
+    created_by = data.get('created_by') or 'المسؤول الإداري'
+
     cursor.execute('''
-        INSERT INTO hr_payrolls (month_year, total_basic, total_allowances, total_deductions, total_advances, total_net, employees_count, status, notes)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'draft', ?)
-    ''', (month_year, total_basic, total_allowances, total_deductions, total_advances, total_net, len(items_to_insert), notes))
+        INSERT INTO hr_payrolls (month_year, total_basic, total_allowances, total_deductions, total_advances, total_net, employees_count, status, notes, created_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?)
+    ''', (month_year, total_basic, total_allowances, total_deductions, total_advances, total_net, len(items_to_insert), notes, created_by))
     payroll_id = cursor.lastrowid
 
     for itm in items_to_insert:
@@ -4683,9 +4685,22 @@ def generate_hr_payroll():
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (payroll_id, *itm))
 
+    # Send Notification to Financial Manager
+    try:
+        cursor.execute('''
+            INSERT INTO notifications (project_id, type, title, message)
+            VALUES (NULL, 'payroll', 'مسير رواتب جديد بانتظار تعميد المدير المالي', ?)
+        ''', (f"تم إنشاء مسير رواتب شهر {month_year} بواسطة ({created_by}) بمبلغ صافي {total_net:,.2f} ر.س لـ {len(items_to_insert)} موظفاً، وهو الآن بانتظار مراجعة وتعميد المدير المالي.",))
+    except Exception as notif_err:
+        print('Notification error:', notif_err)
+
     conn.commit()
     conn.close()
-    return jsonify({'success': True, 'id': payroll_id, 'message': f'تم توليد مسير رواتب شهر {month_year} بنجاح لـ ({len(items_to_insert)}) موظفاً'})
+    return jsonify({
+        'success': True, 
+        'id': payroll_id, 
+        'message': f'تم إنشاء مسير رواتب شهر {month_year} بنجاح لـ ({len(items_to_insert)}) موظفاً، والمسير الآن بانتظار تعميد المدير المالي'
+    })
 
 @app.route('/api/hr/payrolls/<int:id>', methods=['GET'])
 def get_hr_payroll_details(id):
@@ -4707,16 +4722,77 @@ def get_hr_payroll_details(id):
 def update_hr_payroll_status(id):
     data = request.json or {}
     new_status = data.get('status', 'approved')
-    approved_by = data.get('approved_by', 'ابوالنصر البغدادي')
+    user_id = data.get('user_id')
+    user_role = data.get('user_role') or ''
+    user_name = data.get('user_name') or ''
+    approval_notes = data.get('approval_notes', '').strip()
     payment_date = data.get('payment_date') or datetime.now().strftime('%Y-%m-%d')
 
     conn = database.get_db_connection()
     cursor = conn.cursor()
+
+    cursor.execute('SELECT * FROM hr_payrolls WHERE id = ?', (id,))
+    payroll = cursor.fetchone()
+    if not payroll:
+        conn.close()
+        return jsonify({'error': 'مسير الرواتب غير موجود'}), 404
+
+    # Verification: Is the user the Financial Manager (المدير المالي) or General Manager?
+    is_financial_manager = False
+    manager_title = 'ابوالنصر البغدادي (المدير المالي)'
+
+    if user_id:
+        cursor.execute('SELECT id, name, role, username FROM team_members WHERE id = ?', (user_id,))
+        u = cursor.fetchone()
+        if u:
+            r = (u['role'] or '').lower()
+            un = (u['username'] or '').lower()
+            nm = u['name'] or ''
+            if 'مدير مالي' in r or 'المدير المالي' in r or un == 'baghdadi' or 'ابوالنصر' in nm:
+                is_financial_manager = True
+                manager_title = f"{nm} (المدير المالي)"
+            elif 'مدير عام' in r or 'المدير العام' in r or un == 'nawaf' or 'نواف' in nm or u['id'] == 1:
+                is_financial_manager = True
+                manager_title = f"{nm} (المدير العام)"
+
+    if not is_financial_manager:
+        r_str = (user_role or '').lower()
+        n_str = (user_name or '').lower()
+        if 'مدير مالي' in r_str or 'المدير المالي' in r_str or 'ابوالنصر' in n_str or 'baghdadi' in n_str:
+            is_financial_manager = True
+            manager_title = f"{user_name or 'ابوالنصر البغدادي'} (المدير المالي)"
+        elif 'مدير عام' in r_str or 'المدير العام' in r_str or 'نواف' in n_str or 'admin' in r_str:
+            is_financial_manager = True
+            manager_title = f"{user_name or 'الإدارة العامة'} (المدير العام)"
+
+    # Strict authorization: Only Financial Manager can approve or confirm payment
+    if new_status in ('approved', 'paid') and not is_financial_manager:
+        conn.close()
+        return jsonify({
+            'error': 'عفواً، تعميد مسير الرواتب هو صلاحية حصرية للمدير المالي (أ. ابوالنصر البغدادي). لا يمكن إتمام التعميد إلا بحساب المدير المالي.'
+        }), 403
+
+    approved_by = data.get('approved_by') or manager_title
+    now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
     cursor.execute('''
         UPDATE hr_payrolls
-        SET status = ?, approved_by = ?, payment_date = ?
+        SET status = ?, 
+            approved_by = ?, 
+            approved_at = ?,
+            approval_notes = COALESCE(NULLIF(?, ''), approval_notes),
+            payment_date = ?
         WHERE id = ?
-    ''', (new_status, approved_by, payment_date, id))
+    ''', (new_status, approved_by, now_str, approval_notes, payment_date, id))
+
+    if new_status == 'approved':
+        try:
+            cursor.execute('''
+                INSERT INTO notifications (project_id, type, title, message)
+                VALUES (NULL, 'payroll', 'تم تعميد مسير الرواتب من المدير المالي', ?)
+            ''', (f"قام {approved_by} بتعميد مسير رواتب شهر {payroll['month_year']} رسمياً، وأصبح معتمداً وجاهزاً للصرف والتحويل.",))
+        except:
+            pass
 
     if new_status == 'paid':
         cursor.execute('UPDATE hr_payroll_items SET status = "paid" WHERE payroll_id = ?', (id,))
@@ -4734,9 +4810,19 @@ def update_hr_payroll_status(id):
                 WHERE employee_id = ? AND status = 'active'
             ''', (ded_amt, ded_amt, ded_amt, emp_id))
 
+        try:
+            cursor.execute('''
+                INSERT INTO notifications (project_id, type, title, message)
+                VALUES (NULL, 'payroll', 'تم صرف رواتب الموظفين', ?)
+            ''', (f"تم تأكيد صرف رواتب شهر {payroll['month_year']} لجميع الموظفين وخصم أقساط السلف بنجاح بواسطة {approved_by}.",))
+        except:
+            pass
+
     conn.commit()
     conn.close()
-    return jsonify({'success': True, 'message': f'تم تحديث حالة المسير إلى: {new_status}'})
+
+    resp_msg = f'تم تعميد مسير رواتب شهر {payroll["month_year"]} بنجاح بواسطة المدير المالي ({approved_by})' if new_status == 'approved' else 'تم تأكيد صرف الرواتب وخصم السلف لجميع الموظفين بنجاح'
+    return jsonify({'success': True, 'message': resp_msg})
 
 @app.route('/api/hr/payrolls/<int:id>', methods=['DELETE'])
 def delete_hr_payroll(id):

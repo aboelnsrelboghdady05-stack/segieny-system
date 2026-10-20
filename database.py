@@ -609,9 +609,24 @@ def init_db():
         approved_by TEXT,
         payment_date TEXT,
         notes TEXT,
+        created_by TEXT,
+        approved_at TEXT,
+        approval_notes TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
     ''')
+
+    cursor.execute('PRAGMA table_info(hr_payrolls)')
+    hr_payroll_cols = [r[1] for r in cursor.fetchall()]
+    if 'created_by' not in hr_payroll_cols:
+        try: cursor.execute('ALTER TABLE hr_payrolls ADD COLUMN created_by TEXT')
+        except: pass
+    if 'approved_at' not in hr_payroll_cols:
+        try: cursor.execute('ALTER TABLE hr_payrolls ADD COLUMN approved_at TEXT')
+        except: pass
+    if 'approval_notes' not in hr_payroll_cols:
+        try: cursor.execute('ALTER TABLE hr_payrolls ADD COLUMN approval_notes TEXT')
+        except: pass
 
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS hr_payroll_items (

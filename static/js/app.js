@@ -13118,6 +13118,23 @@ async function deleteHrEmployee(id, name) {
 }
 
 // ----------------- PAYROLL MANAGEMENT -----------------
+function isFinancialManagerUser() {
+    try {
+        const u = currentUser || JSON.parse(localStorage.getItem('segieny_auth_user') || localStorage.getItem('segieny_current_user') || '{}');
+        if (!u) return false;
+        if (u.is_admin || u.id === 1) return true;
+        const r = (u.role || '').toLowerCase();
+        const un = (u.username || '').toLowerCase();
+        const n = (u.name || '').toLowerCase();
+        if (r.includes('مدير مالي') || r.includes('المدير المالي') || r.includes('financial') || r.includes('مدير عام') || r.includes('المدير العام')) return true;
+        if (un === 'baghdadi' || un === 'nawaf') return true;
+        if (n.includes('ابوالنصر') || n.includes('البغدادي') || n.includes('نواف')) return true;
+        return false;
+    } catch(e) {
+        return false;
+    }
+}
+
 async function loadHrPayrolls() {
     try {
         const res = await fetch('/api/hr/payrolls');
@@ -13148,12 +13165,29 @@ function renderHrPayrolls() {
         return;
     }
 
+    const canApprove = isFinancialManagerUser();
+
     const html = hrPayrollsData.map(p => {
-        let statusBadge = '<span class="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30">مسودة</span>';
+        let statusBadge = `
+            <span class="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30 inline-flex items-center gap-1.5">
+                <i data-lucide="clock" class="w-3.5 h-3.5"></i>
+                <span>بانتظار تعميد المدير المالي</span>
+            </span>
+        `;
         if (p.status === 'approved') {
-            statusBadge = '<span class="px-2.5 py-1 rounded-full text-xs font-bold bg-blue-500/15 text-blue-400 border border-blue-500/30">معتمد</span>';
+            statusBadge = `
+                <span class="px-2.5 py-1 rounded-full text-xs font-bold bg-blue-500/15 text-blue-400 border border-blue-500/30 inline-flex items-center gap-1.5">
+                    <i data-lucide="shield-check" class="w-3.5 h-3.5"></i>
+                    <span>معمد من المدير المالي</span>
+                </span>
+            `;
         } else if (p.status === 'paid') {
-            statusBadge = '<span class="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">مصروف بالكامل</span>';
+            statusBadge = `
+                <span class="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 inline-flex items-center gap-1.5">
+                    <i data-lucide="check-circle-2" class="w-3.5 h-3.5"></i>
+                    <span>تم الصرف والتحويل</span>
+                </span>
+            `;
         }
 
         return `
@@ -13163,11 +13197,15 @@ function renderHrPayrolls() {
                         <i data-lucide="calendar" class="w-6 h-6"></i>
                     </div>
                     <div>
-                        <div class="flex items-center gap-2">
+                        <div class="flex items-center gap-2 flex-wrap">
                             <h4 class="font-black text-sm text-white">مسير رواتب: <span class="font-mono text-emerald-400">${p.month_year || p.month || ''}</span></h4>
                             ${statusBadge}
                         </div>
-                        <p class="text-xs text-slate-400 mt-0.5">${p.notes || 'مسير الرواتب الشهرية والبدلات وخصم السلف'}</p>
+                        <p class="text-xs text-slate-400 mt-1 flex flex-wrap items-center gap-2">
+                            <span>${escapeHtml(p.notes || 'مسير الرواتب الشهرية والبدلات وخصم السلف')}</span>
+                            ${p.created_by ? `<span class="text-slate-500">•</span><span class="text-slate-300 font-sans">أنشئ بواسطة: <strong class="text-slate-200">${escapeHtml(p.created_by)}</strong></span>` : ''}
+                            ${p.approved_by ? `<span class="text-slate-500">•</span><span class="text-emerald-400 font-sans">تعميد: <strong>${escapeHtml(p.approved_by)}</strong></span>` : ''}
+                        </p>
                     </div>
                 </div>
 
@@ -13185,18 +13223,28 @@ function renderHrPayrolls() {
                             <i data-lucide="eye" class="w-4 h-4 text-emerald-400"></i>
                             <span>عرض المسير</span>
                         </button>
-                        ${p.status === 'draft' ? `
-                            <button type="button" onclick="updateHrPayrollStatus(${p.id}, 'approved')" class="px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs flex items-center gap-1 transition">
-                                <i data-lucide="check" class="w-3.5 h-3.5"></i>
-                                <span>اعتماد</span>
+                        ${p.status === 'draft' ? (canApprove ? `
+                            <button type="button" onclick="updateHrPayrollStatus(${p.id}, 'approved')" class="px-3.5 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-black text-xs flex items-center gap-1.5 shadow-md shadow-blue-950/40 transition" title="تعميد مسير الرواتب بصفة المدير المالي">
+                                <i data-lucide="shield-check" class="w-4 h-4"></i>
+                                <span>تعميد المسير (المدير المالي)</span>
                             </button>
-                        ` : ''}
-                        ${p.status === 'approved' ? `
-                            <button type="button" onclick="updateHrPayrollStatus(${p.id}, 'paid')" class="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1 transition">
-                                <i data-lucide="banknote" class="w-3.5 h-3.5"></i>
+                        ` : `
+                            <span class="px-2.5 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 font-bold text-[11px] flex items-center gap-1" title="تعميد المسير صلاحية حصرية للمدير المالي (أ. ابوالنصر البغدادي)">
+                                <i data-lucide="lock" class="w-3 h-3"></i>
+                                <span>بانتظار تعميد المالي</span>
+                            </span>
+                        `) : ''}
+                        ${p.status === 'approved' ? (canApprove ? `
+                            <button type="button" onclick="updateHrPayrollStatus(${p.id}, 'paid')" class="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 shadow transition">
+                                <i data-lucide="banknote" class="w-4 h-4"></i>
                                 <span>تأكيد الصرف</span>
                             </button>
-                        ` : ''}
+                        ` : `
+                            <span class="px-2.5 py-1.5 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-300 font-bold text-[11px] flex items-center gap-1">
+                                <i data-lucide="check" class="w-3 h-3"></i>
+                                <span>معمد وجاهز للصرف</span>
+                            </span>
+                        `) : ''}
                         <button type="button" onclick="deleteHrPayroll(${p.id})" class="p-2 rounded-xl bg-slate-800 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 border border-slate-700 transition" title="حذف المسير">
                             <i data-lucide="trash-2" class="w-4 h-4"></i>
                         </button>
@@ -13234,16 +13282,19 @@ async function submitGeneratePayroll(e) {
         btn.classList.add('opacity-70');
     }
 
+    const u = currentUser || JSON.parse(localStorage.getItem('segieny_auth_user') || '{}');
+    const created_by = u.name ? `${u.name} (${u.role || 'فريق العمل'})` : 'المسؤول الإداري';
+
     try {
         const res = await fetch('/api/hr/payrolls', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ month, notes })
+            body: JSON.stringify({ month, notes, created_by })
         });
         const data = await res.json();
 
         if (res.ok && (data.success || !data.error)) {
-            showToast(data.message || 'تم إصدار مسير الرواتب بنجاح', 'success');
+            showToast(data.message || 'تم إصدار مسير الرواتب بنجاح وهو الآن بانتظار تعميد المدير المالي', 'success');
             closeModal('hr-generate-payroll-modal');
             await loadHrData();
             if (data.id) {
@@ -13275,21 +13326,23 @@ async function viewHrPayrollDetails(id) {
         currentHrPayrollDetail = data;
         const payroll = data.payroll || data;
         const items = data.items || payroll.items || [];
+        const canApprove = isFinancialManagerUser();
 
         document.getElementById('hr-payroll-view-title').innerText = `مسير رواتب شهر: ${payroll.month_year || payroll.month || ''}`;
-        document.getElementById('hr-payroll-view-date').innerText = `تاريخ الإنشاء: ${payroll.created_at || ''}`;
+        const createdInfo = payroll.created_by ? ` • أنشئ بواسطة: ${payroll.created_by}` : '';
+        document.getElementById('hr-payroll-view-date').innerText = `تاريخ الإنشاء: ${payroll.created_at || ''}${createdInfo}`;
 
         // Status badge
         const statusEl = document.getElementById('hr-payroll-view-status');
         if (payroll.status === 'draft') {
-            statusEl.className = 'px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30';
-            statusEl.innerText = 'مسودة قابلة للتعديل';
+            statusEl.className = 'px-3 py-1 rounded-full text-[11px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30 inline-flex items-center gap-1.5';
+            statusEl.innerHTML = '<i data-lucide="clock" class="w-3.5 h-3.5"></i><span>بانتظار تعميد المدير المالي</span>';
         } else if (payroll.status === 'approved') {
-            statusEl.className = 'px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/15 text-blue-400 border border-blue-500/30';
-            statusEl.innerText = 'معتمد للصرف';
+            statusEl.className = 'px-3 py-1 rounded-full text-[11px] font-bold bg-blue-500/15 text-blue-400 border border-blue-500/30 inline-flex items-center gap-1.5';
+            statusEl.innerHTML = `<i data-lucide="shield-check" class="w-3.5 h-3.5"></i><span>معمد من المدير المالي (${payroll.approved_by || 'أ. ابوالنصر البغدادي'})</span>`;
         } else {
-            statusEl.className = 'px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30';
-            statusEl.innerText = 'تم الصرف والتحويل';
+            statusEl.className = 'px-3 py-1 rounded-full text-[11px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 inline-flex items-center gap-1.5';
+            statusEl.innerHTML = '<i data-lucide="check-circle-2" class="w-3.5 h-3.5"></i><span>تم الصرف والتحويل البنكي</span>';
         }
 
         // Totals
@@ -13346,22 +13399,40 @@ async function viewHrPayrollDetails(id) {
         // Actions Container
         const actContainer = document.getElementById('payroll-action-container');
         if (payroll.status === 'draft') {
-            actContainer.innerHTML = `
-                <button type="button" onclick="updateHrPayrollStatus(${payroll.id}, 'approved')" class="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold flex items-center gap-1.5 transition">
-                    <i data-lucide="check" class="w-4 h-4"></i>
-                    <span>اعتماد المسير</span>
-                </button>
-            `;
+            if (canApprove) {
+                actContainer.innerHTML = `
+                    <button type="button" onclick="updateHrPayrollStatus(${payroll.id}, 'approved')" class="px-5 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-black flex items-center gap-2 shadow-lg shadow-blue-950/40 transition">
+                        <i data-lucide="shield-check" class="w-4 h-4"></i>
+                        <span>تعميد واعتماد المسير (المدير المالي)</span>
+                    </button>
+                `;
+            } else {
+                actContainer.innerHTML = `
+                    <div class="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-center gap-2 font-bold">
+                        <i data-lucide="lock" class="w-4 h-4 text-amber-400 shrink-0"></i>
+                        <span>المسير بانتظار تعميد المدير المالي (أ. ابوالنصر البغدادي). التعميد متاح حصرياً للمدير المالي.</span>
+                    </div>
+                `;
+            }
         } else if (payroll.status === 'approved') {
-            actContainer.innerHTML = `
-                <button type="button" onclick="updateHrPayrollStatus(${payroll.id}, 'paid')" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold flex items-center gap-1.5 transition">
-                    <i data-lucide="banknote" class="w-4 h-4"></i>
-                    <span>تأكيد صرف الرواتب وخصم السلف</span>
-                </button>
-            `;
+            if (canApprove) {
+                actContainer.innerHTML = `
+                    <button type="button" onclick="updateHrPayrollStatus(${payroll.id}, 'paid')" class="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black flex items-center gap-2 shadow-lg shadow-emerald-950/40 transition">
+                        <i data-lucide="banknote" class="w-4 h-4"></i>
+                        <span>تأكيد صرف الرواتب وخصم السلف</span>
+                    </button>
+                `;
+            } else {
+                actContainer.innerHTML = `
+                    <span class="text-xs font-bold text-blue-300 flex items-center gap-1.5">
+                        <i data-lucide="shield-check" class="w-4 h-4 text-blue-400"></i>
+                        <span>المسير معمد رسمياً من المدير المالي وهو قيد الصرف والتحويل البنكي</span>
+                    </span>
+                `;
+            }
         } else {
             actContainer.innerHTML = `
-                <span class="text-xs font-bold text-emerald-400 flex items-center gap-1">
+                <span class="text-xs font-bold text-emerald-400 flex items-center gap-1.5">
                     <i data-lucide="check-circle" class="w-4 h-4"></i>
                     <span>تم صرف وتحويل هذا المسير لجميع الموظفين بنجاح</span>
                 </span>
@@ -13377,14 +13448,27 @@ async function viewHrPayrollDetails(id) {
 }
 
 async function updateHrPayrollStatus(id, newStatus) {
-    const label = newStatus === 'approved' ? 'اعتماد المسير' : 'تأكيد صرف الرواتب';
+    const u = currentUser || JSON.parse(localStorage.getItem('segieny_auth_user') || '{}');
+    
+    if ((newStatus === 'approved' || newStatus === 'paid') && !isFinancialManagerUser()) {
+        showToast('عفواً، تعميد مسير الرواتب هو صلاحية حصرية للمدير المالي (أ. ابوالنصر البغدادي).', 'error');
+        return;
+    }
+
+    const label = newStatus === 'approved' ? 'تعميد مسير الرواتب بصفة المدير المالي' : 'تأكيد صرف الرواتب وخصم السلف';
     if (!confirm(`هل أنت متأكد من ${label}؟`)) return;
 
     try {
         const res = await fetch(`/api/hr/payrolls/${id}/status`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ status: newStatus })
+            body: JSON.stringify({ 
+                status: newStatus,
+                user_id: u.id,
+                user_role: u.role,
+                user_name: u.name,
+                approved_by: u.name ? `${u.name} (المدير المالي)` : 'ابوالنصر البغدادي (المدير المالي)'
+            })
         });
         const data = await res.json();
         if (res.ok && data.success) {

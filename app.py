@@ -2449,6 +2449,76 @@ def approve_expense(expense_id):
     })
 
 
+@app.route('/api/expenses/<int:expense_id>/assign-payer', methods=['POST'])
+def assign_expense_payer(expense_id):
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute('SELECT * FROM expenses WHERE id = ?', (expense_id,))
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        return jsonify({'error': 'المصروف غير موجود'}), 404
+
+    data = request.get_json() or {}
+    user_id = data.get('user_id')
+    user_role = data.get('user_role', '')
+    user_name = data.get('user_name', '')
+
+    is_fin, mgr_title = check_is_financial_manager(user_id=user_id, user_role=user_role, user_name=user_name, cursor=cursor)
+    if not is_fin:
+        conn.close()
+        return jsonify({'error': 'عذراً، صلاحية تكليف وتوجيه سداد المصروفات مقتصرة حصرياً على المدير المالي'}), 403
+
+    assigned_name = data.get('assigned_disburser_name', '').strip()
+    payment_method = data.get('payment_method', row['payment_method'] or 'نقدي').strip()
+    payment_status = data.get('payment_status', 'unpaid')
+    payment_date = data.get('payment_date') or datetime.now().strftime('%Y-%m-%d')
+    notes = data.get('notes', '').strip()
+
+    if payment_status == 'paid':
+        paid_by = data.get('paid_by', '').strip() or assigned_name or mgr_title
+        cursor.execute('''
+            UPDATE expenses
+            SET assigned_disburser_name = ?,
+                paid_by = ?,
+                payment_status = 'paid',
+                payment_date = ?,
+                payment_method = ?,
+                notes = CASE WHEN ? != '' THEN COALESCE(notes || ' | ', '') || ? ELSE notes END
+            WHERE id = ?
+        ''', (assigned_name, paid_by, payment_date, payment_method, notes, notes, expense_id))
+    else:
+        cursor.execute('''
+            UPDATE expenses
+            SET assigned_disburser_name = ?,
+                payment_status = 'unpaid',
+                payment_method = ?,
+                notes = CASE WHEN ? != '' THEN COALESCE(notes || ' | ', '') || ? ELSE notes END
+            WHERE id = ?
+        ''', (assigned_name, payment_method, notes, notes, expense_id))
+
+    # Send Notification to the assigned person (e.g. Nawaf)
+    if assigned_name:
+        status_text = f"تم تسجيل سدادها بواسطة ({assigned_name})" if payment_status == 'paid' else f"مطلوب سدادها وصرفها بواسطة ({assigned_name})"
+        cursor.execute('''
+            INSERT INTO notifications (project_id, type, title, message)
+            VALUES (?, 'expense_task', ?, ?)
+        ''', (
+            row['project_id'],
+            f"تكليف بسداد فاتورة #{expense_id}",
+            f"كلف المدير المالي ({assigned_name}) بسداد وصرف الفاتورة '{row['title']}' بمبلغ {row['amount']:,.2f} ر.س ({status_text}). طريقة السداد: {payment_method}. {notes}"
+        ))
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({
+        'success': True,
+        'message': f"تم تكليف ({assigned_name or 'المسؤول'}) بسداد وصرف الفاتورة #{expense_id} بنجاح وإرسال الإشعار."
+    })
+
+
 @app.route('/api/expenses/<int:expense_id>/reject', methods=['POST'])
 def reject_expense(expense_id):
     if request.is_json:

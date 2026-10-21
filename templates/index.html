@@ -3291,6 +3291,99 @@
         </div>
     </div>
 
+    <!-- EXPENSE MODAL: ASSIGN PAYER / SETTLE INVOICE -->
+    <div id="expense-assign-payer-modal" class="modal-overlay hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+        <div class="bg-slate-900 rounded-2xl border border-slate-750 w-full max-w-lg shadow-2xl overflow-hidden animate-scaleUp">
+            <div class="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-850">
+                <div class="flex items-center gap-2.5">
+                    <div class="p-2 rounded-xl bg-amber-500/20 text-amber-400">
+                        <i data-lucide="user-check" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-base font-black text-white">تكليف مسؤول بسداد وصرف الفاتورة</h3>
+                        <p class="text-xs text-slate-400">توجيه أمر سداد الفاتورة لشخص محدد (نواف أو غيره) وتحديث حالة الصرف</p>
+                    </div>
+                </div>
+                <button type="button" onclick="closeModal('expense-assign-payer-modal')" class="text-slate-400 hover:text-white p-1">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <form id="expense-assign-payer-form" onsubmit="submitAssignExpensePayer(event)" class="p-6 space-y-4 max-h-[85vh] overflow-y-auto">
+                <input type="hidden" id="assign-payer-expense-id">
+
+                <!-- Invoice Summary Card -->
+                <div class="p-3.5 bg-slate-950 rounded-xl border border-slate-800 space-y-1.5 text-xs">
+                    <div class="flex justify-between items-center">
+                        <span class="text-slate-400">فاتورة رقم: <strong id="assign-payer-inv-id" class="text-amber-400 font-mono"></strong></span>
+                        <span class="text-slate-400">المشروع: <strong id="assign-payer-inv-project" class="text-white"></strong></span>
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <span class="text-slate-400">البيان: <strong id="assign-payer-inv-title" class="text-white"></strong></span>
+                        <span class="text-slate-400">التصنيف: <strong id="assign-payer-inv-cat" class="text-slate-300"></strong></span>
+                    </div>
+                    <div class="flex justify-between items-center pt-1 border-t border-slate-850">
+                        <span class="text-slate-400">مبلغ الفاتورة المطلوب:</span>
+                        <span id="assign-payer-inv-amount" class="font-bold text-rose-400 font-mono text-sm"></span>
+                    </div>
+                </div>
+
+                <!-- Assignment Controls -->
+                <div class="p-4 bg-slate-850/70 rounded-xl border border-amber-500/30 space-y-3">
+                    <div class="flex items-center gap-2 text-xs font-bold text-amber-400">
+                        <i data-lucide="send" class="w-4 h-4"></i>
+                        <span>تحديد المسؤول المكلف بالسداد (الجهة المصروف منها):</span>
+                    </div>
+
+                    <div class="space-y-1">
+                        <label class="block text-xs font-bold text-slate-300">المكلف بالصرف والسداد: <span class="text-rose-400">*</span></label>
+                        <select id="assign-payer-member-select" onchange="onAssignPayerMemberChange()" class="w-full bg-slate-950 border border-slate-750 focus:border-amber-500 rounded-xl px-3 py-2 text-xs text-white outline-none font-bold">
+                            <!-- Populated with team members -->
+                        </select>
+                        <input type="text" id="assign-payer-custom-name" placeholder="اكتب اسم الشخص أو المسؤول..." class="w-full bg-slate-950 border border-slate-750 focus:border-amber-500 rounded-xl px-3 py-2 text-xs text-white outline-none mt-2 hidden">
+                    </div>
+
+                    <div class="space-y-1">
+                        <label class="block text-xs font-bold text-slate-300">طريقة / جهة الصرف المقترحة:</label>
+                        <select id="assign-payer-payment-method" class="w-full bg-slate-950 border border-slate-750 focus:border-amber-500 rounded-xl px-3 py-2 text-xs text-white outline-none">
+                            <option value="عهدة شخصية">💼 عهدة الموظف الشخصية (المكلف)</option>
+                            <option value="نقدي">💵 نقداً من الخزينة (كاش)</option>
+                            <option value="تحويل بنكي">🏦 تحويل بنكي من حساب الشركة</option>
+                            <option value="عهدة موقع">🏗️ عهدة الموقع / المشروع</option>
+                            <option value="شيك">📜 شيك مصرفي</option>
+                        </select>
+                    </div>
+
+                    <div class="space-y-1">
+                        <label class="block text-xs font-bold text-slate-300">حالة السداد الحالية:</label>
+                        <select id="assign-payer-status-select" onchange="onAssignPayerStatusSelectChange()" class="w-full bg-slate-950 border border-slate-750 focus:border-amber-500 rounded-xl px-3 py-2 text-xs text-white outline-none font-semibold">
+                            <option value="unpaid">🕒 تكليف بالسداد (قيد التنفيذ - لم يتم الدفع بعد)</option>
+                            <option value="paid">💵 تم الصرف والسداد بالفعل بواسطة المكلف الآن</option>
+                        </select>
+                    </div>
+
+                    <div id="assign-payer-payment-date-row" class="space-y-1 hidden">
+                        <label class="block text-xs font-bold text-slate-300">تاريخ السداد الفعلي: <span class="text-rose-400">*</span></label>
+                        <input type="date" id="assign-payer-payment-date" class="w-full bg-slate-950 border border-slate-750 focus:border-amber-500 rounded-xl px-3 py-2 text-xs text-white outline-none">
+                    </div>
+
+                    <div class="space-y-1">
+                        <label class="block text-xs font-bold text-slate-300">توجيهات أو ملاحظات للمكلف:</label>
+                        <textarea id="assign-payer-notes-input" rows="2" placeholder="مثال: يرجى تحويل المبلغ للمورد واستلام سند القبض أو الفاتورة الضريبية..." class="w-full bg-slate-950 border border-slate-750 focus:border-amber-500 rounded-xl px-3 py-2 text-xs text-white outline-none resize-none"></textarea>
+                    </div>
+                </div>
+
+                <div class="flex items-center justify-end gap-2 pt-3 border-t border-slate-800">
+                    <button type="button" onclick="closeModal('expense-assign-payer-modal')" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-300 text-xs font-bold transition">إلغاء</button>
+                    <button type="submit" id="btn-submit-assign-payer" class="px-5 py-2 rounded-xl bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-white text-xs font-black flex items-center gap-1.5 shadow-lg shadow-amber-950/50 transition">
+                        <i data-lucide="send" class="w-4 h-4"></i>
+                        <span id="btn-submit-assign-payer-text">تأكيد التكليف وإرسال أمر السداد</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <!-- 1. EXPENSE & INVOICE MODAL -->
     <div id="expense-modal" class="modal-overlay hidden fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
         <div class="bg-slate-850 rounded-2xl border border-slate-750 w-full max-w-xl shadow-2xl p-6 space-y-5 animate-scaleUp overflow-y-auto max-h-[90vh]">
@@ -6802,7 +6895,7 @@
 
     <!-- Scripts -->
     <script src="/static/js/i18n.js?v=20261020_v1"></script>
-    <script src="/static/js/app.js?v=20261021_v2"></script>
+    <script src="/static/js/app.js?v=20261021_v3"></script>
     <script>
     (function() {
         try {

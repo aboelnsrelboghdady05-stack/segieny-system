@@ -2041,7 +2041,15 @@ function renderExpensesTable(expenses) {
                 ` : (typeof tr === 'function' ? tr(e.payment_method || 'نقدي') : (e.payment_method || 'نقدي'))}
             </td>
             <td class="p-3.5 whitespace-nowrap text-slate-300">
-                ${e.paid_to || e.paid_by || '-'}
+                <div class="flex flex-col">
+                    <span class="text-white font-medium">${escapeHtml(e.paid_to || e.paid_by || '-')}</span>
+                    ${e.assigned_disburser_name ? `
+                        <span class="inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30 w-fit">
+                            <i data-lucide="send" class="w-3 h-3 text-amber-400"></i>
+                            <span>مكلف بالسداد: ${escapeHtml(e.assigned_disburser_name)}</span>
+                        </span>
+                    ` : ''}
+                </div>
             </td>
             <td class="p-3.5 text-center whitespace-nowrap">
                 ${e.invoice_file_path ? `
@@ -2059,6 +2067,9 @@ function renderExpensesTable(expenses) {
             <td class="p-3.5 text-center whitespace-nowrap">
                 <div class="flex items-center justify-center gap-1">
                     ${approvalActions}
+                    <button onclick="openAssignExpensePayerModal(${e.id})" title="تكليف مسؤول بسداد وصرف الفاتورة (نواف أو غيره)" class="p-1.5 text-slate-400 hover:text-amber-400 rounded-lg hover:bg-slate-800 transition">
+                        <i data-lucide="user-check" class="w-4 h-4"></i>
+                    </button>
                     <button onclick="openTransferExpenseModal(${e.id})" title="${isEn ? 'Transfer to Another Project' : 'نقل المصروف لمشروع آخر'}" class="p-1.5 text-slate-400 hover:text-emerald-400 rounded-lg hover:bg-slate-800 transition">
                         <i data-lucide="arrow-right-left" class="w-4 h-4"></i>
                     </button>
@@ -2098,6 +2109,202 @@ function renderExpensesTable(expenses) {
     }
 
     initLucide();
+}
+
+// ----------------- ASSIGN EXPENSE PAYER MODAL FUNCTIONS -----------------
+async function openAssignExpensePayerModal(expenseId) {
+    if (!isFinancialManagerUser()) {
+        showToast('عفواً، صلاحية تكليف وتوجيه سداد المصروفات والفواتير مقتصرة حصرياً على المدير المالي (أ. ابوالنصر البغدادي).', 'error');
+        return;
+    }
+
+    try {
+        const res = await fetch(`/api/expenses/${expenseId}`);
+        const data = await res.json();
+        if (!data.success || !data.expense) {
+            showToast('تعذر تحميل بيانات الفاتورة', 'error');
+            return;
+        }
+        const exp = data.expense;
+
+        // Ensure team members are loaded
+        if (!Array.isArray(allTeamMembers) || allTeamMembers.length === 0) {
+            try {
+                const teamRes = await fetch('/api/team');
+                allTeamMembers = await teamRes.json();
+            } catch (e) {
+                console.error('Error fetching team members:', e);
+            }
+        }
+
+        document.getElementById('assign-payer-expense-id').value = exp.id;
+        document.getElementById('assign-payer-inv-id').innerText = `#${exp.id}`;
+        document.getElementById('assign-payer-inv-project').innerText = exp.project_name || 'عام';
+        document.getElementById('assign-payer-inv-title').innerText = exp.title || '-';
+        document.getElementById('assign-payer-inv-cat').innerText = exp.category || '-';
+        document.getElementById('assign-payer-inv-amount').innerText = formatCurrency(exp.amount || 0);
+
+        // Populate team members select
+        const select = document.getElementById('assign-payer-member-select');
+        if (select) {
+            select.innerHTML = '';
+            
+            const optDefault = document.createElement('option');
+            optDefault.value = '';
+            optDefault.innerText = '-- اختر المسؤول المكلف بالسداد --';
+            select.appendChild(optDefault);
+
+            if (Array.isArray(allTeamMembers) && allTeamMembers.length > 0) {
+                allTeamMembers.forEach(m => {
+                    const opt = document.createElement('option');
+                    opt.value = m.name;
+                    opt.dataset.id = m.id;
+                    opt.dataset.name = m.name;
+                    opt.innerText = `👤 ${m.name} (${m.role || 'عضو فريق'})`;
+                    
+                    if (exp.assigned_disburser_name && exp.assigned_disburser_name === m.name) {
+                        opt.selected = true;
+                    } else if (!exp.assigned_disburser_name && exp.paid_by && exp.paid_by.includes(m.name)) {
+                        opt.selected = true;
+                    }
+                    select.appendChild(opt);
+                });
+            }
+
+            const optCustom = document.createElement('option');
+            optCustom.value = '__custom__';
+            optCustom.innerText = '✏️ جهة أخرى / كتابة اسم مخصص...';
+            if (exp.assigned_disburser_name && !Array.from(select.options).some(o => o.value === exp.assigned_disburser_name)) {
+                optCustom.selected = true;
+            }
+            select.appendChild(optCustom);
+        }
+
+        onAssignPayerMemberChange();
+
+        // Payment Method
+        const methodSelect = document.getElementById('assign-payer-payment-method');
+        if (methodSelect) {
+            methodSelect.value = exp.payment_method || 'عهدة شخصية';
+        }
+
+        // Status
+        const statusSelect = document.getElementById('assign-payer-status-select');
+        if (statusSelect) {
+            statusSelect.value = exp.payment_status || 'unpaid';
+        }
+        onAssignPayerStatusSelectChange();
+
+        const dateInput = document.getElementById('assign-payer-payment-date');
+        if (dateInput) {
+            dateInput.value = exp.payment_date || new Date().toISOString().split('T')[0];
+        }
+
+        const notesInput = document.getElementById('assign-payer-notes-input');
+        if (notesInput) {
+            notesInput.value = '';
+        }
+
+        openModal('expense-assign-payer-modal');
+        initLucide();
+    } catch (err) {
+        console.error('Error opening assign payer modal:', err);
+        showToast('حدث خطأ في تحميل الفاتورة', 'error');
+    }
+}
+
+function onAssignPayerMemberChange() {
+    const select = document.getElementById('assign-payer-member-select');
+    const customInput = document.getElementById('assign-payer-custom-name');
+    const btnText = document.getElementById('btn-submit-assign-payer-text');
+    if (!select) return;
+
+    if (select.value === '__custom__') {
+        if (customInput) customInput.classList.remove('hidden');
+    } else {
+        if (customInput) {
+            customInput.classList.add('hidden');
+            customInput.value = '';
+        }
+    }
+
+    const val = select.value === '__custom__' ? (customInput ? customInput.value : '') : select.value;
+    if (btnText) {
+        btnText.innerText = val ? `تأكيد تكليف (${val}) وإرسال أمر السداد` : 'تأكيد التكليف وإرسال أمر السداد';
+    }
+}
+
+function onAssignPayerStatusSelectChange() {
+    const statusSelect = document.getElementById('assign-payer-status-select');
+    const dateRow = document.getElementById('assign-payer-payment-date-row');
+    if (!statusSelect || !dateRow) return;
+
+    if (statusSelect.value === 'paid') {
+        dateRow.classList.remove('hidden');
+    } else {
+        dateRow.classList.add('hidden');
+    }
+}
+
+async function submitAssignExpensePayer(event) {
+    event.preventDefault();
+    const btn = document.getElementById('btn-submit-assign-payer');
+    if (btn) btn.disabled = true;
+
+    const expenseId = document.getElementById('assign-payer-expense-id')?.value;
+    const select = document.getElementById('assign-payer-member-select');
+    const customInput = document.getElementById('assign-payer-custom-name');
+    const methodSelect = document.getElementById('assign-payer-payment-method');
+    const statusSelect = document.getElementById('assign-payer-status-select');
+    const dateInput = document.getElementById('assign-payer-payment-date');
+    const notesInput = document.getElementById('assign-payer-notes-input');
+
+    let assignedName = '';
+    if (select.value === '__custom__') {
+        assignedName = customInput ? customInput.value.trim() : '';
+    } else {
+        assignedName = select.value;
+    }
+
+    if (!assignedName) {
+        showToast('يرجى تحديد المسؤول المكلف بالسداد (مثل: نواف سجيني)', 'warning');
+        if (btn) btn.disabled = false;
+        return;
+    }
+
+    const u = currentUser || JSON.parse(localStorage.getItem('segieny_auth_user') || '{}');
+
+    try {
+        const res = await fetch(`/api/expenses/${expenseId}/assign-payer`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                user_id: u.id,
+                user_role: u.role,
+                user_name: u.name,
+                assigned_disburser_name: assignedName,
+                payment_method: methodSelect ? methodSelect.value : 'نقدي',
+                payment_status: statusSelect ? statusSelect.value : 'unpaid',
+                payment_date: dateInput ? dateInput.value : '',
+                notes: notesInput ? notesInput.value.trim() : ''
+            })
+        });
+
+        const data = await res.json();
+        if (res.ok && data.success) {
+            showToast(data.message || `تم تكليف (${assignedName}) بسداد الفاتورة بنجاح!`, 'success');
+            closeModal('expense-assign-payer-modal');
+            loadExpenses();
+            if (typeof loadCashFlow === 'function') loadCashFlow();
+        } else {
+            showToast(data.error || 'تعذر تكليف المسؤول', 'error');
+        }
+    } catch (err) {
+        console.error('Error assigning expense payer:', err);
+        showToast('حدث خطأ في الاتصال بالخادم', 'error');
+    } finally {
+        if (btn) btn.disabled = false;
+    }
 }
 
 async function deleteExpense(expenseId) {

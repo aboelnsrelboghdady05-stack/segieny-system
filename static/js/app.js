@@ -2067,9 +2067,11 @@ function renderExpensesTable(expenses) {
             <td class="p-3.5 text-center whitespace-nowrap">
                 <div class="flex items-center justify-center gap-1">
                     ${approvalActions}
-                    <button onclick="openAssignExpensePayerModal(${e.id})" title="تكليف مسؤول بسداد وصرف الفاتورة (نواف أو غيره)" class="p-1.5 text-slate-400 hover:text-amber-400 rounded-lg hover:bg-slate-800 transition">
-                        <i data-lucide="user-check" class="w-4 h-4"></i>
-                    </button>
+                    ${isFinManager ? `
+                        <button onclick="openAssignExpensePayerModal(${e.id})" title="تكليف مسؤول بسداد وصرف الفاتورة" class="p-1.5 text-amber-400 hover:text-amber-300 rounded-lg hover:bg-slate-800 transition">
+                            <i data-lucide="user-check" class="w-4 h-4"></i>
+                        </button>
+                    ` : ''}
                     <button onclick="openTransferExpenseModal(${e.id})" title="${isEn ? 'Transfer to Another Project' : 'نقل المصروف لمشروع آخر'}" class="p-1.5 text-slate-400 hover:text-emerald-400 rounded-lg hover:bg-slate-800 transition">
                         <i data-lucide="arrow-right-left" class="w-4 h-4"></i>
                     </button>
@@ -2268,6 +2270,12 @@ async function submitAssignExpensePayer(event) {
 
     if (!assignedName) {
         showToast('يرجى تحديد المسؤول المكلف بالسداد (مثل: نواف سجيني)', 'warning');
+        if (btn) btn.disabled = false;
+        return;
+    }
+
+    if (!isFinancialManagerUser()) {
+        showToast('عفواً، صلاحية تكليف وتوجيه سداد المصروفات والفواتير مقتصرة حصرياً على المدير المالي (أ. ابوالنصر البغدادي).', 'error');
         if (btn) btn.disabled = false;
         return;
     }
@@ -11630,10 +11638,7 @@ let allCustodyRequests = [];
 let currentCustodyStatusFilter = '';
 
 function isFinancialManager() {
-    if (!currentUser) return false;
-    const r = currentUser.role || '';
-    const n = currentUser.name || '';
-    return r.includes('مالي') || r.includes('عام') || n.includes('البغدادي') || n.includes('سجيني') || n.includes('نواف');
+    return isFinancialManagerUser();
 }
 
 function updateCustodyRoleBanner() {
@@ -13744,13 +13749,13 @@ function isFinancialManagerUser() {
     try {
         const u = currentUser || JSON.parse(localStorage.getItem('segieny_auth_user') || localStorage.getItem('segieny_current_user') || '{}');
         if (!u) return false;
-        if (u.is_admin || u.id === 1) return true;
         const r = (u.role || '').toLowerCase();
         const un = (u.username || '').toLowerCase();
         const n = (u.name || '').toLowerCase();
-        if (r.includes('مدير مالي') || r.includes('المدير المالي') || r.includes('financial') || r.includes('مدير عام') || r.includes('المدير العام')) return true;
-        if (un === 'baghdadi' || un === 'nawaf') return true;
-        if (n.includes('ابوالنصر') || n.includes('البغدادي') || n.includes('نواف')) return true;
+        // صلاحية حصرية للمدير المالي (أ. ابوالنصر البغدادي)
+        if (r.includes('مدير مالي') || r.includes('المدير المالي') || r.includes('financial')) return true;
+        if (un === 'baghdadi') return true;
+        if (n.includes('ابوالنصر') || n.includes('البغدادي')) return true;
         return false;
     } catch(e) {
         return false;

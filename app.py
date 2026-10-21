@@ -57,7 +57,7 @@ def save_uploaded_file_persistent(file_obj, filename, uploaded_by=None):
 
 def check_is_financial_manager(user_id=None, user_role='', user_name='', cursor=None):
     """
-    التحقق من صلاحية المدير المالي (أ. ابوالنصر البغدادي) أو الإدارة العامة
+    التحقق من صلاحية المدير المالي (أ. ابوالنصر البغدادي) حصرياً
     """
     is_fin = False
     manager_title = 'ابوالنصر البغدادي (المدير المالي)'
@@ -73,9 +73,6 @@ def check_is_financial_manager(user_id=None, user_role='', user_name='', cursor=
                 if 'مدير مالي' in r or 'المدير المالي' in r or un == 'baghdadi' or 'ابوالنصر' in nm or 'financial' in r:
                     is_fin = True
                     manager_title = f"{nm} (المدير المالي)"
-                elif 'مدير عام' in r or 'المدير العام' in r or un == 'nawaf' or 'نواف' in nm or u['id'] == 1:
-                    is_fin = True
-                    manager_title = f"{nm} (المدير العام)"
         except Exception:
             pass
 
@@ -85,9 +82,6 @@ def check_is_financial_manager(user_id=None, user_role='', user_name='', cursor=
         if 'مدير مالي' in r_str or 'المدير المالي' in r_str or 'ابوالنصر' in n_str or 'baghdadi' in n_str or 'financial' in r_str:
             is_fin = True
             manager_title = f"{user_name or 'ابوالنصر البغدادي'} (المدير المالي)"
-        elif 'مدير عام' in r_str or 'المدير العام' in r_str or 'نواف' in n_str or 'admin' in r_str:
-            is_fin = True
-            manager_title = f"{user_name or 'الإدارة العامة'} (المدير العام)"
 
     return is_fin, manager_title
 

@@ -85,6 +85,41 @@ def check_is_financial_manager(user_id=None, user_role='', user_name='', cursor=
 
     return is_fin, manager_title
 
+
+def check_can_view_all_expenses(user_id=None, user_role='', user_name='', cursor=None):
+    """
+    التحقق مما إذا كان المستخدم يملك صلاحية رؤية كافة المصاريف
+    (حصرية للمدير العام والمدير المالي فقط)
+    """
+    if user_id and cursor:
+        try:
+            cursor.execute('SELECT id, name, role, username FROM team_members WHERE id = ?', (user_id,))
+            u = cursor.fetchone()
+            if u:
+                r = (u['role'] or '').lower()
+                un = (u['username'] or '').lower()
+                nm = (u['name'] or '').lower()
+                if any(x in r for x in ['مدير مالي', 'المدير المالي', 'financial']) or un == 'baghdadi' or 'ابوالنصر' in nm or 'البغدادي' in nm:
+                    return True, u['name']
+                if any(x in r for x in ['مدير عام', 'المدير العام']) or un == 'nawaf' or 'نواف' in nm or 'سجيني' in nm:
+                    return True, u['name']
+                return False, u['name']
+        except Exception:
+            pass
+
+    r_str = (user_role or '').lower()
+    n_str = (user_name or '').lower()
+    if any(x in r_str for x in ['مدير مالي', 'المدير المالي', 'financial']) or 'ابوالنصر' in n_str or 'baghdadi' in n_str or 'البغدادي' in n_str:
+        return True, user_name
+    if any(x in r_str for x in ['مدير عام', 'المدير العام']) or 'نواف' in n_str or 'سجيني' in n_str or 'nawaf' in n_str:
+        return True, user_name
+
+    # If neither user_id nor user_name was provided, return True (for internal background jobs)
+    if not user_id and not user_name and not user_role:
+        return True, ''
+
+    return False, user_name
+
 # Initialize database
 database.init_db()
 
@@ -1345,9 +1380,14 @@ def get_expenses():
     status = request.args.get('status')
     approval_status = request.args.get('approval_status')
     payment_status = request.args.get('payment_status')
+    user_id = request.args.get('user_id')
+    user_role = request.args.get('user_role', '')
+    user_name = request.args.get('user_name', '')
 
     conn = database.get_db_connection()
     cursor = conn.cursor()
+
+    can_view_all, resolved_name = check_can_view_all_expenses(user_id=user_id, user_role=user_role, user_name=user_name, cursor=cursor)
 
     query = '''
         SELECT e.*, 
@@ -1420,6 +1460,18 @@ def get_expenses():
             query += " AND (e.payment_status = 'paid' OR e.payment_status IS NULL)"
         elif payment_status == 'unpaid':
             query += " AND e.payment_status = 'unpaid'"
+
+    # Restrict to user's own expenses unless General Manager or Financial Manager
+    if not can_view_all and resolved_name:
+        wildcard = f"%{resolved_name.strip()}%"
+        query += ''' AND (
+            e.created_by LIKE ? 
+            OR cust.employee_name LIKE ? 
+            OR e.assigned_disburser_name LIKE ? 
+            OR e.paid_by LIKE ? 
+            OR e.paid_to LIKE ?
+        )'''
+        params.extend([wildcard, wildcard, wildcard, wildcard, wildcard])
 
     query += ' ORDER BY e.expense_date DESC, e.id DESC'
     cursor.execute(query, params)
@@ -6683,6 +6735,11 @@ def get_expense_requests():
     beneficiary_type = request.args.get('beneficiary_type')
     priority = request.args.get('priority')
     search = request.args.get('search', '').strip()
+    user_id = request.args.get('user_id')
+    user_role = request.args.get('user_role', '')
+    user_name = request.args.get('user_name', '')
+
+    can_view_all, resolved_name = check_can_view_all_expenses(user_id=user_id, user_role=user_role, user_name=user_name, cursor=cursor)
 
     query = '''
         SELECT er.*, 
@@ -6714,6 +6771,26 @@ def get_expense_requests():
         wildcard = f"%{search}%"
         params.extend([wildcard, wildcard, wildcard, wildcard])
 
+    # Restrict to user's own requests unless General Manager or Financial Manager
+    if not can_view_all and resolved_name:
+        wildcard = f"%{resolved_name.strip()}%"
+        if user_id:
+            query += ''' AND (
+                er.requester_id = ? 
+                OR er.requester_name LIKE ? 
+                OR er.beneficiary_name LIKE ? 
+                OR er.assigned_disburser_name LIKE ?
+                OR er.assigned_disburser_id = ?
+            )'''
+            params.extend([user_id, wildcard, wildcard, wildcard, user_id])
+        else:
+            query += ''' AND (
+                er.requester_name LIKE ? 
+                OR er.beneficiary_name LIKE ? 
+                OR er.assigned_disburser_name LIKE ?
+            )'''
+            params.extend([wildcard, wildcard, wildcard])
+
     query += '''
         ORDER BY 
             CASE 
@@ -6729,7 +6806,28 @@ def get_expense_requests():
     rows = [dict(r) for r in cursor.fetchall()]
 
     # Summary KPIs
-    cursor.execute('''
+    stats_where = ""
+    stats_params = []
+    if not can_view_all and resolved_name:
+        wildcard = f"%{resolved_name.strip()}%"
+        if user_id:
+            stats_where = ''' WHERE (
+                requester_id = ? 
+                OR requester_name LIKE ? 
+                OR beneficiary_name LIKE ? 
+                OR assigned_disburser_name LIKE ?
+                OR assigned_disburser_id = ?
+            )'''
+            stats_params = [user_id, wildcard, wildcard, wildcard, user_id]
+        else:
+            stats_where = ''' WHERE (
+                requester_name LIKE ? 
+                OR beneficiary_name LIKE ? 
+                OR assigned_disburser_name LIKE ?
+            )'''
+            stats_params = [wildcard, wildcard, wildcard]
+
+    cursor.execute(f'''
         SELECT 
             COUNT(*) as total_count,
             COALESCE(SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END), 0) as pending_count,
@@ -6740,7 +6838,8 @@ def get_expense_requests():
             COALESCE(SUM(CASE WHEN status = 'disbursed' THEN COALESCE(disbursed_amount, amount) ELSE 0 END), 0) as disbursed_amount,
             COALESCE(SUM(CASE WHEN status = 'rejected' THEN 1 ELSE 0 END), 0) as rejected_count
         FROM expense_requests
-    ''')
+        {stats_where}
+    ''', stats_params)
     stats_row = dict(cursor.fetchone() or {})
 
     conn.close()

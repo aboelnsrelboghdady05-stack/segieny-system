@@ -1806,13 +1806,42 @@ function applyClientExpenseFilters() {
     renderExpensesTable(filtered);
 }
 
+function canUserSeeAllExpenses() {
+    try {
+        const u = currentUser || JSON.parse(localStorage.getItem('segieny_auth_user') || localStorage.getItem('segieny_current_user') || '{}');
+        if (!u) return false;
+        const r = (u.role || '').toLowerCase();
+        const un = (u.username || '').toLowerCase();
+        const n = (u.name || '').toLowerCase();
+
+        // 1. المدير المالي (أ. ابوالنصر البغدادي)
+        if (r.includes('مدير مالي') || r.includes('المدير المالي') || r.includes('financial') || un === 'baghdadi' || n.includes('ابوالنصر') || n.includes('البغدادي')) {
+            return true;
+        }
+
+        // 2. المدير العام (نواف سجيني)
+        if (r.includes('مدير عام') || r.includes('المدير العام') || un === 'nawaf' || n.includes('نواف') || n.includes('سجيني')) {
+            return true;
+        }
+
+        return false;
+    } catch(e) {
+        return false;
+    }
+}
+
 async function loadExpenses() {
     const projId = document.getElementById('expense-filter-project')?.value || '';
     const cat = document.getElementById('expense-filter-category')?.value || '';
     const fromDate = document.getElementById('expense-filter-from')?.value || '';
     const toDate = document.getElementById('expense-filter-to')?.value || '';
 
+    const u = currentUser || JSON.parse(localStorage.getItem('segieny_auth_user') || '{}');
+
     let url = `/api/expenses?`;
+    if (u && u.id) url += `user_id=${encodeURIComponent(u.id)}&`;
+    if (u && u.role) url += `user_role=${encodeURIComponent(u.role)}&`;
+    if (u && u.name) url += `user_name=${encodeURIComponent(u.name)}&`;
     if (projId) url += `project_id=${projId}&`;
     if (cat) url += `category=${encodeURIComponent(cat)}&`;
     if (fromDate) url += `from_date=${fromDate}&`;
@@ -1821,7 +1850,22 @@ async function loadExpenses() {
     try {
         const res = await fetch(url);
         const expenses = await res.json();
-        allLoadedExpensesList = Array.isArray(expenses) ? expenses : [];
+        let list = Array.isArray(expenses) ? expenses : [];
+
+        // Client-side guard: Only show user's own expenses unless General Manager or Financial Manager
+        if (!canUserSeeAllExpenses() && u && u.name) {
+            const myName = u.name.trim().toLowerCase();
+            list = list.filter(e => {
+                const cBy = (e.created_by || '').toLowerCase();
+                const cEmp = (e.custody_employee_name || '').toLowerCase();
+                const aName = (e.assigned_disburser_name || '').toLowerCase();
+                const pBy = (e.paid_by || '').toLowerCase();
+                const pTo = (e.paid_to || '').toLowerCase();
+                return cBy.includes(myName) || cEmp.includes(myName) || aName.includes(myName) || pBy.includes(myName) || pTo.includes(myName);
+            });
+        }
+
+        allLoadedExpensesList = list;
         updateExpenseFilterPillCounts(allLoadedExpensesList);
         applyClientExpenseFilters();
     } catch (err) {
@@ -14997,7 +15041,12 @@ async function loadExpenseRequests() {
     const projId = document.getElementById('req-filter-project')?.value || '';
     const search = document.getElementById('req-search-input')?.value || '';
 
+    const u = currentUser || JSON.parse(localStorage.getItem('segieny_auth_user') || '{}');
+
     let url = `/api/expense-requests?`;
+    if (u && u.id) url += `user_id=${encodeURIComponent(u.id)}&`;
+    if (u && u.role) url += `user_role=${encodeURIComponent(u.role)}&`;
+    if (u && u.name) url += `user_name=${encodeURIComponent(u.name)}&`;
     if (status) url += `status=${encodeURIComponent(status)}&`;
     if (bType) url += `beneficiary_type=${encodeURIComponent(bType)}&`;
     if (projId) url += `project_id=${encodeURIComponent(projId)}&`;
@@ -15006,7 +15055,24 @@ async function loadExpenseRequests() {
     try {
         const res = await fetch(url);
         const data = await res.json();
-        currentExpenseRequests = data.requests || [];
+        let requests = data.requests || [];
+
+        // Client-side guard: Only show user's own requests unless General Manager or Financial Manager
+        if (!canUserSeeAllExpenses() && u && u.name) {
+            const myName = u.name.trim().toLowerCase();
+            const myId = String(u.id || '');
+            requests = requests.filter(r => {
+                const reqId = String(r.requester_id || '');
+                const reqName = (r.requester_name || '').toLowerCase();
+                const benName = (r.beneficiary_name || '').toLowerCase();
+                const aName = (r.assigned_disburser_name || '').toLowerCase();
+                const aId = String(r.assigned_disburser_id || '');
+                return (myId && (reqId === myId || aId === myId)) ||
+                       reqName.includes(myName) || benName.includes(myName) || aName.includes(myName);
+            });
+        }
+
+        currentExpenseRequests = requests;
         const summary = data.summary || {};
 
         // Update KPIs

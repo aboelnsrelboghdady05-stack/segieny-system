@@ -8132,6 +8132,7 @@ async function handleChangePasswordSubmit(e) {
 let currentChatChannel = {
     type: 'general',
     projectId: null,
+    groupId: null,
     otherUserId: null,
     title: 'ساحة النقاش العامة للشركة',
     subtitle: 'مفتوح لجميع منسوبي ومهندسي الشركة'
@@ -8154,7 +8155,8 @@ function initChatTab() {
 
 async function loadChatChannels() {
     try {
-        const res = await fetch('/api/chat/channels');
+        const uId = (currentUser && currentUser.id) ? currentUser.id : '';
+        const res = await fetch(`/api/chat/channels?user_id=${uId}`);
         const data = await res.json();
         const isEn = typeof currentLang !== 'undefined' && currentLang === 'en';
 
@@ -8185,12 +8187,62 @@ async function loadChatChannels() {
             });
         }
 
-        // 2. Render Direct Members List
+        // 2. Render Custom Work Groups
+        const groupsList = document.getElementById('chat-groups-list');
+        if (groupsList) {
+            groupsList.innerHTML = '';
+            const userGroups = data.groups || [];
+            if (userGroups.length === 0) {
+                groupsList.innerHTML = `
+                    <div class="p-2.5 text-center text-[10px] text-slate-500 bg-slate-900/40 rounded-xl border border-dashed border-slate-800">
+                        <span>لا توجد مجموعات عمل بعد. انقر على + لإنشاء مجموعة.</span>
+                    </div>
+                `;
+            } else {
+                userGroups.forEach(g => {
+                    const isActive = currentChatChannel.type === 'group' && currentChatChannel.groupId === g.id;
+                    const canDelete = currentUser && (currentUser.is_admin || currentUser.id === g.created_by_id || currentUser.id === 1);
+                    const el = document.createElement('div');
+                    el.className = `chat-channel-item p-2 rounded-xl flex items-center justify-between cursor-pointer transition group ${isActive ? 'active-channel' : ''}`;
+                    const subtitle = isEn 
+                        ? `Work group (${g.members_count || 1} members) • ${g.description || 'Team chat'}` 
+                        : `مجموعة عمل (${g.members_count || 1} أعضاء) • ${g.description || 'محادثة جماعية'}`;
+                    
+                    el.onclick = (e) => {
+                        if (e.target.closest('.btn-delete-group')) return;
+                        selectChatChannel('group', g.id, g.name, subtitle);
+                    };
+
+                    el.innerHTML = `
+                        <div class="flex items-center gap-2 truncate">
+                            <div class="w-7 h-7 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0 text-xs font-bold">
+                                <i data-lucide="users" class="w-3.5 h-3.5"></i>
+                            </div>
+                            <div class="truncate">
+                                <div class="flex items-center gap-1.5">
+                                    <h5 class="text-xs font-bold text-white truncate">${escapeHtml(g.name)}</h5>
+                                    <span class="text-[9px] bg-slate-800 text-emerald-400 px-1.5 py-0.2 rounded font-mono shrink-0">${g.members_count || 1}</span>
+                                </div>
+                                <span class="text-[9px] text-slate-400 truncate block">${g.last_message ? escapeHtml(g.last_message) : (g.description || 'مجموعة عمل')}</span>
+                            </div>
+                        </div>
+                        ${canDelete ? `
+                            <button type="button" onclick="deleteChatGroup(${g.id}, '${escapeHtml(g.name).replace(/'/g, "\\'")}')" title="حذف المجموعة" class="btn-delete-group p-1 rounded text-slate-500 hover:text-rose-400 hover:bg-slate-800 opacity-0 group-hover:opacity-100 transition">
+                                <i data-lucide="trash-2" class="w-3.5 h-3.5 pointer-events-none"></i>
+                            </button>
+                        ` : ''}
+                    `;
+                    groupsList.appendChild(el);
+                });
+            }
+        }
+
+        // 3. Render Direct Members List
         const membersList = document.getElementById('chat-direct-members-list');
         if (membersList) {
             membersList.innerHTML = '';
             (data.members || []).forEach(m => {
-                if (m.id === currentUser.id) return; // Don't chat with oneself
+                if (currentUser && m.id === currentUser.id) return; // Don't chat with oneself
 
                 const isActive = currentChatChannel.type === 'direct' && currentChatChannel.otherUserId === m.id;
                 const el = document.createElement('div');
@@ -8227,6 +8279,7 @@ function selectChatChannel(type, id, title, subtitle) {
     currentChatChannel = {
         type: type,
         projectId: type === 'project' ? id : null,
+        groupId: type === 'group' ? id : null,
         otherUserId: type === 'direct' ? id : null,
         title: title,
         subtitle: subtitle || ''
@@ -8246,6 +8299,9 @@ function selectChatChannel(type, id, title, subtitle) {
         } else if (type === 'project') {
             avatarEl.className = 'w-10 h-10 rounded-xl bg-blue-500/20 text-blue-400 flex items-center justify-center font-bold text-sm border border-blue-500/30';
             avatarEl.innerHTML = `<i data-lucide="building" class="w-5 h-5"></i>`;
+        } else if (type === 'group') {
+            avatarEl.className = 'w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-600 text-white flex items-center justify-center font-bold text-sm shadow';
+            avatarEl.innerHTML = `<i data-lucide="users" class="w-5 h-5"></i>`;
         } else {
             avatarEl.className = 'w-10 h-10 rounded-xl bg-purple-500/20 text-purple-400 flex items-center justify-center font-bold text-sm border border-purple-500/30';
             avatarEl.innerHTML = `<i data-lucide="user" class="w-5 h-5"></i>`;
@@ -8269,6 +8325,8 @@ async function loadChatMessages(isSilent = false) {
     let url = `/api/chat/messages?channel_type=${currentChatChannel.type}`;
     if (currentChatChannel.type === 'project') {
         url += `&project_id=${currentChatChannel.projectId}`;
+    } else if (currentChatChannel.type === 'group') {
+        url += `&group_id=${currentChatChannel.groupId}`;
     } else if (currentChatChannel.type === 'direct') {
         url += `&current_user_id=${currentUser.id}&other_user_id=${currentChatChannel.otherUserId}`;
     }
@@ -8496,6 +8554,8 @@ async function submitChatMessage(e) {
 
         if (currentChatChannel.type === 'project') {
             formData.append('project_id', currentChatChannel.projectId);
+        } else if (currentChatChannel.type === 'group') {
+            formData.append('group_id', currentChatChannel.groupId);
         } else if (currentChatChannel.type === 'direct') {
             formData.append('recipient_id', currentChatChannel.otherUserId);
         }
@@ -8541,6 +8601,148 @@ function clearChatAttachment() {
     if (input) input.value = '';
     const banner = document.getElementById('chat-attachment-banner');
     if (banner) banner.classList.add('hidden');
+}
+
+// ----------------- CHAT GROUPS MANAGEMENT -----------------
+async function openCreateGroupModal() {
+    if (!Array.isArray(allTeamMembers) || allTeamMembers.length === 0) {
+        try {
+            const res = await fetch('/api/team');
+            allTeamMembers = await res.json();
+        } catch(e) {
+            console.error('Failed to load team members:', e);
+        }
+    }
+
+    const nameInput = document.getElementById('group-name-input');
+    const descInput = document.getElementById('group-desc-input');
+    const container = document.getElementById('group-members-checkboxes');
+    const countEl = document.getElementById('selected-group-members-count');
+
+    if (nameInput) nameInput.value = '';
+    if (descInput) descInput.value = '';
+    if (countEl) countEl.innerText = '0 عضو محدد';
+
+    if (container) {
+        container.innerHTML = '';
+        const myId = currentUser ? currentUser.id : null;
+        const available = (allTeamMembers || []).filter(m => m.id !== myId);
+
+        if (available.length === 0) {
+            container.innerHTML = `<p class="text-xs text-slate-400 p-2">لا يوجد أعضاء آخرين متاحين حالياً</p>`;
+        } else {
+            available.forEach(m => {
+                const row = document.createElement('label');
+                row.className = 'flex items-center justify-between p-2 rounded-xl bg-slate-850 hover:bg-slate-800/80 cursor-pointer transition border border-slate-750/50';
+                row.innerHTML = `
+                    <div class="flex items-center gap-2.5">
+                        <input type="checkbox" name="chat_group_member" value="${m.id}" onchange="updateSelectedGroupMembersCount()" class="w-4 h-4 rounded text-emerald-500 focus:ring-emerald-500 bg-slate-900 border-slate-700">
+                        <div>
+                            <div class="text-xs font-bold text-white flex items-center gap-1.5">
+                                <span>${escapeHtml(m.name)}</span>
+                                ${m.is_admin ? '<span class="text-[9px] bg-amber-500/10 text-amber-400 px-1.5 py-0.2 rounded border border-amber-500/20 font-bold">إدارة</span>' : ''}
+                            </div>
+                            <span class="text-[10px] text-slate-400">${escapeHtml(m.role || 'عضو فريق العمل')}</span>
+                        </div>
+                    </div>
+                `;
+                container.appendChild(row);
+            });
+        }
+    }
+
+    openModal('create-chat-group-modal');
+    initLucide();
+}
+
+function updateSelectedGroupMembersCount() {
+    const checked = document.querySelectorAll('input[name="chat_group_member"]:checked');
+    const countEl = document.getElementById('selected-group-members-count');
+    if (countEl) {
+        countEl.innerText = `${checked.length} عضو محدد`;
+    }
+}
+
+async function submitCreateChatGroup(e) {
+    e.preventDefault();
+    const nameInput = document.getElementById('group-name-input');
+    const descInput = document.getElementById('group-desc-input');
+    const name = nameInput ? nameInput.value.trim() : '';
+    const description = descInput ? descInput.value.trim() : '';
+
+    if (!name) {
+        showToast('يرجى إدخال اسم المجموعة', 'error');
+        return;
+    }
+
+    const checked = Array.from(document.querySelectorAll('input[name="chat_group_member"]:checked')).map(cb => parseInt(cb.value));
+    if (checked.length === 0) {
+        showToast('يرجى اختيار عضو واحد على الأقل في المجموعة', 'error');
+        return;
+    }
+
+    const btn = document.getElementById('btn-submit-create-group');
+    if (btn) btn.disabled = true;
+
+    try {
+        const payload = {
+            name: name,
+            description: description,
+            created_by_id: currentUser ? currentUser.id : 1,
+            created_by_name: currentUser ? currentUser.name : 'مسؤول النظام',
+            member_ids: checked,
+            icon: 'users'
+        };
+
+        const res = await fetch('/api/chat/groups', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+
+        if (data.success && data.group) {
+            closeModal('create-chat-group-modal');
+            showToast(`تم إنشاء مجموعة '${data.group.name}' بنجاح!`, 'success');
+            await loadChatChannels();
+            // Automatically switch to the newly created group
+            selectChatChannel('group', data.group.id, data.group.name, `مجموعة عمل (${data.group.members_count || checked.length + 1} أعضاء) • ${data.group.description || 'محادثة جماعية'}`);
+        } else {
+            showToast(data.error || 'تعذر إنشاء المجموعة', 'error');
+        }
+    } catch(err) {
+        console.error('Error creating chat group:', err);
+        showToast('حدث خطأ أثناء إنشاء المجموعة', 'error');
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+}
+
+async function deleteChatGroup(groupId, groupName) {
+    if (!confirm(`هل أنت متأكد من حذف مجموعة '${groupName}' وكافة المحادثات بداخلها نهائياً؟`)) {
+        return;
+    }
+
+    try {
+        const res = await fetch(`/api/chat/groups/${groupId}`, {
+            method: 'DELETE'
+        });
+        const data = await res.json();
+
+        if (data.success) {
+            showToast('تم حذف المجموعة بنجاح', 'success');
+            if (currentChatChannel.type === 'group' && currentChatChannel.groupId === groupId) {
+                selectChatChannel('general', null, 'ساحة النقاش العامة للشركة', 'مفتوح لجميع منسوبي ومهندسي الشركة');
+            } else {
+                await loadChatChannels();
+            }
+        } else {
+            showToast(data.error || 'تعذر حذف المجموعة', 'error');
+        }
+    } catch(err) {
+        console.error('Error deleting chat group:', err);
+        showToast('حدث خطأ أثناء حذف المجموعة', 'error');
+    }
 }
 
 function filterChatChannels() {

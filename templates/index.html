@@ -2361,7 +2361,21 @@
                             </div>
                         </div>
 
-                        <!-- 3. Direct 1-on-1 Messages -->
+                        <!-- 3. Custom Work Groups (مجموعات العمل المخصصة) -->
+                        <div>
+                            <div class="flex items-center justify-between px-2 mb-1">
+                                <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">مجموعات العمل المخصصة</span>
+                                <button type="button" onclick="openCreateGroupModal()" class="text-[10px] text-emerald-400 hover:text-emerald-300 font-bold flex items-center gap-1 hover:underline transition">
+                                    <i data-lucide="plus-circle" class="w-3.5 h-3.5"></i>
+                                    <span>إنشاء مجموعة</span>
+                                </button>
+                            </div>
+                            <div id="chat-groups-list" class="space-y-1">
+                                <!-- Populated by JS -->
+                            </div>
+                        </div>
+
+                        <!-- 4. Direct 1-on-1 Messages -->
                         <div>
                             <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-2 block mb-1">المحادثات المباشرة (فريق العمل)</span>
                             <div id="chat-direct-members-list" class="space-y-1">
@@ -6966,6 +6980,62 @@
         </div>
     </div>
 
+    <!-- Create Chat Group Modal (إنشاء مجموعة محادثة) -->
+    <div id="create-chat-group-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fadeIn">
+        <div class="bg-slate-850 border border-slate-750 w-full max-w-lg rounded-2xl p-6 shadow-2xl relative space-y-4">
+            <div class="flex items-center justify-between border-b border-slate-750 pb-3">
+                <div class="flex items-center gap-2.5">
+                    <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-600 text-white flex items-center justify-center font-bold shadow">
+                        <i data-lucide="users" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-base font-black text-white">إنشاء مجموعة محادثة جديدة</h3>
+                        <p class="text-xs text-slate-400">تواصل فوري وتنسيق مهام مع أعضاء وموظفين محددين</p>
+                    </div>
+                </div>
+                <button type="button" onclick="closeModal('create-chat-group-modal')" class="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <form onsubmit="submitCreateChatGroup(event)" class="space-y-4">
+                <div>
+                    <label class="block text-xs font-bold text-slate-300 mb-1">اسم المجموعة <span class="text-rose-400">*</span></label>
+                    <input type="text" id="group-name-input" required placeholder="مثلاً: لجنة الإشراف على صب برج العليا، أو فريق التسليمات" class="w-full bg-slate-900 border border-slate-700 focus:border-emerald-500 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none transition">
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold text-slate-300 mb-1">وصف أو هدف المجموعة (اختياري)</label>
+                    <textarea id="group-desc-input" rows="2" placeholder="ملاحظات حول صلاحيات أو هدف المحادثة..." class="w-full bg-slate-900 border border-slate-700 focus:border-emerald-500 rounded-xl px-3.5 py-2 text-xs text-white placeholder-slate-500 focus:outline-none resize-none transition"></textarea>
+                </div>
+
+                <div>
+                    <div class="flex items-center justify-between mb-2">
+                        <label class="block text-xs font-bold text-slate-300">اختيار أعضاء المجموعة <span class="text-rose-400">*</span></label>
+                        <span class="text-[11px] text-emerald-400 font-mono" id="selected-group-members-count">0 عضو محدد</span>
+                    </div>
+                    <div class="max-h-48 overflow-y-auto space-y-1.5 p-2 bg-slate-900/80 rounded-xl border border-slate-750" id="group-members-checkboxes">
+                        <!-- Populated by JS -->
+                    </div>
+                    <p class="text-[10px] text-slate-400 mt-1.5 flex items-center gap-1">
+                        <i data-lucide="shield-check" class="w-3.5 h-3.5 text-emerald-400"></i>
+                        <span>سيتم إدراجك تلقائياً كمنشئ ومشرف للمجموعة، وتصل إشعارات فورية للأعضاء المختارين.</span>
+                    </p>
+                </div>
+
+                <div class="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-750">
+                    <button type="button" onclick="closeModal('create-chat-group-modal')" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-300 text-xs font-bold transition">
+                        إلغاء
+                    </button>
+                    <button type="submit" id="btn-submit-create-group" class="px-5 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold flex items-center gap-2 shadow-lg shadow-emerald-950/40 transition">
+                        <i data-lucide="check" class="w-4 h-4"></i>
+                        <span>إنشاء المجموعة الآن</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <!-- Toast Notification -->
     <div id="toast" class="hidden fixed bottom-6 left-6 z-50 px-5 py-3 rounded-2xl shadow-2xl flex items-center gap-3 text-sm font-bold animate-slideUp">
         <span id="toast-icon"></span>
@@ -6974,7 +7044,7 @@
 
     <!-- Scripts -->
     <script src="/static/js/i18n.js?v=20261020_v1"></script>
-    <script src="/static/js/app.js?v=20261021_v6"></script>
+    <script src="/static/js/app.js?v=20261021_v7"></script>
     <script>
     (function() {
         try {

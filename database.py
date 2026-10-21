@@ -539,6 +539,38 @@ def init_db():
     )
     ''')
 
+    # Chat Groups (مجموعات المحادثة المخصصة)
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS chat_groups (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        description TEXT,
+        created_by_id INTEGER,
+        created_by_name TEXT,
+        icon TEXT DEFAULT 'users',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    ''')
+
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS chat_group_members (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        group_id INTEGER NOT NULL,
+        member_id INTEGER NOT NULL,
+        member_name TEXT,
+        role TEXT DEFAULT 'member',
+        joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (group_id) REFERENCES chat_groups(id) ON DELETE CASCADE,
+        FOREIGN KEY (member_id) REFERENCES team_members(id) ON DELETE CASCADE
+    )
+    ''')
+
+    cursor.execute('PRAGMA table_info(messages)')
+    msg_cols = [r[1] for r in cursor.fetchall()]
+    if 'group_id' not in msg_cols:
+        try: cursor.execute('ALTER TABLE messages ADD COLUMN group_id INTEGER REFERENCES chat_groups(id) ON DELETE CASCADE')
+        except: pass
+
     # Custody Requests & Petty Cash (إدارة العهد النثرية وطلبات الصرف للموظفين)
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS custody_requests (

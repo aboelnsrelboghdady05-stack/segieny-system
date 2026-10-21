@@ -5741,6 +5741,7 @@ def mark_notifications_read():
 # ----------------- CHAT & TEAM MESSAGING API -----------------
 @app.route('/api/chat/channels', methods=['GET'])
 def get_chat_channels():
+    current_user_id = request.args.get('user_id')
     conn = database.get_db_connection()
     cursor = conn.cursor()
 
@@ -5752,9 +5753,41 @@ def get_chat_channels():
     cursor.execute('SELECT id, name, role, phone FROM team_members ORDER BY id ASC')
     members = [dict(row) for row in cursor.fetchall()]
 
+    # Custom Chat Groups
+    groups = []
+    try:
+        if current_user_id:
+            cursor.execute('''
+                SELECT g.*, 
+                       (SELECT COUNT(*) FROM chat_group_members WHERE group_id = g.id) as members_count,
+                       (SELECT message FROM messages WHERE channel_type = 'group' AND group_id = g.id ORDER BY id DESC LIMIT 1) as last_message,
+                       (SELECT created_at FROM messages WHERE channel_type = 'group' AND group_id = g.id ORDER BY id DESC LIMIT 1) as last_message_at
+                FROM chat_groups g
+                WHERE g.id IN (SELECT group_id FROM chat_group_members WHERE member_id = ?)
+                   OR g.created_by_id = ?
+                ORDER BY g.id DESC
+            ''', (current_user_id, current_user_id))
+        else:
+            cursor.execute('''
+                SELECT g.*, 
+                       (SELECT COUNT(*) FROM chat_group_members WHERE group_id = g.id) as members_count,
+                       (SELECT message FROM messages WHERE channel_type = 'group' AND group_id = g.id ORDER BY id DESC LIMIT 1) as last_message,
+                       (SELECT created_at FROM messages WHERE channel_type = 'group' AND group_id = g.id ORDER BY id DESC LIMIT 1) as last_message_at
+                FROM chat_groups g
+                ORDER BY g.id DESC
+            ''')
+        groups = [dict(row) for row in cursor.fetchall()]
+
+        # Fetch members names for preview tooltip
+        for g in groups:
+            cursor.execute('SELECT member_name FROM chat_group_members WHERE group_id = ?', (g['id'],))
+            g['member_names'] = [r[0] for r in cursor.fetchall() if r[0]]
+    except Exception as e:
+        print("Error fetching chat groups in channels:", e)
+
     # Last messages for previews
     cursor.execute('''
-        SELECT channel_type, project_id, message, created_at, sender_name
+        SELECT channel_type, project_id, group_id, message, created_at, sender_name
         FROM messages
         ORDER BY id DESC
         LIMIT 30
@@ -5766,13 +5799,169 @@ def get_chat_channels():
     return jsonify({
         'projects': projects,
         'members': members,
+        'groups': groups,
         'recent_activity': recent_msgs
     })
+
+@app.route('/api/chat/groups', methods=['GET'])
+def get_chat_groups():
+    user_id = request.args.get('user_id')
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+
+    if user_id:
+        cursor.execute('''
+            SELECT g.*,
+                   (SELECT COUNT(*) FROM chat_group_members WHERE group_id = g.id) as members_count,
+                   (SELECT message FROM messages WHERE channel_type = 'group' AND group_id = g.id ORDER BY id DESC LIMIT 1) as last_message,
+                   (SELECT created_at FROM messages WHERE channel_type = 'group' AND group_id = g.id ORDER BY id DESC LIMIT 1) as last_message_at
+            FROM chat_groups g
+            WHERE g.id IN (SELECT group_id FROM chat_group_members WHERE member_id = ?)
+               OR g.created_by_id = ?
+            ORDER BY g.id DESC
+        ''', (user_id, user_id))
+    else:
+        cursor.execute('''
+            SELECT g.*,
+                   (SELECT COUNT(*) FROM chat_group_members WHERE group_id = g.id) as members_count,
+                   (SELECT message FROM messages WHERE channel_type = 'group' AND group_id = g.id ORDER BY id DESC LIMIT 1) as last_message,
+                   (SELECT created_at FROM messages WHERE channel_type = 'group' AND group_id = g.id ORDER BY id DESC LIMIT 1) as last_message_at
+            FROM chat_groups g
+            ORDER BY g.id DESC
+        ''')
+
+    groups = [dict(row) for row in cursor.fetchall()]
+
+    for g in groups:
+        cursor.execute('''
+            SELECT cgm.member_id as id, cgm.member_name as name, cgm.role, tm.role as member_title
+            FROM chat_group_members cgm
+            LEFT JOIN team_members tm ON cgm.member_id = tm.id
+            WHERE cgm.group_id = ?
+            ORDER BY cgm.id ASC
+        ''', (g['id'],))
+        g['members'] = [dict(m) for m in cursor.fetchall()]
+
+    conn.close()
+    return jsonify(groups)
+
+@app.route('/api/chat/groups', methods=['POST'])
+def create_chat_group():
+    data = request.get_json() or {}
+    name = (data.get('name') or '').strip()
+    if not name:
+        return jsonify({'error': 'اسم المجموعة مطلوب'}), 400
+
+    description = (data.get('description') or '').strip()
+    created_by_id = data.get('created_by_id')
+    created_by_name = (data.get('created_by_name') or '').strip() or 'مسؤول النظام'
+    member_ids = data.get('member_ids') or []
+    icon = data.get('icon') or 'users'
+
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute('''
+        INSERT INTO chat_groups (name, description, created_by_id, created_by_name, icon)
+        VALUES (?, ?, ?, ?, ?)
+    ''', (name, description, created_by_id, created_by_name, icon))
+    group_id = cursor.lastrowid
+
+    # Collect member IDs ensuring creator is included
+    all_member_ids = set()
+    if created_by_id:
+        try: all_member_ids.add(int(created_by_id))
+        except: pass
+    for mid in member_ids:
+        try:
+            if mid: all_member_ids.add(int(mid))
+        except:
+            pass
+
+    # Insert members
+    for mid in all_member_ids:
+        cursor.execute('SELECT name FROM team_members WHERE id = ?', (mid,))
+        u = cursor.fetchone()
+        m_name = u['name'] if u else f'عضو {mid}'
+        role = 'admin' if str(mid) == str(created_by_id) else 'member'
+        cursor.execute('''
+            INSERT INTO chat_group_members (group_id, member_id, member_name, role)
+            VALUES (?, ?, ?, ?)
+        ''', (group_id, mid, m_name, role))
+
+        # Notification for member
+        if str(mid) != str(created_by_id):
+            cursor.execute('''
+                INSERT INTO notifications (type, title, message)
+                VALUES ('chat_group', ?, ?)
+            ''', (
+                f"تمت إضافتك إلى مجموعة '{name}'",
+                f"أضافك {created_by_name} إلى مجموعة المحادثة الجديدة '{name}'."
+            ))
+
+    # Add welcome message into the group
+    cursor.execute('''
+        INSERT INTO messages (sender_id, sender_name, sender_role, channel_type, group_id, message)
+        VALUES (?, ?, 'الإدارة', 'group', ?, ?)
+    ''', (created_by_id or 1, created_by_name, group_id, f"مرحباً بكم جميعاً في مجموعة '{name}'! تم إنشاء المجموعة بنجاح وإضافة الأعضاء."))
+
+    conn.commit()
+
+    cursor.execute('SELECT * FROM chat_groups WHERE id = ?', (group_id,))
+    new_group = dict(cursor.fetchone())
+    cursor.execute('SELECT member_id as id, member_name as name, role FROM chat_group_members WHERE group_id = ?', (group_id,))
+    new_group['members'] = [dict(m) for m in cursor.fetchall()]
+    new_group['members_count'] = len(new_group['members'])
+
+    conn.close()
+    return jsonify({'success': True, 'group': new_group})
+
+@app.route('/api/chat/groups/<int:group_id>/members', methods=['POST'])
+def update_chat_group_members(group_id):
+    data = request.get_json() or {}
+    member_ids = data.get('member_ids') or []
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute('SELECT member_id FROM chat_group_members WHERE group_id = ?', (group_id,))
+    existing = set(r[0] for r in cursor.fetchall())
+
+    new_ids = set()
+    for m in member_ids:
+        try:
+            if m: new_ids.add(int(m))
+        except: pass
+
+    to_add = new_ids - existing
+    for mid in to_add:
+        cursor.execute('SELECT name FROM team_members WHERE id = ?', (mid,))
+        u = cursor.fetchone()
+        m_name = u['name'] if u else f'عضو {mid}'
+        cursor.execute('''
+            INSERT INTO chat_group_members (group_id, member_id, member_name, role)
+            VALUES (?, ?, ?, 'member')
+        ''', (group_id, mid, m_name))
+
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True, 'message': 'تم تحديث أعضاء المجموعة بنجاح'})
+
+@app.route('/api/chat/groups/<int:group_id>', methods=['DELETE'])
+def delete_chat_group(group_id):
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('DELETE FROM chat_group_members WHERE group_id = ?', (group_id,))
+    cursor.execute('DELETE FROM messages WHERE group_id = ?', (group_id,))
+    cursor.execute('DELETE FROM chat_groups WHERE id = ?', (group_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True, 'message': 'تم حذف المجموعة بنجاح'})
 
 @app.route('/api/chat/messages', methods=['GET'])
 def get_chat_messages():
     channel_type = request.args.get('channel_type', 'general')
     project_id = request.args.get('project_id')
+    group_id = request.args.get('group_id')
     current_user_id = request.args.get('current_user_id')
     other_user_id = request.args.get('other_user_id')
 
@@ -5793,6 +5982,13 @@ def get_chat_messages():
             ORDER BY id ASC
             LIMIT 150
         ''', (project_id,))
+    elif channel_type == 'group' and group_id:
+        cursor.execute('''
+            SELECT * FROM messages
+            WHERE channel_type = 'group' AND group_id = ?
+            ORDER BY id ASC
+            LIMIT 200
+        ''', (group_id,))
     elif channel_type == 'direct' and current_user_id and other_user_id:
         cursor.execute('''
             SELECT * FROM messages
@@ -5826,6 +6022,7 @@ def send_chat_message():
     sender_role = data.get('sender_role') or 'فريق العمل'
     channel_type = data.get('channel_type', 'general')
     project_id = data.get('project_id') or None
+    group_id = data.get('group_id') or None
     recipient_id = data.get('recipient_id') or None
 
     attachment_path = None
@@ -5847,9 +6044,9 @@ def send_chat_message():
     conn = database.get_db_connection()
     cursor = conn.cursor()
     cursor.execute('''
-        INSERT INTO messages (sender_id, sender_name, sender_role, recipient_id, channel_type, project_id, message, attachment_path, attachment_name)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ''', (sender_id, sender_name, sender_role, recipient_id, channel_type, project_id, message_text, attachment_path, attachment_name))
+        INSERT INTO messages (sender_id, sender_name, sender_role, recipient_id, channel_type, project_id, group_id, message, attachment_path, attachment_name)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (sender_id, sender_name, sender_role, recipient_id, channel_type, project_id, group_id, message_text, attachment_path, attachment_name))
     msg_id = cursor.lastrowid
 
     # Fetch created row

@@ -14715,6 +14715,21 @@ async function loadExpenseRequests() {
             }
         }
 
+        // Populate Assigned Disburser Filter Dropdown
+        const assignedSel = document.getElementById('req-filter-assigned');
+        if (assignedSel) {
+            const currentVal = assignedSel.value;
+            const uniqueAssigned = Array.from(new Set(currentExpenseRequests.map(r => r.assigned_disburser_name).filter(Boolean)));
+            assignedSel.innerHTML = '<option value="">جميع المكلفين بالصرف</option>';
+            uniqueAssigned.forEach(name => {
+                const opt = document.createElement('option');
+                opt.value = name;
+                opt.innerText = `👤 ${name}`;
+                if (name === currentVal) opt.selected = true;
+                assignedSel.appendChild(opt);
+            });
+        }
+
         renderExpenseRequestsTable(currentExpenseRequests);
     } catch (err) {
         console.error('Error loading expense requests:', err);
@@ -14723,17 +14738,22 @@ async function loadExpenseRequests() {
 
 function applyExpenseRequestFilters() {
     const search = (document.getElementById('req-search-input')?.value || '').trim().toLowerCase();
-    if (!search) {
-        renderExpenseRequestsTable(currentExpenseRequests);
-        return;
+    const assignedFilter = (document.getElementById('req-filter-assigned')?.value || '').trim();
+
+    let filtered = currentExpenseRequests;
+    if (assignedFilter) {
+        filtered = filtered.filter(r => (r.assigned_disburser_name || '').includes(assignedFilter));
     }
-    const filtered = currentExpenseRequests.filter(r => {
-        return (r.request_number || '').toLowerCase().includes(search) ||
-               (r.beneficiary_name || '').toLowerCase().includes(search) ||
-               (r.requester_name || '').toLowerCase().includes(search) ||
-               (r.purpose || '').toLowerCase().includes(search) ||
-               (r.project_name || '').toLowerCase().includes(search);
-    });
+    if (search) {
+        filtered = filtered.filter(r => {
+            return (r.request_number || '').toLowerCase().includes(search) ||
+                   (r.beneficiary_name || '').toLowerCase().includes(search) ||
+                   (r.requester_name || '').toLowerCase().includes(search) ||
+                   (r.purpose || '').toLowerCase().includes(search) ||
+                   (r.assigned_disburser_name || '').toLowerCase().includes(search) ||
+                   (r.project_name || '').toLowerCase().includes(search);
+        });
+    }
     renderExpenseRequestsTable(filtered);
 }
 
@@ -14748,7 +14768,7 @@ function renderExpenseRequestsTable(requests) {
     if (!requests || requests.length === 0) {
         tbody.innerHTML = `
             <tr>
-                <td colspan="11" class="text-center py-12 text-slate-500">
+                <td colspan="12" class="text-center py-12 text-slate-500">
                     <div class="flex flex-col items-center gap-2">
                         <i data-lucide="inbox" class="w-8 h-8 text-slate-600"></i>
                         <span class="text-sm font-semibold">لا توجد طلبات صرف مطابقة للفلاتر المحددة</span>
@@ -14785,6 +14805,31 @@ function renderExpenseRequestsTable(requests) {
             pBadge = '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30">⚡ عاجل</span>';
         } else if (r.priority === 'طارئ') {
             pBadge = '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/20 text-rose-400 border border-rose-500/30 animate-pulse">🚨 طارئ</span>';
+        }
+
+        // Disburser Assignment Badge / Status
+        let disburserHtml = '';
+        if (r.assigned_disburser_name) {
+            disburserHtml = `
+                <div class="inline-flex flex-col items-center">
+                    <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-black bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                        <i data-lucide="send" class="w-3 h-3 text-amber-400"></i>
+                        <span>${escapeHtml(r.assigned_disburser_name)}</span>
+                    </span>
+                    <span class="text-[9px] text-slate-400 mt-0.5 truncate max-w-[120px]" title="${escapeHtml(r.disbursement_source || '')}">${escapeHtml(r.disbursement_source || 'عهدة / كاش')}</span>
+                </div>
+            `;
+        } else if (r.status === 'disbursed') {
+            disburserHtml = `
+                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20">
+                    <i data-lucide="check" class="w-3 h-3"></i>
+                    <span>${escapeHtml(r.disbursed_by || 'الخزينة')}</span>
+                </span>
+            `;
+        } else if (r.status === 'approved') {
+            disburserHtml = `<span class="text-amber-400/80 text-[10px] font-semibold bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">الخزينة / بانتظار الصرف</span>`;
+        } else {
+            disburserHtml = `<span class="text-slate-500 text-[11px]">-</span>`;
         }
 
         // Status Badge
@@ -14842,6 +14887,10 @@ function renderExpenseRequestsTable(requests) {
             `;
         }
 
+        // Check if current user is the assigned disburser (e.g. Nawaf)
+        const isAssignedToCurrentUser = (u.id && r.assigned_disburser_id && String(u.id) === String(r.assigned_disburser_id)) ||
+                                        (u.name && r.assigned_disburser_name && (r.assigned_disburser_name.includes(u.name) || u.name.includes(r.assigned_disburser_name)));
+
         // Action Buttons
         let actionsHtml = `<div class="flex items-center justify-center gap-1.5 flex-wrap">`;
         actionsHtml += `
@@ -14850,35 +14899,45 @@ function renderExpenseRequestsTable(requests) {
             </button>
         `;
 
-        if (isFinManager) {
-            if (r.status === 'pending') {
+        if (r.status === 'pending') {
+            if (isFinManager) {
                 actionsHtml += `
-                    <button onclick="approveExpenseRequest(${r.id})" class="px-2.5 py-1.5 rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-[11px] flex items-center gap-1 shadow transition" title="تعميد الطلب">
+                    <button onclick="openExpenseRequestApprovalModal(${r.id}, 'approve')" class="px-2.5 py-1.5 rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-[11px] flex items-center gap-1 shadow transition" title="تعميد وتوجيه أمر الصرف">
                         <i data-lucide="shield-check" class="w-3.5 h-3.5"></i>
-                        <span>تعميد</span>
+                        <span>تعميد وتوجيه</span>
                     </button>
                     <button onclick="rejectExpenseRequest(${r.id})" class="px-2 py-1.5 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-400 border border-rose-500/30 text-[11px] font-bold transition" title="رفض الطلب">
                         <i data-lucide="x" class="w-3.5 h-3.5"></i>
                     </button>
                 `;
-            } else if (r.status === 'approved') {
+            }
+        } else if (r.status === 'approved') {
+            // Disburse button for Financial Manager or Assigned Disburser (Nawaf)
+            if (isFinManager || isAssignedToCurrentUser) {
                 actionsHtml += `
                     <button onclick="openDisburseExpenseRequestModal(${r.id})" class="px-3 py-1.5 rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-[11px] flex items-center gap-1.5 shadow-lg shadow-emerald-950/40 transition animate-bounce-subtle" title="تسجيل الصرف والخصم المالي الفوري">
                         <i data-lucide="wallet" class="w-3.5 h-3.5"></i>
                         <span>💵 صرف المبلغ</span>
                     </button>
+                `;
+            }
+            if (isFinManager) {
+                actionsHtml += `
+                    <button onclick="openExpenseRequestApprovalModal(${r.id}, 'assign_only')" class="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-750 text-amber-400 hover:text-amber-300 transition" title="توجيه أو تغيير المكلف بالصرف">
+                        <i data-lucide="send" class="w-3.5 h-3.5"></i>
+                    </button>
                     <button onclick="rejectExpenseRequest(${r.id})" class="px-2 py-1.5 rounded-lg bg-slate-800 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 transition" title="إلغاء الاعتماد">
                         <i data-lucide="undo-2" class="w-3.5 h-3.5"></i>
                     </button>
                 `;
-            } else if (r.status === 'disbursed' && r.generated_expense_id) {
-                actionsHtml += `
-                    <span class="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-500/10 text-emerald-400 text-[10px] font-bold border border-emerald-500/20" title="تم ترحيله إلى المصروفات برقم فاتورة #${r.generated_expense_id}">
-                        <i data-lucide="receipt" class="w-3 h-3"></i>
-                        <span>فاتورة #${r.generated_expense_id}</span>
-                    </span>
-                `;
             }
+        } else if (r.status === 'disbursed' && r.generated_expense_id) {
+            actionsHtml += `
+                <span class="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-500/10 text-emerald-400 text-[10px] font-bold border border-emerald-500/20" title="تم ترحيله إلى المصروفات برقم فاتورة #${r.generated_expense_id}">
+                    <i data-lucide="receipt" class="w-3 h-3"></i>
+                    <span>فاتورة #${r.generated_expense_id}</span>
+                </span>
+            `;
         }
 
         // Delete button for pending
@@ -14919,6 +14978,9 @@ function renderExpenseRequestsTable(requests) {
             </td>
             <td class="p-3.5 font-mono font-black text-amber-400 text-sm whitespace-nowrap">
                 ${formatCurrency(r.amount)}
+            </td>
+            <td class="p-3.5 text-center">
+                ${disburserHtml}
             </td>
             <td class="p-3.5 text-center">
                 ${pBadge}
@@ -14995,36 +15057,186 @@ async function submitExpenseRequest(event) {
     }
 }
 
-async function approveExpenseRequest(id) {
+async function openExpenseRequestApprovalModal(id, mode = 'approve') {
     if (!isFinancialManagerUser()) {
-        showToast('عفواً، صلاحية تعميد طلبات الصرف والمصروفات مقتصرة حصرياً على المدير المالي (أ. ابوالنصر البغدادي).', 'error');
+        showToast('عفواً، صلاحية تعميد وتوجيه طلبات الصرف مقتصرة حصرياً على المدير المالي (أ. ابوالنصر البغدادي).', 'error');
         return;
     }
 
-    const notes = prompt('هل ترغب بإضافة ملاحظات تعميد أو توجيه للصرف؟ (اختياري - اضغط موافق للتعميد مباشرة):', '');
-    if (notes === null) return; // User cancelled
+    const req = currentExpenseRequests.find(r => r.id === id);
+    if (!req) return;
+
+    // Ensure team members are loaded
+    if (!Array.isArray(allTeamMembers) || allTeamMembers.length === 0) {
+        try {
+            const res = await fetch('/api/team');
+            allTeamMembers = await res.json();
+        } catch (e) {
+            console.error('Error fetching team members:', e);
+        }
+    }
+
+    document.getElementById('approval-req-id').value = req.id;
+    document.getElementById('approval-mode').value = mode;
+
+    document.getElementById('approval-req-number').innerText = req.request_number;
+    document.getElementById('approval-req-requester').innerText = req.requester_name;
+    document.getElementById('approval-req-beneficiary').innerText = `(${req.beneficiary_type}) ${req.beneficiary_name}`;
+    document.getElementById('approval-req-project').innerText = req.project_name || 'عام / إداري';
+    document.getElementById('approval-req-amount-badge').innerText = formatCurrency(req.amount);
+    document.getElementById('approval-req-purpose').innerText = req.purpose;
+
+    // Set modal titles
+    const titleEl = document.getElementById('approval-modal-title');
+    const btnText = document.getElementById('btn-submit-approval-text');
+    if (mode === 'assign_only') {
+        if (titleEl) titleEl.innerText = 'توجيه وتكليف أمر الصرف';
+        if (btnText) btnText.innerText = 'حفظ وتوجيه أمر الصرف';
+    } else {
+        if (titleEl) titleEl.innerText = 'تعميد وتوجيه أمر الصرف';
+        if (btnText) btnText.innerText = 'تأكيد التعميد وإرسال أمر الصرف';
+    }
+
+    // Populate team members dropdown
+    const select = document.getElementById('approval-assignee-select');
+    if (select) {
+        select.innerHTML = '';
+
+        const optDefault = document.createElement('option');
+        optDefault.value = '';
+        optDefault.innerText = '🏢 الإدارة المالية / الخزينة العامة (صرف مركزي مباشر)';
+        select.appendChild(optDefault);
+
+        if (Array.isArray(allTeamMembers) && allTeamMembers.length > 0) {
+            allTeamMembers.forEach(m => {
+                const opt = document.createElement('option');
+                opt.value = m.id;
+                opt.dataset.name = m.name;
+                opt.dataset.role = m.role || '';
+                opt.innerText = `👤 ${m.name} (${m.role || 'عضو فريق'})`;
+
+                if (req.assigned_disburser_id && String(req.assigned_disburser_id) === String(m.id)) {
+                    opt.selected = true;
+                } else if (!req.assigned_disburser_id && req.assigned_disburser_name && req.assigned_disburser_name.includes(m.name)) {
+                    opt.selected = true;
+                }
+                select.appendChild(opt);
+            });
+        }
+
+        const optCustom = document.createElement('option');
+        optCustom.value = '__custom__';
+        optCustom.innerText = '✏️ جهة أخرى / تحديد مسؤول آخر يدوياً...';
+        if (req.assigned_disburser_name && !Array.from(select.options).some(o => o.dataset.name === req.assigned_disburser_name)) {
+            optCustom.selected = true;
+        }
+        select.appendChild(optCustom);
+    }
+
+    onApprovalAssigneeChange();
+
+    const sourceSelect = document.getElementById('approval-source-select');
+    if (sourceSelect) {
+        sourceSelect.value = req.disbursement_source || 'عهدة شخصية';
+    }
+    const notesInput = document.getElementById('approval-assignment-notes');
+    if (notesInput) {
+        notesInput.value = req.assignment_notes || '';
+    }
+    const adminNotesInput = document.getElementById('approval-admin-notes');
+    if (adminNotesInput) {
+        adminNotesInput.value = req.approval_notes || '';
+    }
+
+    openModal('expense-request-approval-modal');
+    initLucide();
+}
+
+function onApprovalAssigneeChange() {
+    const select = document.getElementById('approval-assignee-select');
+    const customInput = document.getElementById('approval-custom-assignee');
+    const btnText = document.getElementById('btn-submit-approval-text');
+    const mode = document.getElementById('approval-mode')?.value || 'approve';
+
+    if (!select) return;
+
+    if (select.value === '__custom__') {
+        if (customInput) customInput.classList.remove('hidden');
+    } else {
+        if (customInput) {
+            customInput.classList.add('hidden');
+            customInput.value = '';
+        }
+    }
+
+    const selectedOpt = select.options[select.selectedIndex];
+    const name = selectedOpt ? (selectedOpt.dataset.name || selectedOpt.text.replace(/^[^\s]+\s+/, '')) : '';
+
+    if (btnText) {
+        if (mode === 'assign_only') {
+            btnText.innerText = select.value ? `توجيه أمر الصرف إلى (${name})` : 'حفظ التوجيه (الخزينة العامة)';
+        } else {
+            btnText.innerText = select.value ? `تعميد وإرسال أمر صرف لـ (${name})` : 'تأكيد التعميد والصرف من الخزينة';
+        }
+    }
+}
+
+async function submitExpenseRequestApproval(event) {
+    event.preventDefault();
+    const btn = document.getElementById('btn-submit-approval-assign');
+    if (btn) btn.disabled = true;
+
+    const id = document.getElementById('approval-req-id')?.value;
+    const mode = document.getElementById('approval-mode')?.value || 'approve';
+    const select = document.getElementById('approval-assignee-select');
+    const customInput = document.getElementById('approval-custom-assignee');
+    const sourceSelect = document.getElementById('approval-source-select');
+    const assignNotes = document.getElementById('approval-assignment-notes')?.value || '';
+    const adminNotes = document.getElementById('approval-admin-notes')?.value || '';
+
+    let assignedId = null;
+    let assignedName = '';
+
+    if (select.value === '__custom__') {
+        assignedName = customInput ? customInput.value.trim() : '';
+    } else if (select.value) {
+        assignedId = select.value;
+        const opt = select.options[select.selectedIndex];
+        assignedName = opt ? (opt.dataset.name || opt.text) : '';
+    }
 
     const u = currentUser || JSON.parse(localStorage.getItem('segieny_auth_user') || '{}');
+    const endpoint = (mode === 'assign_only') ? `/api/expense-requests/${id}/assign` : `/api/expense-requests/${id}/approve`;
+
     try {
-        const res = await fetch(`/api/expense-requests/${id}/approve`, {
+        const res = await fetch(endpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 user_id: u.id,
                 user_role: u.role,
                 user_name: u.name,
-                approval_notes: notes.trim()
+                assigned_disburser_id: assignedId,
+                assigned_disburser_name: assignedName,
+                disbursement_source: sourceSelect ? sourceSelect.value : '',
+                assignment_notes: assignNotes.trim(),
+                approval_notes: adminNotes.trim()
             })
         });
+
         const data = await res.json();
         if (res.ok && data.success) {
-            showToast(data.message || 'تم تعميد طلب الصرف بنجاح وهو جاهز للصرف الآن!', 'success');
+            showToast(data.message || 'تم الاعتماد وتوجيه أمر الصرف بنجاح!', 'success');
+            closeModal('expense-request-approval-modal');
             loadExpenseRequests();
         } else {
-            showToast(data.error || 'تعذر تعميد الطلب', 'error');
+            showToast(data.error || 'تعذر استكمال العملية', 'error');
         }
-    } catch (e) {
-        showToast('فشل في الاتصال بالخادم', 'error');
+    } catch (err) {
+        console.error('Error submitting approval/assignment:', err);
+        showToast('حدث خطأ في الاتصال بالخادم', 'error');
+    } finally {
+        if (btn) btn.disabled = false;
     }
 }
 
@@ -15066,13 +15278,20 @@ async function rejectExpenseRequest(id) {
 }
 
 function openDisburseExpenseRequestModal(id) {
-    if (!isFinancialManagerUser()) {
-        showToast('عفواً، تسجيل الصرف الفعلي هو صلاحية حصرية للمدير المالي (أ. ابوالنصر البغدادي).', 'error');
-        return;
-    }
-
     const req = currentExpenseRequests.find(r => r.id === id);
     if (!req) return;
+
+    const isFinManager = isFinancialManagerUser();
+    const u = currentUser || JSON.parse(localStorage.getItem('segieny_auth_user') || '{}');
+
+    // Check if user is Financial Manager OR the assigned disburser (e.g. Nawaf)
+    const isAssigned = (u.id && req.assigned_disburser_id && String(u.id) === String(req.assigned_disburser_id)) ||
+                       (u.name && req.assigned_disburser_name && (req.assigned_disburser_name.includes(u.name) || u.name.includes(req.assigned_disburser_name)));
+
+    if (!isFinManager && !isAssigned) {
+        showToast(`عفواً، تسجيل الصرف الفعلي متاح للمدير المالي أو المكلف بالصرف (${req.assigned_disburser_name || 'غير محدد'}).`, 'error');
+        return;
+    }
 
     document.getElementById('disburse-req-id').value = req.id;
     document.getElementById('disburse-req-number').innerText = req.request_number;
@@ -15082,14 +15301,31 @@ function openDisburseExpenseRequestModal(id) {
     document.getElementById('disburse-req-amount-badge').innerText = formatCurrency(req.amount);
     document.getElementById('disburse-req-purpose').innerText = req.purpose;
 
+    // Disburser banner & paid_by input
+    const banner = document.getElementById('disburse-assigned-banner');
+    const assignedNameEl = document.getElementById('disburse-assigned-name');
+    const assignedSourceEl = document.getElementById('disburse-assigned-source');
+    const paidByInput = document.getElementById('disburse-paid-by');
+
+    if (req.assigned_disburser_name) {
+        if (banner) banner.classList.remove('hidden');
+        if (assignedNameEl) assignedNameEl.innerText = req.assigned_disburser_name;
+        if (assignedSourceEl) assignedSourceEl.innerText = req.disbursement_source ? `(المصدر: ${req.disbursement_source})` : '';
+        if (paidByInput) paidByInput.value = req.assigned_disburser_name;
+    } else {
+        if (banner) banner.classList.add('hidden');
+        if (paidByInput) paidByInput.value = (u && u.name) ? u.name : 'الإدارة المالية';
+    }
+
     document.getElementById('disburse-actual-amount').value = req.amount;
     document.getElementById('disburse-actual-date').value = new Date().toISOString().split('T')[0];
-    document.getElementById('disburse-payment-method').value = 'تحويل بنكي';
+    document.getElementById('disburse-payment-method').value = (req.disbursement_source && req.disbursement_source.includes('نقدي')) ? 'نقدي' : 'تحويل بنكي';
     document.getElementById('disburse-bank-name').value = 'البنك الأهلي السعودي (حساب الشركة)';
     document.getElementById('disburse-transfer-ref').value = '';
-    document.getElementById('disburse-notes').value = '';
+    document.getElementById('disburse-notes').value = req.assignment_notes || '';
 
     openModal('expense-request-disburse-modal');
+    initLucide();
 }
 
 async function submitExpenseRequestDisbursement(event) {
@@ -15104,6 +15340,7 @@ async function submitExpenseRequestDisbursement(event) {
     formData.append('user_id', u.id || '');
     formData.append('user_role', u.role || '');
     formData.append('user_name', u.name || '');
+    formData.append('paid_by', document.getElementById('disburse-paid-by')?.value || '');
     formData.append('disbursed_amount', document.getElementById('disburse-actual-amount')?.value || 0);
     formData.append('disbursed_date', document.getElementById('disburse-actual-date')?.value || '');
     formData.append('payment_method', document.getElementById('disburse-payment-method')?.value || 'تحويل بنكي');
@@ -15237,6 +15474,30 @@ async function viewExpenseRequestDetails(id) {
                         تم بواسطة: <strong class="text-white">${escapeHtml(req.approved_by)}</strong>
                     </div>
                     ${req.approval_notes ? `<div class="text-xs text-slate-400">ملاحظات التعميد: <span class="text-slate-200">${escapeHtml(req.approval_notes)}</span></div>` : ''}
+                </div>
+            ` : ''}
+
+            <!-- Assigned Disburser Box (أمر التكليف بالصرف) -->
+            ${req.assigned_disburser_name ? `
+                <div class="p-4 bg-slate-950 rounded-xl border border-amber-500/40 space-y-2">
+                    <div class="flex items-center justify-between border-b border-slate-850 pb-2">
+                        <span class="text-xs font-bold text-amber-400 flex items-center gap-1.5">
+                            <i data-lucide="send" class="w-4 h-4"></i>
+                            <span>أمر وتوجيه الصرف (الجهة المكلفة)</span>
+                        </span>
+                        <span class="text-[10px] text-slate-500 font-mono">${escapeHtml(req.assigned_at || '')}</span>
+                    </div>
+                    <div class="grid grid-cols-2 gap-2 text-xs">
+                        <div>
+                            <span class="text-slate-400 block text-[10px]">المكلف بالصرف:</span>
+                            <strong class="text-amber-300">${escapeHtml(req.assigned_disburser_name)}</strong>
+                        </div>
+                        <div>
+                            <span class="text-slate-400 block text-[10px]">الجهة المصروف منها / المصدر:</span>
+                            <strong class="text-white">${escapeHtml(req.disbursement_source || 'عهدة / كاش')}</strong>
+                        </div>
+                    </div>
+                    ${req.assignment_notes ? `<div class="text-xs text-slate-300 pt-2 border-t border-slate-850 mt-1">توجيهات الصرف للمكلف: <span class="text-amber-200 font-semibold">${escapeHtml(req.assignment_notes)}</span></div>` : ''}
                 </div>
             ` : ''}
 

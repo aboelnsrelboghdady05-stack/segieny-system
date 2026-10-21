@@ -2400,14 +2400,19 @@ def approve_expense(expense_id):
     title = exp.get('title') or 'فاتورة'
     now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
+    paid_by = data.get('paid_by', '').strip()
+    assigned_disburser_name = data.get('assigned_disburser_name', '').strip()
+
     cursor.execute('''
         UPDATE expenses
         SET approval_status = 'approved',
             approved_by = ?,
             approved_at = ?,
-            approval_notes = ?
+            approval_notes = ?,
+            paid_by = COALESCE(NULLIF(?, ''), paid_by),
+            assigned_disburser_name = COALESCE(NULLIF(?, ''), assigned_disburser_name)
         WHERE id = ?
-    ''', (manager_title, now_str, approval_notes, expense_id))
+    ''', (manager_title, now_str, approval_notes, paid_by, assigned_disburser_name, expense_id))
 
     # Apply project budget deduction upon approval
     if project_id:
@@ -6738,6 +6743,11 @@ def approve_expense_request(req_id):
     user_name = data.get('user_name', '')
     approval_notes = data.get('approval_notes', '').strip()
 
+    assigned_disburser_id = data.get('assigned_disburser_id')
+    assigned_disburser_name = data.get('assigned_disburser_name', '').strip()
+    disbursement_source = data.get('disbursement_source', '').strip()
+    assignment_notes = data.get('assignment_notes', '').strip()
+
     is_fin, mgr_title = check_is_financial_manager(user_id=user_id, user_role=user_role, user_name=user_name, cursor=cursor)
     if not is_fin:
         conn.close()
@@ -6750,21 +6760,113 @@ def approve_expense_request(req_id):
         SET status = 'approved',
             approved_by = ?,
             approved_at = ?,
-            approval_notes = COALESCE(NULLIF(?, ''), approval_notes)
+            approval_notes = COALESCE(NULLIF(?, ''), approval_notes),
+            assigned_disburser_id = ?,
+            assigned_disburser_name = ?,
+            disbursement_source = ?,
+            assignment_notes = ?,
+            assigned_at = ?
         WHERE id = ?
-    ''', (mgr_title, now_str, approval_notes, req_id))
+    ''', (
+        mgr_title, now_str, approval_notes,
+        assigned_disburser_id, assigned_disburser_name,
+        disbursement_source, assignment_notes,
+        now_str if assigned_disburser_name else None,
+        req_id
+    ))
 
+    # General Notification
+    assign_msg = f" وتم توجيه أمر الصرف وتكليف ({assigned_disburser_name}) بالصرف من ({disbursement_source or 'العهدة/الخزينة'})." if assigned_disburser_name else " - الطلب جاهز للصرف الآن."
     cursor.execute('''
         INSERT INTO notifications (project_id, type, title, message)
         VALUES (?, 'expense_request', 'تم تعميد طلب الصرف', ?)
-    ''', (row['project_id'], f"قام {mgr_title} بتعميد طلب الصرف {row['request_number']} بمبلغ {row['amount']:,.2f} ر.س لـ ({row['beneficiary_name']}) - الطلب جاهز للصرف الآن."))
+    ''', (row['project_id'], f"قام {mgr_title} بتعميد طلب الصرف {row['request_number']} بمبلغ {row['amount']:,.2f} ر.س لـ ({row['beneficiary_name']}){assign_msg}"))
+
+    # Dedicated Assignment Notification for the assigned user (e.g. Nawaf)
+    if assigned_disburser_name:
+        cursor.execute('''
+            INSERT INTO notifications (project_id, type, title, message)
+            VALUES (?, 'expense_request', ?, ?)
+        ''', (
+            row['project_id'],
+            f"أمر صرف معمد: تكليف بصرف طلب {row['request_number']}",
+            f"عزيزي {assigned_disburser_name}، كلفك المدير المالي بتنفيذ صرف طلب المصروف {row['request_number']} بمبلغ {row['amount']:,.2f} ر.س للمستفيد ({row['beneficiary_name']}). المصدر: {disbursement_source or 'عهدة / كاش'}. التوجيهات: {assignment_notes or 'يرجى إتمام الصرف وإرفاق سند التحويل'}"
+        ))
+
+    conn.commit()
+    conn.close()
+
+    res_msg = f"تم تعميد طلب الصرف '{row['request_number']}' بنجاح"
+    if assigned_disburser_name:
+        res_msg += f" وتم توجيه أمر الصرف وتكليف ({assigned_disburser_name}) بالتنفيذ من ({disbursement_source or 'العهدة/الخزينة'})."
+    else:
+        res_msg += "، والطلب جاهز للصرف الآن."
+
+    return jsonify({
+        'success': True,
+        'message': res_msg,
+        'assigned_disburser_name': assigned_disburser_name
+    })
+
+
+@app.route('/api/expense-requests/<int:req_id>/assign', methods=['POST'])
+def assign_expense_request_disburser(req_id):
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute('SELECT * FROM expense_requests WHERE id = ?', (req_id,))
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        return jsonify({'error': 'طلب الصرف غير موجود'}), 404
+
+    data = request.get_json() or {}
+    user_id = data.get('user_id')
+    user_role = data.get('user_role', '')
+    user_name = data.get('user_name', '')
+
+    is_fin, mgr_title = check_is_financial_manager(user_id=user_id, user_role=user_role, user_name=user_name, cursor=cursor)
+    if not is_fin:
+        conn.close()
+        return jsonify({'error': 'عذراً، صلاحية توجيه أو تكليف جهة الصرف مقتصرة حصرياً على المدير المالي'}), 403
+
+    assigned_disburser_id = data.get('assigned_disburser_id')
+    assigned_disburser_name = data.get('assigned_disburser_name', '').strip()
+    disbursement_source = data.get('disbursement_source', '').strip()
+    assignment_notes = data.get('assignment_notes', '').strip()
+    now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+    cursor.execute('''
+        UPDATE expense_requests
+        SET assigned_disburser_id = ?,
+            assigned_disburser_name = ?,
+            disbursement_source = ?,
+            assignment_notes = ?,
+            assigned_at = ?
+        WHERE id = ?
+    ''', (
+        assigned_disburser_id, assigned_disburser_name,
+        disbursement_source, assignment_notes,
+        now_str if assigned_disburser_name else None,
+        req_id
+    ))
+
+    if assigned_disburser_name:
+        cursor.execute('''
+            INSERT INTO notifications (project_id, type, title, message)
+            VALUES (?, 'expense_request', ?, ?)
+        ''', (
+            row['project_id'],
+            f"أمر صرف معمد: تكليف بصرف طلب {row['request_number']}",
+            f"قام المدير المالي بتكليف ({assigned_disburser_name}) بصرف طلب {row['request_number']} بمبلغ {row['amount']:,.2f} ر.س لـ ({row['beneficiary_name']}) من ({disbursement_source or 'العهدة/الخزينة'})."
+        ))
 
     conn.commit()
     conn.close()
 
     return jsonify({
         'success': True,
-        'message': f"تم تعميد طلب الصرف '{row['request_number']}' بنجاح، والطلب جاهز للصرف الفعلي الآن."
+        'message': f"تم توجيه وتكليف ({assigned_disburser_name or 'الخزينة'}) بصرف طلب {row['request_number']} بنجاح."
     })
 
 
@@ -6840,9 +6942,23 @@ def disburse_expense_request(req_id):
     user_name = data.get('user_name', '')
 
     is_fin, mgr_title = check_is_financial_manager(user_id=user_id, user_role=user_role, user_name=user_name, cursor=cursor)
-    if not is_fin:
+    
+    # Check if the user is the assigned disburser (e.g. Nawaf)
+    is_assigned = False
+    assigned_name = row['assigned_disburser_name'] or ''
+    assigned_id = row['assigned_disburser_id']
+    if user_id and assigned_id and str(user_id) == str(assigned_id):
+        is_assigned = True
+    elif user_name and assigned_name and (user_name in assigned_name or assigned_name in user_name):
+        is_assigned = True
+
+    if not is_fin and not is_assigned:
         conn.close()
-        return jsonify({'error': 'عذراً، صلاحية تسجيل الصرف الفعلي مقتصرة حصرياً على المدير المالي'}), 403
+        return jsonify({'error': 'عذراً، صلاحية تسجيل الصرف الفعلي مقتصرة على المدير المالي أو الشخص المكلف بالصرف'}), 403
+
+    disburser_title = user_name or mgr_title
+    if is_fin and not is_assigned:
+        disburser_title = mgr_title
 
     disbursed_amount = float(data.get('disbursed_amount', row['amount']))
     disbursed_date = data.get('disbursed_date', datetime.now().strftime('%Y-%m-%d'))
@@ -6850,6 +6966,9 @@ def disburse_expense_request(req_id):
     bank_name = data.get('bank_name', '').strip()
     transfer_reference = data.get('transfer_reference', '').strip()
     disbursement_notes = data.get('disbursement_notes', '').strip()
+    
+    # Determine who actually paid / the source of payment
+    paid_by = data.get('paid_by', '').strip() or row['assigned_disburser_name'] or row['disbursement_source'] or disburser_title
     now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
     # Receipt file upload if provided
@@ -6880,16 +6999,18 @@ def disburse_expense_request(req_id):
             disbursement_notes = ?
         WHERE id = ?
     ''', (
-        mgr_title, now_str, disbursed_date, disbursed_amount,
+        disburser_title, now_str, disbursed_date, disbursed_amount,
         payment_method, bank_name, transfer_reference,
         disbursement_receipt_path, disbursement_receipt_name, disbursement_notes,
         req_id
     ))
 
-    # 2. AUTOMATICALLY CREATE VERIFIED EXPENSE (كما طلب المستخدم)
+    # 2. AUTOMATICALLY CREATE VERIFIED EXPENSE
     category = row['category'] or 'نثريات وإداريات'
     expense_title = f"صرف طلب {row['request_number']}: {row['purpose']}"
     exp_notes = f"صرف بموجب طلب رقم {row['request_number']} - المستفيد: {row['beneficiary_type']} ({row['beneficiary_name']}) - وسيلة الصرف: {payment_method}"
+    if row.get('disbursement_source'):
+        exp_notes += f" - المصدر: {row['disbursement_source']}"
     if bank_name:
         exp_notes += f" - البنك/الخزينة: {bank_name}"
     if transfer_reference:
@@ -6904,14 +7025,14 @@ def disburse_expense_request(req_id):
             project_id, title, category, amount, payment_method,
             paid_by, paid_to, expense_date, invoice_file_path, invoice_file_name,
             notes, approval_status, approved_by, approved_at, approval_notes,
-            created_by, supplier_id, expense_request_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'approved', ?, ?, ?, ?, ?, ?)
+            created_by, supplier_id, expense_request_id, assigned_disburser_name
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'approved', ?, ?, ?, ?, ?, ?, ?)
     ''', (
         row['project_id'], expense_title, category, disbursed_amount, payment_method,
-        mgr_title, row['beneficiary_name'], disbursed_date,
+        paid_by, row['beneficiary_name'], disbursed_date,
         disbursement_receipt_path, disbursement_receipt_name, exp_notes,
-        mgr_title, now_str, 'معمد ومصروف من المدير المالي مباشرة بموجب طلب صرف',
-        mgr_title, supplier_id, req_id
+        row['approved_by'] or mgr_title, now_str, f"معمد من الإدارة المالية ومصروف بواسطة ({paid_by})",
+        disburser_title, supplier_id, req_id, row['assigned_disburser_name']
     ))
     new_expense_id = cursor.lastrowid
 
@@ -6930,14 +7051,14 @@ def disburse_expense_request(req_id):
     cursor.execute('''
         INSERT INTO notifications (project_id, type, title, message)
         VALUES (?, 'expense_request', 'تم صرف طلب المصروف بنجاح', ?)
-    ''', (row['project_id'], f"تم صرف مبلغ {disbursed_amount:,.2f} ر.س لطلب الصرف {row['request_number']} لـ ({row['beneficiary_name']}) بواسطة {mgr_title} وتم ترحيله لمصروفات المشروع والكاش فلو."))
+    ''', (row['project_id'], f"تم صرف مبلغ {disbursed_amount:,.2f} ر.س لطلب الصرف {row['request_number']} لـ ({row['beneficiary_name']}) من ({paid_by}) بواسطة {disburser_title} وتم ترحيله لمصروفات المشروع والكاش فلو."))
 
     conn.commit()
     conn.close()
 
     return jsonify({
         'success': True,
-        'message': f"تم صرف الطلب {row['request_number']} بنجاح بمبلغ {disbursed_amount:,.2f} ر.س، وتم ترحيله فوراً إلى المصاريف المعتمدة وخصمه من الكاش فلو.",
+        'message': f"تم صرف الطلب {row['request_number']} بنجاح بمبلغ {disbursed_amount:,.2f} ر.س (القائم بالصرف: {paid_by})، وتم ترحيله فوراً إلى المصاريف المعتمدة وخصمه من الكاش فلو.",
         'expense_id': new_expense_id
     })
 

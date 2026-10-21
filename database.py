@@ -625,6 +625,28 @@ def init_db():
         except Exception:
             pass
 
+    if 'assigned_disburser_name' not in exp_cols:
+        try:
+            cursor.execute('ALTER TABLE expenses ADD COLUMN assigned_disburser_name TEXT')
+        except Exception:
+            pass
+
+    cursor.execute('PRAGMA table_info(expense_requests)')
+    er_cols = [r[1] for r in cursor.fetchall()]
+    new_er_cols = [
+        ('assigned_disburser_id', 'INTEGER'),
+        ('assigned_disburser_name', 'TEXT'),
+        ('disbursement_source', 'TEXT'),
+        ('assignment_notes', 'TEXT'),
+        ('assigned_at', 'TIMESTAMP')
+    ]
+    for col, ctype in new_er_cols:
+        if col not in er_cols:
+            try:
+                cursor.execute(f'ALTER TABLE expense_requests ADD COLUMN {col} {ctype}')
+            except Exception:
+                pass
+
     # HR Tables (إدارة الموارد البشرية وشؤون الموظفين)
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS hr_employees (

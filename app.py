@@ -587,12 +587,14 @@ def get_project_details(project_id):
         FROM expenses
         WHERE custody_id IS NULL
           AND (payment_method IS NULL OR payment_method NOT LIKE '%عهدة%')
+          AND COALESCE(payment_status, 'paid') = 'paid'
+          AND payment_status != 'unpaid'
           AND (
               payment_method LIKE '%تحويل%'
               OR payment_method LIKE '%بنك%'
               OR payment_method LIKE '%مدى%'
               OR payment_method LIKE '%شيك%'
-              OR (payment_status = 'paid' AND payment_method NOT IN ('آجل', 'نقدي'))
+              OR payment_method NOT IN ('آجل', 'نقدي')
           )
     ''')
     bank_expenses_spent = float(cursor.fetchone()[0] or 0.0)
@@ -4244,35 +4246,54 @@ def get_cashflow():
     all_projects = cursor.fetchall()
     
     # Pre-calculate Bank Cash Flow Outflows (Custodies and HR Advances)
-    # 1. Bank Direct Expenses (all bank transfers/paid expenses)
+    # 1. Bank Direct Expenses (all bank transfers/paid expenses actually disbursed)
     cursor.execute('''
         SELECT COALESCE(SUM(amount), 0)
         FROM expenses
         WHERE custody_id IS NULL
           AND (payment_method IS NULL OR payment_method NOT LIKE '%عهدة%')
+          AND COALESCE(payment_status, 'paid') = 'paid'
+          AND payment_status != 'unpaid'
           AND (
               payment_method LIKE '%تحويل%'
               OR payment_method LIKE '%بنك%'
               OR payment_method LIKE '%مدى%'
               OR payment_method LIKE '%شيك%'
-              OR (payment_status = 'paid' AND payment_method NOT IN ('آجل', 'نقدي'))
+              OR payment_method NOT IN ('آجل', 'نقدي')
           )
           AND COALESCE(approval_status, 'approved') = 'approved'
     ''')
     bank_expenses_spent = float(cursor.fetchone()[0] or 0.0)
 
-    # 2. Custody expenses spent from site petty custodies
+    # 2. Custody expenses spent from site petty custodies (actually disbursed)
     cursor.execute('''
         SELECT COALESCE(SUM(amount), 0)
         FROM expenses
         WHERE (custody_id IS NOT NULL OR payment_method LIKE '%عهدة%')
+          AND COALESCE(payment_status, 'paid') = 'paid'
+          AND payment_status != 'unpaid'
           AND COALESCE(approval_status, 'approved') = 'approved'
     ''')
     custody_expenses_spent = float(cursor.fetchone()[0] or 0.0)
 
-    # 3. Total all project expenses for reference
-    cursor.execute("SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE COALESCE(approval_status, 'approved') = 'approved'")
+    # 3. Total all project expenses actually disbursed
+    cursor.execute('''
+        SELECT COALESCE(SUM(amount), 0) 
+        FROM expenses 
+        WHERE COALESCE(payment_status, 'paid') = 'paid'
+          AND payment_status != 'unpaid'
+          AND COALESCE(approval_status, 'approved') = 'approved'
+    ''')
     total_all_expenses = float(cursor.fetchone()[0] or 0.0)
+
+    # 3.b Unpaid / committed expenses awaiting disbursement (e.g. assigned to Nawaf)
+    cursor.execute('''
+        SELECT COALESCE(SUM(amount), 0) 
+        FROM expenses 
+        WHERE payment_status = 'unpaid'
+          AND COALESCE(approval_status, 'approved') = 'approved'
+    ''')
+    total_unpaid_committed_expenses = float(cursor.fetchone()[0] or 0.0)
 
     # 4. Bank Custody Net Outflow
     cursor.execute('''
@@ -4334,8 +4355,8 @@ def get_cashflow():
         contract_val = float(p['contract_value'] or 0.0)
         company_tot_contract += contract_val
         
-        # Expenses
-        cursor.execute("SELECT phase_id, amount FROM expenses WHERE project_id = ? AND COALESCE(approval_status, 'approved') = 'approved'", (pid,))
+        # Expenses (only actually paid expenses are deducted from cash flow)
+        cursor.execute("SELECT phase_id, amount FROM expenses WHERE project_id = ? AND COALESCE(payment_status, 'paid') = 'paid' AND payment_status != 'unpaid' AND COALESCE(approval_status, 'approved') = 'approved'", (pid,))
         exp_rows = cursor.fetchall()
         tot_spent = sum(float(e['amount'] or 0.0) for e in exp_rows)
         spent_by_phase = {}
@@ -4520,6 +4541,7 @@ def get_cashflow():
         'total_received': company_tot_received,
         'total_spent': total_actual_bank_outflows,
         'total_project_expenses': total_all_expenses,
+        'total_unpaid_committed_expenses': total_unpaid_committed_expenses,
         'direct_expenses_spent': bank_expenses_spent,
         'custody_expenses_spent': custody_expenses_spent,
         'total_custody_disbursed': total_custody_disbursed,

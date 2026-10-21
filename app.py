@@ -1348,6 +1348,9 @@ def get_expenses():
     category = request.args.get('category')
     from_date = request.args.get('from_date')
     to_date = request.args.get('to_date')
+    status = request.args.get('status')
+    approval_status = request.args.get('approval_status')
+    payment_status = request.args.get('payment_status')
 
     conn = database.get_db_connection()
     cursor = conn.cursor()
@@ -1397,6 +1400,32 @@ def get_expenses():
     if to_date:
         query += ' AND e.expense_date <= ?'
         params.append(to_date)
+
+    # Status Filters (معمدة / بانتظار التعميد / تم الصرف / غير مصروفة)
+    if status == 'approved':
+        query += " AND (e.approval_status = 'approved' OR e.approval_status IS NULL OR e.approval_status = '')"
+    elif status == 'pending':
+        query += " AND e.approval_status = 'pending'"
+    elif status == 'rejected':
+        query += " AND e.approval_status = 'rejected'"
+    elif status == 'paid':
+        query += " AND (e.payment_status = 'paid' OR e.payment_status IS NULL)"
+    elif status == 'unpaid':
+        query += " AND e.payment_status = 'unpaid'"
+
+    if approval_status:
+        if approval_status == 'pending':
+            query += " AND e.approval_status = 'pending'"
+        elif approval_status == 'approved':
+            query += " AND (e.approval_status = 'approved' OR e.approval_status IS NULL OR e.approval_status = '')"
+        elif approval_status == 'rejected':
+            query += " AND e.approval_status = 'rejected'"
+
+    if payment_status:
+        if payment_status == 'paid':
+            query += " AND (e.payment_status = 'paid' OR e.payment_status IS NULL)"
+        elif payment_status == 'unpaid':
+            query += " AND e.payment_status = 'unpaid'"
 
     query += ' ORDER BY e.expense_date DESC, e.id DESC'
     cursor.execute(query, params)

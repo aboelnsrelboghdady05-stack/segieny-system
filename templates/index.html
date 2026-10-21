@@ -805,8 +805,37 @@
                     </div>
                 </div>
 
+                <!-- Quick Status Filter Pills (أزرار تصفية سريعة لحالات التعميد والصرف) -->
+                <div class="flex items-center gap-2 overflow-x-auto pb-1 border-t border-slate-750/70 pt-3 scrollbar-none">
+                    <span class="text-[11px] font-bold text-slate-400 shrink-0 ml-1">تصفية سريعة:</span>
+                    <button type="button" onclick="setExpenseStatusQuickFilter('all')" id="btn-exp-filter-all" class="exp-status-pill px-3 py-1.5 rounded-xl text-xs font-bold transition bg-emerald-600 text-white flex items-center gap-1.5 shadow">
+                        <span>الكل</span>
+                        <span id="badge-exp-count-all" class="px-1.5 py-0.2 rounded-full bg-slate-900/40 text-[10px]">0</span>
+                    </button>
+                    <button type="button" onclick="setExpenseStatusQuickFilter('pending')" id="btn-exp-filter-pending" class="exp-status-pill px-3 py-1.5 rounded-xl text-xs font-bold transition bg-slate-800 text-slate-300 hover:text-white hover:bg-slate-750 flex items-center gap-1.5 border border-slate-700">
+                        <span class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
+                        <span>بانتظار التعميد</span>
+                        <span id="badge-exp-count-pending" class="px-1.5 py-0.2 rounded-full bg-amber-500/20 text-amber-300 text-[10px] font-bold">0</span>
+                    </button>
+                    <button type="button" onclick="setExpenseStatusQuickFilter('approved')" id="btn-exp-filter-approved" class="exp-status-pill px-3 py-1.5 rounded-xl text-xs font-bold transition bg-slate-800 text-slate-300 hover:text-white hover:bg-slate-750 flex items-center gap-1.5 border border-slate-700">
+                        <i data-lucide="shield-check" class="w-3.5 h-3.5 text-emerald-400"></i>
+                        <span>معمدة (معتمدة)</span>
+                        <span id="badge-exp-count-approved" class="px-1.5 py-0.2 rounded-full bg-emerald-500/20 text-emerald-300 text-[10px] font-bold">0</span>
+                    </button>
+                    <button type="button" onclick="setExpenseStatusQuickFilter('paid')" id="btn-exp-filter-paid" class="exp-status-pill px-3 py-1.5 rounded-xl text-xs font-bold transition bg-slate-800 text-slate-300 hover:text-white hover:bg-slate-750 flex items-center gap-1.5 border border-slate-700">
+                        <i data-lucide="banknote" class="w-3.5 h-3.5 text-blue-400"></i>
+                        <span>تم الصرف (مصروفة)</span>
+                        <span id="badge-exp-count-paid" class="px-1.5 py-0.2 rounded-full bg-blue-500/20 text-blue-300 text-[10px] font-bold">0</span>
+                    </button>
+                    <button type="button" onclick="setExpenseStatusQuickFilter('unpaid')" id="btn-exp-filter-unpaid" class="exp-status-pill px-3 py-1.5 rounded-xl text-xs font-bold transition bg-slate-800 text-slate-300 hover:text-white hover:bg-slate-750 flex items-center gap-1.5 border border-slate-700">
+                        <i data-lucide="clock" class="w-3.5 h-3.5 text-rose-400"></i>
+                        <span>غير مصروفة (قيد السداد)</span>
+                        <span id="badge-exp-count-unpaid" class="px-1.5 py-0.2 rounded-full bg-rose-500/20 text-rose-300 text-[10px] font-bold">0</span>
+                    </button>
+                </div>
+
                 <!-- Filters -->
-                <div class="grid grid-cols-1 sm:grid-cols-4 gap-3 pt-3 border-t border-slate-750">
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 pt-3 border-t border-slate-750">
                     <div>
                         <label class="text-[11px] text-slate-400 block mb-1">المشروع:</label>
                         <select id="expense-filter-project" onchange="loadExpenses()" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white">
@@ -832,6 +861,17 @@
                             <option value="محروقات ونقل">محروقات ونقل وتشوينات</option>
                             <option value="تراخيص وتأمينات">تراخيص وموافقات وتأمينات</option>
                             <option value="إداريات ومكتب">إداريات ومطبوعات ومكتب</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="text-[11px] text-slate-400 block mb-1">حالة التعميد والصرف:</label>
+                        <select id="expense-filter-status" onchange="onExpenseStatusDropdownChange()" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white font-medium">
+                            <option value="">جميع الحالات (الكل)</option>
+                            <option value="pending">⏳ بانتظار التعميد</option>
+                            <option value="approved">✅ معمدة (معتمدة)</option>
+                            <option value="paid">💵 تم الصرف (مصروفة)</option>
+                            <option value="unpaid">🕒 غير مصروفة (قيد السداد)</option>
+                            <option value="rejected">❌ مرفوضة</option>
                         </select>
                     </div>
                     <div>
@@ -6654,7 +6694,7 @@
 
     <!-- Scripts -->
     <script src="/static/js/i18n.js?v=20261020_v1"></script>
-    <script src="/static/js/app.js?v=20261020_v9"></script>
+    <script src="/static/js/app.js?v=20261021_v1"></script>
     <script>
     (function() {
         try {

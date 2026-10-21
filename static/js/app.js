@@ -1726,6 +1726,86 @@ async function deleteTask(taskId) {
 }
 
 // ----------------- EXPENSES & INVOICES TAB -----------------
+let currentExpenseStatusFilter = 'all'; // all, pending, approved, paid, unpaid, rejected
+let allLoadedExpensesList = [];
+
+function setExpenseStatusQuickFilter(status) {
+    currentExpenseStatusFilter = status || 'all';
+    const statusSelect = document.getElementById('expense-filter-status');
+    if (statusSelect) {
+        statusSelect.value = (status === 'all') ? '' : status;
+    }
+    updateExpenseFilterPillStyles(currentExpenseStatusFilter);
+    applyClientExpenseFilters();
+}
+
+function onExpenseStatusDropdownChange() {
+    const statusSelect = document.getElementById('expense-filter-status');
+    const val = statusSelect ? statusSelect.value : '';
+    currentExpenseStatusFilter = val || 'all';
+    updateExpenseFilterPillStyles(currentExpenseStatusFilter);
+    applyClientExpenseFilters();
+}
+
+function updateExpenseFilterPillStyles(activeStatus) {
+    const pills = [
+        { id: 'btn-exp-filter-all', key: 'all', activeCls: 'bg-emerald-600 text-white shadow' },
+        { id: 'btn-exp-filter-pending', key: 'pending', activeCls: 'bg-amber-600 text-white shadow' },
+        { id: 'btn-exp-filter-approved', key: 'approved', activeCls: 'bg-emerald-600 text-white shadow' },
+        { id: 'btn-exp-filter-paid', key: 'paid', activeCls: 'bg-blue-600 text-white shadow' },
+        { id: 'btn-exp-filter-unpaid', key: 'unpaid', activeCls: 'bg-rose-600 text-white shadow' }
+    ];
+
+    pills.forEach(p => {
+        const btn = document.getElementById(p.id);
+        if (!btn) return;
+        btn.className = 'exp-status-pill px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 border border-slate-700 bg-slate-800 text-slate-300 hover:text-white hover:bg-slate-750';
+        if (p.key === activeStatus) {
+            btn.className = `exp-status-pill px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${p.activeCls}`;
+        }
+    });
+}
+
+function updateExpenseFilterPillCounts(expenses) {
+    if (!Array.isArray(expenses)) return;
+    const allCount = expenses.length;
+    const pendingCount = expenses.filter(e => e.approval_status === 'pending').length;
+    const approvedCount = expenses.filter(e => (e.approval_status || 'approved') === 'approved').length;
+    const paidCount = expenses.filter(e => (e.payment_status || 'paid') === 'paid').length;
+    const unpaidCount = expenses.filter(e => e.payment_status === 'unpaid').length;
+
+    const elAll = document.getElementById('badge-exp-count-all');
+    const elPending = document.getElementById('badge-exp-count-pending');
+    const elApproved = document.getElementById('badge-exp-count-approved');
+    const elPaid = document.getElementById('badge-exp-count-paid');
+    const elUnpaid = document.getElementById('badge-exp-count-unpaid');
+
+    if (elAll) elAll.innerText = allCount;
+    if (elPending) elPending.innerText = pendingCount;
+    if (elApproved) elApproved.innerText = approvedCount;
+    if (elPaid) elPaid.innerText = paidCount;
+    if (elUnpaid) elUnpaid.innerText = unpaidCount;
+}
+
+function applyClientExpenseFilters() {
+    if (!Array.isArray(allLoadedExpensesList)) return;
+    let filtered = allLoadedExpensesList;
+
+    if (currentExpenseStatusFilter === 'pending') {
+        filtered = allLoadedExpensesList.filter(e => e.approval_status === 'pending');
+    } else if (currentExpenseStatusFilter === 'approved') {
+        filtered = allLoadedExpensesList.filter(e => (e.approval_status || 'approved') === 'approved');
+    } else if (currentExpenseStatusFilter === 'paid') {
+        filtered = allLoadedExpensesList.filter(e => (e.payment_status || 'paid') === 'paid');
+    } else if (currentExpenseStatusFilter === 'unpaid') {
+        filtered = allLoadedExpensesList.filter(e => e.payment_status === 'unpaid');
+    } else if (currentExpenseStatusFilter === 'rejected') {
+        filtered = allLoadedExpensesList.filter(e => e.approval_status === 'rejected');
+    }
+
+    renderExpensesTable(filtered);
+}
+
 async function loadExpenses() {
     const projId = document.getElementById('expense-filter-project')?.value || '';
     const cat = document.getElementById('expense-filter-category')?.value || '';
@@ -1741,7 +1821,9 @@ async function loadExpenses() {
     try {
         const res = await fetch(url);
         const expenses = await res.json();
-        renderExpensesTable(expenses);
+        allLoadedExpensesList = Array.isArray(expenses) ? expenses : [];
+        updateExpenseFilterPillCounts(allLoadedExpensesList);
+        applyClientExpenseFilters();
     } catch (err) {
         console.error('Error loading expenses:', err);
     }
@@ -6063,7 +6145,20 @@ async function printProjectReport(projectId = null) {
 // ----------------- EXPORT TO EXCEL (SHEETJS) -----------------
 async function exportExpensesToExcel() {
     try {
-        const res = await fetch('/api/expenses');
+        const projId = document.getElementById('expense-filter-project')?.value || '';
+        const cat = document.getElementById('expense-filter-category')?.value || '';
+        const status = document.getElementById('expense-filter-status')?.value || '';
+        const fromDate = document.getElementById('expense-filter-from')?.value || '';
+        const toDate = document.getElementById('expense-filter-to')?.value || '';
+
+        let url = `/api/expenses?`;
+        if (projId) url += `project_id=${projId}&`;
+        if (cat) url += `category=${encodeURIComponent(cat)}&`;
+        if (status) url += `status=${status}&`;
+        if (fromDate) url += `from_date=${fromDate}&`;
+        if (toDate) url += `to_date=${toDate}&`;
+
+        const res = await fetch(url);
         const expenses = await res.json();
         if (expenses.length === 0) {
             showToast('لا توجد بيانات مصروفات للتصدير', 'error');

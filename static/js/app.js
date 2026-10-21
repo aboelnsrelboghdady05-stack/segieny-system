@@ -2041,13 +2041,26 @@ function renderExpensesTable(expenses) {
                 ` : (typeof tr === 'function' ? tr(e.payment_method || 'نقدي') : (e.payment_method || 'نقدي'))}
             </td>
             <td class="p-3.5 whitespace-nowrap text-slate-300">
-                <div class="flex flex-col">
+                <div class="flex flex-col gap-1">
                     <span class="text-white font-medium">${escapeHtml(e.paid_to || e.paid_by || '-')}</span>
                     ${e.assigned_disburser_name ? `
-                        <span class="inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30 w-fit">
-                            <i data-lucide="send" class="w-3 h-3 text-amber-400"></i>
-                            <span>مكلف بالسداد: ${escapeHtml(e.assigned_disburser_name)}</span>
-                        </span>
+                        <div class="flex items-center gap-1.5 flex-wrap">
+                            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                                <i data-lucide="send" class="w-3 h-3 text-amber-400"></i>
+                                <span>مكلف: ${escapeHtml(e.assigned_disburser_name)}</span>
+                            </span>
+                            ${canDisburseThisExpense(e) ? `
+                                <button type="button" onclick="openDisburseExpenseModal(${e.id})" title="تسجيل صرف وسداد الفاتورة" class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-black bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow transition animate-pulse hover:animate-none">
+                                    <i data-lucide="wallet" class="w-3 h-3"></i>
+                                    <span>صرف 💵</span>
+                                </button>
+                            ` : ((e.payment_status === 'paid' || e.payment_date) ? `
+                                <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                                    <i data-lucide="check" class="w-2.5 h-2.5"></i>
+                                    <span>تم الصرف</span>
+                                </span>
+                            ` : '')}
+                        </div>
                     ` : ''}
                 </div>
             </td>
@@ -2310,6 +2323,133 @@ async function submitAssignExpensePayer(event) {
     } catch (err) {
         console.error('Error assigning expense payer:', err);
         showToast('حدث خطأ في الاتصال بالخادم', 'error');
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+}
+
+// ----------------- DISBURSE EXPENSE MODAL FUNCTIONS -----------------
+function canDisburseThisExpense(e) {
+    if (!e) return false;
+    if (e.payment_status === 'paid' && e.payment_date) return false;
+    
+    const assignedName = (e.assigned_disburser_name || '').trim();
+    if (!assignedName) return false;
+
+    const u = currentUser || JSON.parse(localStorage.getItem('segieny_auth_user') || '{}');
+    if (!u) return false;
+
+    const uName = (u.name || '').trim();
+    const isFin = isFinancialManagerUser();
+    
+    const isAssigned = (uName && (assignedName.includes(uName) || uName.includes(assignedName))) ||
+                       (u.username && assignedName.toLowerCase().includes(u.username.toLowerCase()));
+
+    return isAssigned || isFin;
+}
+
+async function openDisburseExpenseModal(expenseId) {
+    try {
+        const res = await fetch(`/api/expenses/${expenseId}`);
+        const data = await res.json();
+        if (!data.success || !data.expense) {
+            showToast('تعذر تحميل بيانات الفاتورة', 'error');
+            return;
+        }
+        const exp = data.expense;
+
+        const idInput = document.getElementById('disburse-expense-id');
+        if (idInput) idInput.value = exp.id;
+
+        const titleDisplay = document.getElementById('disburse-expense-title-display');
+        if (titleDisplay) titleDisplay.textContent = exp.title || '-';
+
+        const projectDisplay = document.getElementById('disburse-expense-project-display');
+        if (projectDisplay) projectDisplay.textContent = exp.project_name || '-';
+
+        const amountDisplay = document.getElementById('disburse-expense-amount-display');
+        if (amountDisplay) amountDisplay.textContent = `${formatCurrency(exp.amount)} ر.س`;
+
+        const assignedDisplay = document.getElementById('disburse-expense-assigned-display');
+        if (assignedDisplay) assignedDisplay.textContent = exp.assigned_disburser_name || 'غير محدد';
+
+        const dateInput = document.getElementById('disburse-expense-date-input');
+        if (dateInput) dateInput.value = new Date().toISOString().split('T')[0];
+
+        const methodSelect = document.getElementById('disburse-expense-method-select');
+        if (methodSelect) {
+            if (exp.payment_method && exp.payment_method !== 'آجل') {
+                methodSelect.value = exp.payment_method;
+            } else {
+                methodSelect.value = 'عهدة شخصية للمسؤول';
+            }
+        }
+
+        const notesInput = document.getElementById('disburse-expense-notes-input');
+        if (notesInput) notesInput.value = '';
+
+        const receiptInput = document.getElementById('disburse-expense-receipt-file');
+        if (receiptInput) receiptInput.value = '';
+
+        openModal('expense-disburse-modal');
+        initLucide();
+    } catch (err) {
+        console.error('Error opening disburse modal:', err);
+        showToast('حدث خطأ في تحميل بيانات الفاتورة', 'error');
+    }
+}
+
+async function submitDisburseExpense(event) {
+    if (event) event.preventDefault();
+
+    const expenseId = document.getElementById('disburse-expense-id')?.value;
+    if (!expenseId) {
+        showToast('رقم الفاتورة مفقود', 'error');
+        return;
+    }
+
+    const btn = document.getElementById('btn-submit-disburse-expense');
+    if (btn) btn.disabled = true;
+
+    const u = currentUser || JSON.parse(localStorage.getItem('segieny_auth_user') || '{}');
+    const dateInput = document.getElementById('disburse-expense-date-input');
+    const methodSelect = document.getElementById('disburse-expense-method-select');
+    const notesInput = document.getElementById('disburse-expense-notes-input');
+    const receiptFile = document.getElementById('disburse-expense-receipt-file');
+
+    const formData = new FormData();
+    formData.append('user_id', u.id || '');
+    formData.append('user_role', u.role || '');
+    formData.append('user_name', u.name || '');
+    formData.append('payment_date', dateInput ? dateInput.value : '');
+    formData.append('payment_method', methodSelect ? methodSelect.value : 'نقدي');
+    formData.append('notes', notesInput ? notesInput.value.trim() : '');
+
+    if (receiptFile && receiptFile.files && receiptFile.files[0]) {
+        formData.append('receipt_file', receiptFile.files[0]);
+    }
+
+    try {
+        const res = await fetch(`/api/expenses/${expenseId}/disburse`, {
+            method: 'POST',
+            body: formData
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+            showToast(data.message || 'تم تأكيد صرف وسداد الفاتورة بنجاح!', 'success');
+            closeModal('expense-disburse-modal');
+            loadExpenses();
+            if (typeof loadCashFlow === 'function') loadCashFlow();
+            if (typeof currentProjectDetailData !== 'undefined' && currentProjectDetailData) {
+                openProjectDetails(currentProjectDetailData.id);
+            }
+            loadDashboard();
+        } else {
+            showToast(data.error || 'تعذر تأكيد صرف الفاتورة', 'error');
+        }
+    } catch (err) {
+        console.error('Error submitting expense disburse:', err);
+        showToast('حدث خطأ أثناء الاتصال بالخادم', 'error');
     } finally {
         if (btn) btn.disabled = false;
     }
@@ -15019,16 +15159,29 @@ function renderExpenseRequestsTable(requests) {
             pBadge = '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/20 text-rose-400 border border-rose-500/30 animate-pulse">🚨 طارئ</span>';
         }
 
+        // Check if current user is the assigned disburser (e.g. Nawaf)
+        const isAssignedToCurrentUser = (u.id && r.assigned_disburser_id && String(u.id) === String(r.assigned_disburser_id)) ||
+                                        (u.name && r.assigned_disburser_name && (r.assigned_disburser_name.includes(u.name) || u.name.includes(r.assigned_disburser_name)));
+
         // Disburser Assignment Badge / Status
         let disburserHtml = '';
         if (r.assigned_disburser_name) {
+            const canDisburseReq = (r.status === 'approved') && (isFinManager || isAssignedToCurrentUser);
             disburserHtml = `
-                <div class="inline-flex flex-col items-center">
-                    <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-black bg-amber-500/15 text-amber-300 border border-amber-500/30">
-                        <i data-lucide="send" class="w-3 h-3 text-amber-400"></i>
-                        <span>${escapeHtml(r.assigned_disburser_name)}</span>
-                    </span>
-                    <span class="text-[9px] text-slate-400 mt-0.5 truncate max-w-[120px]" title="${escapeHtml(r.disbursement_source || '')}">${escapeHtml(r.disbursement_source || 'عهدة / كاش')}</span>
+                <div class="inline-flex flex-col items-center gap-1">
+                    <div class="inline-flex items-center gap-1.5 flex-wrap justify-center">
+                        <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-black bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                            <i data-lucide="send" class="w-3 h-3 text-amber-400"></i>
+                            <span>${escapeHtml(r.assigned_disburser_name)}</span>
+                        </span>
+                        ${canDisburseReq ? `
+                            <button type="button" onclick="openDisburseExpenseRequestModal(${r.id})" title="تنفيذ الصرف وتأكيد السداد" class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-black bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow transition animate-pulse hover:animate-none">
+                                <i data-lucide="wallet" class="w-3 h-3"></i>
+                                <span>صرف 💵</span>
+                            </button>
+                        ` : ''}
+                    </div>
+                    <span class="text-[9px] text-slate-400 truncate max-w-[120px]" title="${escapeHtml(r.disbursement_source || '')}">${escapeHtml(r.disbursement_source || 'عهدة / كاش')}</span>
                 </div>
             `;
         } else if (r.status === 'disbursed') {
@@ -15098,10 +15251,6 @@ function renderExpenseRequestsTable(requests) {
                 </a>
             `;
         }
-
-        // Check if current user is the assigned disburser (e.g. Nawaf)
-        const isAssignedToCurrentUser = (u.id && r.assigned_disburser_id && String(u.id) === String(r.assigned_disburser_id)) ||
-                                        (u.name && r.assigned_disburser_name && (r.assigned_disburser_name.includes(u.name) || u.name.includes(r.assigned_disburser_name)));
 
         // Action Buttons
         let actionsHtml = `<div class="flex items-center justify-center gap-1.5 flex-wrap">`;

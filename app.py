@@ -2513,6 +2513,94 @@ def assign_expense_payer(expense_id):
     })
 
 
+@app.route('/api/expenses/<int:expense_id>/disburse', methods=['POST'])
+def disburse_recorded_expense(expense_id):
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute('SELECT * FROM expenses WHERE id = ?', (expense_id,))
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        return jsonify({'error': 'المصروف غير موجود'}), 404
+
+    if request.is_json:
+        data = request.get_json() or {}
+    else:
+        data = request.form.to_dict()
+
+    user_id = data.get('user_id')
+    user_role = data.get('user_role', '')
+    user_name = data.get('user_name', '')
+
+    is_fin, mgr_title = check_is_financial_manager(user_id=user_id, user_role=user_role, user_name=user_name, cursor=cursor)
+
+    # Check if the user is the assigned disburser (e.g. Nawaf)
+    is_assigned = False
+    assigned_name = (row['assigned_disburser_name'] or '').strip()
+    if user_name and assigned_name and (user_name in assigned_name or assigned_name in user_name):
+        is_assigned = True
+    elif user_id:
+        try:
+            cursor.execute('SELECT name FROM team_members WHERE id = ?', (user_id,))
+            u_tm = cursor.fetchone()
+            if u_tm and u_tm['name'] and (u_tm['name'] in assigned_name or assigned_name in u_tm['name']):
+                is_assigned = True
+        except Exception:
+            pass
+
+    if not is_fin and not is_assigned:
+        conn.close()
+        return jsonify({'error': 'عذراً، صلاحية تسجيل صرف الفاتورة مقتصرة على المكلف بالصرف أو المدير المالي'}), 403
+
+    disburser_name = user_name or assigned_name or 'المكلف بالصرف'
+    disbursed_date = data.get('payment_date') or data.get('disbursed_date') or datetime.now().strftime('%Y-%m-%d')
+    payment_method = data.get('payment_method') or row['payment_method'] or 'نقدي'
+    notes = data.get('notes', '').strip()
+
+    # Receipt file upload if provided
+    file_path = row['invoice_file_path']
+    file_name = row['invoice_file_name']
+    if 'receipt_file' in request.files:
+        file = request.files['receipt_file']
+        if file and file.filename and allowed_file(file.filename):
+            clean_fn = secure_filename(file.filename)
+            unique_name = f"pay_{uuid.uuid4().hex[:8]}_{clean_fn}"
+            save_uploaded_file_persistent(file, unique_name)
+            file_path = f"/uploads/{unique_name}"
+            file_name = clean_fn
+
+    cursor.execute('''
+        UPDATE expenses
+        SET payment_status = 'paid',
+            paid_by = ?,
+            payment_date = ?,
+            payment_method = ?,
+            invoice_file_path = COALESCE(?, invoice_file_path),
+            invoice_file_name = COALESCE(?, invoice_file_name),
+            notes = CASE WHEN ? != '' THEN COALESCE(notes || ' | ', '') || ? ELSE notes END
+        WHERE id = ?
+    ''', (disburser_name, disbursed_date, payment_method, file_path, file_name, notes, notes, expense_id))
+
+    # Send Notification to Financial Manager and Project
+    cursor.execute('''
+        INSERT INTO notifications (project_id, type, title, message)
+        VALUES (?, 'expense', ?, ?)
+    ''', (
+        row['project_id'],
+        f"تم سداد وصرف الفاتورة #{expense_id}",
+        f"قام المكلف بالصرف ({disburser_name}) بسداد وصرف الفاتورة '{row['title']}' بمبلغ {row['amount']:,.2f} ر.س بتاريخ {disbursed_date}. طريقة السداد: {payment_method}."
+    ))
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({
+        'success': True,
+        'message': f"تم تأكيد صرف وسداد الفاتورة #{expense_id} بنجاح وإشعار الإدارة المالية."
+    })
+
+
 @app.route('/api/expenses/<int:expense_id>/reject', methods=['POST'])
 def reject_expense(expense_id):
     if request.is_json:

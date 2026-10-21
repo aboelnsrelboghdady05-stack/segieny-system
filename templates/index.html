@@ -3384,6 +3384,85 @@
         </div>
     </div>
 
+    <!-- EXPENSE MODAL: CONFIRM DISBURSEMENT BY ASSIGNED PAYER -->
+    <div id="expense-disburse-modal" class="modal-overlay hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+        <div class="bg-slate-900 rounded-2xl border border-slate-750 w-full max-w-lg shadow-2xl overflow-hidden animate-scaleUp">
+            <div class="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-850">
+                <div class="flex items-center gap-2.5">
+                    <div class="p-2 rounded-xl bg-emerald-500/20 text-emerald-400">
+                        <i data-lucide="wallet" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-black text-base text-white">تسجيل صرف وسداد الفاتورة</h3>
+                        <p class="text-[11px] text-slate-400">إثبات الصرف المالي وتثبيت سداد الفاتورة للمكلف بالصرف</p>
+                    </div>
+                </div>
+                <button type="button" onclick="closeModal('expense-disburse-modal')" class="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <form id="expense-disburse-form" onsubmit="submitDisburseExpense(event)" class="p-6 space-y-4">
+                <input type="hidden" id="disburse-expense-id" value="">
+
+                <!-- Expense Summary Box -->
+                <div class="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs text-slate-400">الفاتورة / المصروف:</span>
+                        <span id="disburse-expense-title-display" class="text-xs font-bold text-white">-</span>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs text-slate-400">المشروع:</span>
+                        <span id="disburse-expense-project-display" class="text-xs font-semibold text-emerald-400">-</span>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs text-slate-400">المبلغ المطلوب صرفه:</span>
+                        <span id="disburse-expense-amount-display" class="text-sm font-black text-rose-400">-</span>
+                    </div>
+                    <div class="flex items-center justify-between pt-1 border-t border-slate-850">
+                        <span class="text-xs text-slate-400">المكلف بالصرف:</span>
+                        <span id="disburse-expense-assigned-display" class="text-xs font-bold text-amber-400">-</span>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div class="space-y-1">
+                        <label class="block text-xs font-bold text-slate-300">تاريخ الصرف الفعلي: <span class="text-rose-400">*</span></label>
+                        <input type="date" id="disburse-expense-date-input" required class="w-full bg-slate-950 border border-slate-750 focus:border-emerald-500 rounded-xl px-3 py-2 text-xs text-white outline-none">
+                    </div>
+                    <div class="space-y-1">
+                        <label class="block text-xs font-bold text-slate-300">طريقة / مصدر الصرف: <span class="text-rose-400">*</span></label>
+                        <select id="disburse-expense-method-select" required class="w-full bg-slate-950 border border-slate-750 focus:border-emerald-500 rounded-xl px-3 py-2 text-xs text-white outline-none">
+                            <option value="عهدة شخصية للمسؤول">عهدة شخصية للمسؤول</option>
+                            <option value="نقدي (كاش)">نقدي (كاش)</option>
+                            <option value="تحويل بنكي">تحويل بنكي</option>
+                            <option value="بطاقة مدى / حساب بنكي">بطاقة مدى / حساب بنكي</option>
+                            <option value="شيك">شيك مصرفي</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="space-y-1">
+                    <label class="block text-xs font-bold text-slate-300">إرفاق إيصال السداد أو سند التحويل (اختياري):</label>
+                    <input type="file" id="disburse-expense-receipt-file" accept="image/*,application/pdf" class="w-full bg-slate-950 border border-slate-750 file:border-0 file:bg-slate-800 file:text-emerald-400 file:rounded-lg file:px-3 file:py-1 file:text-xs file:font-bold rounded-xl px-3 py-1.5 text-xs text-slate-300">
+                </div>
+
+                <div class="space-y-1">
+                    <label class="block text-xs font-bold text-slate-300">ملاحظات الصرف (اختياري):</label>
+                    <textarea id="disburse-expense-notes-input" rows="2" placeholder="أي تفاصيل عن رقم الحوالة أو توثيق السداد..." class="w-full bg-slate-950 border border-slate-750 focus:border-emerald-500 rounded-xl px-3 py-2 text-xs text-white outline-none resize-none"></textarea>
+                </div>
+
+                <div class="flex items-center justify-end gap-2 pt-3 border-t border-slate-800">
+                    <button type="button" onclick="closeModal('expense-disburse-modal')" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-300 text-xs font-bold transition">إلغاء</button>
+                    <button type="submit" id="btn-submit-disburse-expense" class="px-5 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-black flex items-center gap-1.5 shadow-lg shadow-emerald-950/50 transition">
+                        <i data-lucide="check-circle" class="w-4 h-4"></i>
+                        <span>تأكيد الصرف وتثبيت السداد</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <!-- 1. EXPENSE & INVOICE MODAL -->
     <div id="expense-modal" class="modal-overlay hidden fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
         <div class="bg-slate-850 rounded-2xl border border-slate-750 w-full max-w-xl shadow-2xl p-6 space-y-5 animate-scaleUp overflow-y-auto max-h-[90vh]">
@@ -6895,7 +6974,7 @@
 
     <!-- Scripts -->
     <script src="/static/js/i18n.js?v=20261020_v1"></script>
-    <script src="/static/js/app.js?v=20261021_v4"></script>
+    <script src="/static/js/app.js?v=20261021_v5"></script>
     <script>
     (function() {
         try {

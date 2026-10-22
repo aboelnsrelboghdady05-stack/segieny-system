@@ -930,6 +930,99 @@ def delete_phase(phase_id):
     conn.close()
     return jsonify({'success': True, 'message': 'تم حذف المرحلة بنجاح'})
 
+@app.route('/api/phases/<int:phase_id>/expenses', methods=['GET'])
+def get_phase_expenses(phase_id):
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+
+    # Get Phase details
+    cursor.execute('''
+        SELECT ph.*, p.name AS project_name, p.code AS project_code
+        FROM project_phases ph
+        JOIN projects p ON ph.project_id = p.id
+        WHERE ph.id = ?
+    ''', (phase_id,))
+    phase_row = cursor.fetchone()
+    if not phase_row:
+        conn.close()
+        return jsonify({'error': 'المرحلة غير موجودة'}), 404
+
+    phase = dict(phase_row)
+
+    # Get items for this phase
+    cursor.execute('''
+        SELECT id, title, item_code, cost_price, selling_price, progress_percent, status
+        FROM phase_items
+        WHERE phase_id = ?
+        ORDER BY order_num ASC, id ASC
+    ''', (phase_id,))
+    items = [dict(r) for r in cursor.fetchall()]
+
+    for it in items:
+        cursor.execute('''
+            SELECT COALESCE(SUM(amount), 0) FROM expenses 
+            WHERE item_id = ? AND (approval_status = 'approved' OR approval_status IS NULL OR approval_status = '')
+        ''', (it['id'],))
+        it_spent = float(cursor.fetchone()[0] or 0)
+        it['actual_spent'] = it_spent
+
+    # Effective costs
+    items_cost = sum(float(it.get('cost_price') or 0) for it in items)
+    items_selling = sum(float(it.get('selling_price') or 0) for it in items)
+    eff_cost = items_cost if items_cost > 0 else float(phase.get('cost_price') or 0)
+    eff_selling = items_selling if items_selling > 0 else float(phase.get('selling_price') or 0)
+    phase['effective_cost'] = eff_cost
+    phase['effective_selling'] = eff_selling
+
+    # Get all expenses for this phase
+    cursor.execute('''
+        SELECT e.*, 
+               p.name AS project_name,
+               ph.name AS phase_name,
+               it.title AS item_title,
+               it.item_code,
+               s.name AS supplier_name,
+               s.category AS supplier_category,
+               sq.quotation_number,
+               cust.request_number AS custody_request_number,
+               cust.employee_name AS custody_employee_name
+        FROM expenses e
+        JOIN projects p ON e.project_id = p.id
+        LEFT JOIN project_phases ph ON e.phase_id = ph.id
+        LEFT JOIN phase_items it ON e.item_id = it.id
+        LEFT JOIN suppliers s ON e.supplier_id = s.id
+        LEFT JOIN supplier_quotations sq ON e.quotation_id = sq.id
+        LEFT JOIN custody_requests cust ON e.custody_id = cust.id
+        WHERE (e.phase_id = ? OR e.item_id IN (SELECT id FROM phase_items WHERE phase_id = ?))
+        ORDER BY e.expense_date DESC, e.id DESC
+    ''', (phase_id, phase_id))
+    expenses = [dict(r) for r in cursor.fetchall()]
+
+    total_spent = sum(float(exp.get('amount') or 0.0) for exp in expenses if (exp.get('approval_status') in (None, '', 'approved')))
+    phase['actual_spent'] = total_spent
+    phase['variance'] = eff_cost - total_spent
+    phase['is_over_budget'] = total_spent > eff_cost and eff_cost > 0
+    phase['over_amount'] = max(0.0, total_spent - eff_cost)
+    phase['savings_amount'] = max(0.0, eff_cost - total_spent)
+    phase['actual_profit'] = eff_selling - total_spent
+
+    # Categories breakdown
+    categories_map = {}
+    for exp in expenses:
+        amt = float(exp.get('amount') or 0.0)
+        cat = exp.get('category') or 'نثريات وإداريات'
+        categories_map[cat] = categories_map.get(cat, 0.0) + amt
+
+    conn.close()
+
+    return jsonify({
+        'phase': phase,
+        'expenses': expenses,
+        'total_spent': total_spent,
+        'categories_summary': categories_map,
+        'items': items
+    })
+
 def sync_phase_progress(cursor, phase_id):
     cursor.execute('SELECT progress_percent, status, project_id FROM phase_items WHERE phase_id = ?', (phase_id,))
     items = cursor.fetchall()
@@ -1374,6 +1467,7 @@ def delete_task(task_id):
 @app.route('/api/expenses', methods=['GET'])
 def get_expenses():
     project_id = request.args.get('project_id')
+    phase_id = request.args.get('phase_id')
     supplier_id = request.args.get('supplier_id')
     has_increase = request.args.get('has_price_increase')
     category = request.args.get('category')
@@ -1422,6 +1516,9 @@ def get_expenses():
     if project_id:
         query += ' AND e.project_id = ?'
         params.append(project_id)
+    if phase_id:
+        query += ' AND (e.phase_id = ? OR e.item_id IN (SELECT id FROM phase_items WHERE phase_id = ?))'
+        params.extend([phase_id, phase_id])
     if supplier_id:
         query += ' AND e.supplier_id = ?'
         params.append(supplier_id)

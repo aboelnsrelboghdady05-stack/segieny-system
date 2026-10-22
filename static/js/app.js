@@ -4757,8 +4757,15 @@ function renderProjectPhasesTab(p) {
                         <td class="p-3 font-bold text-rose-300 whitespace-nowrap text-xs font-mono" title="الميزانية التقديرية المحطوطة">
                             ${formatCurrency(it.cost_price || 0)}
                         </td>
-                        <td class="p-3 font-bold text-rose-400 whitespace-nowrap text-xs font-mono" title="المصروف الفعلي">
-                            ${formatCurrency(it.actual_spent || 0)}
+                        <td class="p-3 font-bold text-rose-400 whitespace-nowrap text-xs font-mono" title="${isEn ? 'Click to view phase expenses' : 'انقر لعرض كشف مصروفات المرحلة'}">
+                            <div class="flex items-center gap-1.5">
+                                <span>${formatCurrency(it.actual_spent || 0)}</span>
+                                ${(it.actual_spent > 0) ? `
+                                    <button onclick="openPhaseExpensesModal(${ph.id}, '${escapeHtml(ph.name).replace(/'/g, "\\'")}', ${p.id}, ${it.id})" class="p-1 rounded bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 transition" title="عرض فواتير ومصروفات هذا البند">
+                                        <i data-lucide="receipt" class="w-3 h-3"></i>
+                                    </button>
+                                ` : ''}
+                            </div>
                         </td>
                         <td class="p-3 text-center whitespace-nowrap">
                             ${isItemOver ? `
@@ -4874,9 +4881,15 @@ function renderProjectPhasesTab(p) {
                         <span class="text-[10px] text-slate-400 block">${isEn ? 'Est. Budget:' : 'الميزانية التقديرية:'}</span>
                         <strong class="text-rose-300 font-bold font-mono text-xs">${formatCurrency(ph.effective_cost)}</strong>
                     </div>
-                    <div class="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-750">
-                        <span class="text-[10px] text-slate-400 block">${isEn ? 'Actual Spent:' : 'المنصرف الفعلي:'}</span>
-                        <strong class="text-rose-400 font-black font-mono text-xs">${formatCurrency(ph.actual_spent)}</strong>
+                    <div onclick="openPhaseExpensesModal(${ph.id}, '${escapeHtml(ph.name).replace(/'/g, "\\'")}', ${p.id})" class="px-3 py-1.5 rounded-xl bg-slate-900 border border-rose-500/30 hover:border-rose-400 hover:bg-slate-800/90 cursor-pointer group transition shadow-sm" title="${isEn ? 'Click to view phase expenses statement' : 'انقر هنا لعرض كشف وتفاصيل فواتير ومصروفات هذه المرحلة'}">
+                        <div class="flex items-center justify-between gap-1.5">
+                            <span class="text-[10px] text-slate-400 group-hover:text-rose-300 transition">${isEn ? 'Actual Spent:' : 'المنصرف الفعلي:'}</span>
+                            <span class="text-[9px] px-1.5 py-0.2 rounded bg-rose-500/10 text-rose-300 border border-rose-500/20 font-bold group-hover:bg-rose-500 group-hover:text-white transition flex items-center gap-0.5">
+                                <i data-lucide="receipt" class="w-2.5 h-2.5"></i>
+                                <span>${isEn ? 'Statement' : 'كشف'}</span>
+                            </span>
+                        </div>
+                        <strong class="text-rose-400 font-black font-mono text-xs block group-hover:scale-105 transition-transform origin-right">${formatCurrency(ph.actual_spent)}</strong>
                     </div>
                     <div class="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-750">
                         <span class="text-[10px] text-slate-400 block">${isEn ? 'Selling:' : 'سعر البيع للعميل:'}</span>
@@ -4901,7 +4914,11 @@ function renderProjectPhasesTab(p) {
                     </div>
                     <span class="text-xs font-black text-emerald-400 min-w-[40px] text-left">${ph.progress_percent}%</span>
                 </div>
-                <div class="flex items-center gap-2 shrink-0 justify-end">
+                <div class="flex items-center gap-2 shrink-0 justify-end flex-wrap">
+                    <button onclick="openPhaseExpensesModal(${ph.id}, '${escapeHtml(ph.name).replace(/'/g, "\\'")}', ${p.id})" class="px-3 py-1.5 rounded-xl bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 hover:text-white border border-rose-500/40 font-bold text-xs flex items-center gap-1.5 transition shadow-sm" title="${isEn ? 'View Phase Expenses Statement' : 'عرض كشف وتفاصيل مصروفات هذه المرحلة'}">
+                        <i data-lucide="receipt-text" class="w-3.5 h-3.5 text-rose-400"></i>
+                        <span>${isEn ? 'Expenses Statement' : 'كشف المصروفات'}</span>
+                    </button>
                     <button onclick="openAddItemModal(${ph.id}, ${p.id})" class="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 transition shadow-sm">
                         <i data-lucide="plus" class="w-3.5 h-3.5"></i>
                         <span>${isEn ? '+ Add Item' : '+ إضافة بند أعمال للمرحلة'}</span>
@@ -5296,6 +5313,361 @@ function openAddExpenseForItem(itemId, phaseId, projectId) {
         loadItemsForExpenseModal(phaseId, itemId);
     }, 250);
     openModal('expense-modal');
+}
+
+// =========================================================================
+// ----------------- PHASE EXPENSES STATEMENT (كشف مصروفات المرحلة) --------
+// =========================================================================
+let currentPhaseExpensesData = null;
+let currentPhaseExpensesList = [];
+let currentPhaseExpensesContext = { phaseId: null, phaseName: '', projectId: null };
+
+async function openPhaseExpensesModal(phaseId, phaseName, projectId, filterItemId = null) {
+    currentPhaseExpensesContext = { phaseId, phaseName, projectId };
+    openModal('phase-expenses-modal');
+
+    const titleEl = document.getElementById('phase-exp-modal-title');
+    const subtitleEl = document.getElementById('phase-exp-modal-subtitle');
+    const tbody = document.getElementById('phase-expenses-tbody');
+    const emptyBox = document.getElementById('phase-expenses-empty');
+
+    if (titleEl) titleEl.innerText = `كشف مصروفات: ${phaseName}`;
+    if (subtitleEl) subtitleEl.innerText = `جاري تحميل المصروفات والفواتير...`;
+    if (tbody) tbody.innerHTML = `<tr><td colspan="11" class="text-center py-8 text-slate-400"><i data-lucide="loader-2" class="w-6 h-6 animate-spin mx-auto text-emerald-400 mb-2"></i>جاري جلب الفواتير والمصروفات...</td></tr>`;
+    if (emptyBox) emptyBox.classList.add('hidden');
+    initLucide();
+
+    try {
+        const res = await fetch(`/api/phases/${phaseId}/expenses`);
+        const data = await res.json();
+
+        if (!res.ok || data.error) {
+            showToast(data.error || 'تعذر تحميل مصروفات المرحلة', 'error');
+            closeModal('phase-expenses-modal');
+            return;
+        }
+
+        currentPhaseExpensesData = data;
+        currentPhaseExpensesList = data.expenses || [];
+
+        // Render header and KPI
+        const phase = data.phase || {};
+        if (titleEl) titleEl.innerText = `كشف مصروفات: ${phase.name || phaseName}`;
+        if (subtitleEl) subtitleEl.innerText = `${phase.project_name || 'المشروع'} (${phase.project_code || 'PRJ'}) • نسبة الإنجاز: ${phase.progress_percent || 0}%`;
+
+        const statusBadge = document.getElementById('phase-exp-modal-status');
+        if (statusBadge) {
+            const isCompleted = phase.status === 'completed' || Number(phase.progress_percent || 0) >= 100;
+            statusBadge.innerText = isCompleted ? 'مرحلة مكتملة بالكامل ✔' : 'قيد التنفيذ';
+            statusBadge.className = `px-2.5 py-0.5 rounded-full text-[10px] font-bold ${isCompleted ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'}`;
+        }
+
+        const kpiBudget = document.getElementById('phase-exp-kpi-budget');
+        const kpiSpent = document.getElementById('phase-exp-kpi-spent');
+        const kpiVariance = document.getElementById('phase-exp-kpi-variance');
+        const kpiCount = document.getElementById('phase-exp-kpi-count');
+
+        const effCost = Number(phase.effective_cost || 0);
+        const totalSpent = Number(data.total_spent || 0);
+        const diff = effCost - totalSpent;
+        const isOver = totalSpent > effCost && effCost > 0;
+
+        if (kpiBudget) kpiBudget.innerText = formatCurrency(effCost);
+        if (kpiSpent) kpiSpent.innerText = formatCurrency(totalSpent);
+        if (kpiCount) kpiCount.innerText = (currentPhaseExpensesList.length).toLocaleString();
+
+        if (kpiVariance) {
+            if (isOver) {
+                kpiVariance.innerHTML = `<span class="text-rose-400 font-mono font-black">🚨 تجاوز: +${formatCurrency(Math.abs(diff))}</span>`;
+            } else if (totalSpent > 0) {
+                kpiVariance.innerHTML = `<span class="text-emerald-400 font-mono font-bold">✅ وفر بالميزانية: ${formatCurrency(diff)}</span>`;
+            } else {
+                kpiVariance.innerHTML = `<span class="text-slate-400 font-bold">ضمن الميزانية</span>`;
+            }
+        }
+
+        // Populate items filter
+        const itemSelect = document.getElementById('phase-exp-item-filter');
+        if (itemSelect) {
+            itemSelect.innerHTML = `<option value="">جميع بنود المرحلة (${(data.items || []).length})</option>`;
+            (data.items || []).forEach(it => {
+                const opt = document.createElement('option');
+                opt.value = it.id;
+                opt.innerText = `${it.item_code ? it.item_code + ' - ' : ''}${it.title}`;
+                if (filterItemId && String(it.id) === String(filterItemId)) {
+                    opt.selected = true;
+                }
+                itemSelect.appendChild(opt);
+            });
+        }
+
+        // Reset search & category filter unless item filter specified
+        const searchInput = document.getElementById('phase-exp-search');
+        if (searchInput) searchInput.value = '';
+        const catSelect = document.getElementById('phase-exp-cat-filter');
+        if (catSelect) catSelect.value = '';
+
+        filterPhaseExpensesTable();
+
+    } catch (err) {
+        console.error('Error loading phase expenses:', err);
+        showToast('حدث خطأ أثناء تحميل مصروفات المرحلة', 'error');
+    }
+}
+
+function filterPhaseExpensesTable() {
+    const q = (document.getElementById('phase-exp-search')?.value || '').toLowerCase().trim();
+    const cat = document.getElementById('phase-exp-cat-filter')?.value || '';
+    const itemId = document.getElementById('phase-exp-item-filter')?.value || '';
+
+    const filtered = (currentPhaseExpensesList || []).filter(e => {
+        if (cat && e.category !== cat) return false;
+        if (itemId && String(e.item_id) !== String(itemId)) return false;
+        if (q) {
+            const str = `${e.title || ''} ${e.paid_to || ''} ${e.paid_by || ''} ${e.category || ''} ${e.notes || ''} ${e.item_title || ''} ${e.item_code || ''} ${e.supplier_name || ''} ${e.invoice_file_name || ''}`.toLowerCase();
+            if (!str.includes(q)) return false;
+        }
+        return true;
+    });
+
+    renderPhaseExpensesRows(filtered);
+}
+
+function renderPhaseExpensesRows(list) {
+    const tbody = document.getElementById('phase-expenses-tbody');
+    const emptyBox = document.getElementById('phase-expenses-empty');
+    const shownCountEl = document.getElementById('phase-exp-footer-shown-count');
+    const totalCountEl = document.getElementById('phase-exp-footer-total-count');
+    const sumEl = document.getElementById('phase-exp-footer-sum');
+
+    if (!tbody) return;
+
+    if (totalCountEl) totalCountEl.innerText = (currentPhaseExpensesList || []).length;
+    if (shownCountEl) shownCountEl.innerText = list.length;
+
+    const totalSum = list.reduce((acc, curr) => acc + (parseFloat(curr.amount) || 0), 0);
+    if (sumEl) sumEl.innerText = formatCurrency(totalSum);
+
+    if (list.length === 0) {
+        tbody.innerHTML = '';
+        if (emptyBox) emptyBox.classList.remove('hidden');
+        initLucide();
+        return;
+    }
+
+    if (emptyBox) emptyBox.classList.add('hidden');
+
+    tbody.innerHTML = list.map((exp, idx) => {
+        const amt = parseFloat(exp.amount) || 0;
+        const dateStr = exp.expense_date || (exp.created_at ? exp.created_at.split(' ')[0] : '-');
+        const isTax = exp.is_tax_invoice == 1;
+
+        let attachmentBtn = `<span class="text-slate-600 text-[10px]">—</span>`;
+        if (exp.invoice_file_path) {
+            const isImg = exp.invoice_file_path.match(/\.(jpg|jpeg|png|webp|gif)$/i);
+            const iconName = isImg ? 'image' : 'file-text';
+            attachmentBtn = `
+                <button type="button" onclick="viewInvoice('${exp.invoice_file_path}', '${escapeHtml(exp.title || 'فاتورة')} - ${formatCurrency(amt)}')" class="px-2 py-1 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 font-bold text-[10px] flex items-center gap-1 mx-auto transition" title="معاينة الفاتورة والمستند">
+                    <i data-lucide="${iconName}" class="w-3 h-3"></i>
+                    <span>معاينة</span>
+                </button>
+            `;
+        }
+
+        const isPaid = exp.payment_status === 'paid' || !exp.payment_status;
+
+        return `
+            <tr class="hover:bg-slate-800/60 transition group">
+                <td class="p-3 text-center text-slate-500 font-mono text-[11px]">${idx + 1}</td>
+                <td class="p-3 font-mono text-slate-300 whitespace-nowrap text-xs">${dateStr}</td>
+                <td class="p-3">
+                    <div class="font-bold text-white max-w-xs break-words">${escapeHtml(exp.title)}</div>
+                    ${exp.notes ? `<div class="text-[10px] text-slate-400 mt-0.5 line-clamp-1">${escapeHtml(exp.notes)}</div>` : ''}
+                    ${isTax ? `<span class="text-[9px] bg-blue-500/10 text-blue-400 px-1.5 py-0.2 rounded border border-blue-500/20 mt-1 inline-block">فاتورة ضريبية</span>` : ''}
+                </td>
+                <td class="p-3">
+                    ${exp.item_title ? `
+                        <div class="text-xs text-amber-300 font-bold max-w-xs truncate" title="${escapeHtml(exp.item_title)}">
+                            ${exp.item_code ? `<span class="font-mono text-slate-400 ml-1 text-[10px]">${exp.item_code}</span>` : ''}
+                            ${escapeHtml(exp.item_title)}
+                        </div>
+                    ` : `<span class="text-slate-500 text-[10px]">مصروف عام للمرحلة</span>`}
+                </td>
+                <td class="p-3">
+                    <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-slate-300 border border-slate-700 whitespace-nowrap">
+                        ${exp.category || 'نثريات'}
+                    </span>
+                </td>
+                <td class="p-3 text-slate-300">
+                    <div class="font-medium">${escapeHtml(exp.paid_to || exp.supplier_name || '—')}</div>
+                </td>
+                <td class="p-3 text-slate-400 text-[11px]">
+                    ${escapeHtml(exp.paid_by || exp.created_by || '—')}
+                </td>
+                <td class="p-3 whitespace-nowrap">
+                    <div class="flex items-center gap-1">
+                        <span class="text-slate-300 text-xs">${exp.payment_method || 'نقدي'}</span>
+                        ${isPaid ? `<span class="w-1.5 h-1.5 rounded-full bg-emerald-400" title="تم الصرف"></span>` : `<span class="w-1.5 h-1.5 rounded-full bg-amber-400" title="غير مصروف"></span>`}
+                    </div>
+                </td>
+                <td class="p-3 font-mono font-black text-rose-400 text-left whitespace-nowrap text-xs">
+                    ${formatCurrency(amt)}
+                </td>
+                <td class="p-3 text-center whitespace-nowrap">
+                    ${attachmentBtn}
+                </td>
+                <td class="p-3 text-center whitespace-nowrap">
+                    <div class="flex items-center justify-center gap-1">
+                        <button type="button" onclick="openEditExpenseModal(${exp.id})" class="p-1 rounded text-slate-400 hover:text-white hover:bg-slate-750 transition" title="تعديل المصروف">
+                            <i data-lucide="edit-3" class="w-3.5 h-3.5"></i>
+                        </button>
+                    </div>
+                </td>
+            </tr>
+        `;
+    }).join('');
+
+    initLucide();
+}
+
+function openAddExpenseForCurrentPhase() {
+    if (!currentPhaseExpensesContext || !currentPhaseExpensesContext.phaseId) {
+        showToast('يرجى اختيار المرحلة أولاً', 'error');
+        return;
+    }
+    const { phaseId, projectId } = currentPhaseExpensesContext;
+    closeModal('phase-expenses-modal');
+    openAddExpenseForItem(null, phaseId, projectId);
+}
+
+function printPhaseExpensesStatement() {
+    if (!currentPhaseExpensesData) {
+        showToast('لا توجد بيانات للطباعة', 'error');
+        return;
+    }
+
+    const { phase, expenses, total_spent, categories_summary } = currentPhaseExpensesData;
+    const effCost = Number(phase.effective_cost || 0);
+    const diff = effCost - total_spent;
+    const isOver = total_spent > effCost && effCost > 0;
+
+    const printWin = window.open('', '_blank');
+    if (!printWin) {
+        alert('يرجى السماح بالنوافذ المنبثقة لطباعة الكشف');
+        return;
+    }
+
+    const rowsHtml = (expenses || []).map((exp, idx) => `
+        <tr style="border-bottom: 1px solid #e2e8f0; font-size: 11px;">
+            <td style="padding: 8px; text-align: center;">${idx + 1}</td>
+            <td style="padding: 8px; font-family: monospace;">${exp.expense_date || '-'}</td>
+            <td style="padding: 8px; font-weight: bold;">${exp.title}</td>
+            <td style="padding: 8px;">${exp.item_title ? (exp.item_code ? exp.item_code + ' - ' : '') + exp.item_title : 'مصروف مرحلة عام'}</td>
+            <td style="padding: 8px;">${exp.category || '-'}</td>
+            <td style="padding: 8px;">${exp.paid_to || exp.supplier_name || '-'}</td>
+            <td style="padding: 8px;">${exp.payment_method || 'نقدي'}</td>
+            <td style="padding: 8px; text-align: left; font-weight: bold; font-family: monospace; color: #b91c1c;">${formatCurrency(exp.amount)}</td>
+        </tr>
+    `).join('');
+
+    const catsHtml = Object.entries(categories_summary || {}).map(([cat, amt]) => `
+        <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 6px 12px; border-radius: 6px; font-size: 11px;">
+            <span style="color: #64748b;">${cat}:</span>
+            <strong style="font-family: monospace; color: #0f172a; margin-right: 4px;">${formatCurrency(amt)}</strong>
+        </div>
+    `).join('');
+
+    printWin.document.write(`
+        <!DOCTYPE html>
+        <html dir="rtl" lang="ar">
+        <head>
+            <meta charset="UTF-8">
+            <title>كشف مصروفات: ${phase.name} - شركة السجيني للمقاولات</title>
+            <style>
+                body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; margin: 24px; color: #0f172a; }
+                table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+                th { background-color: #0f172a; color: white; padding: 9px; font-size: 11px; text-align: right; }
+                @media print {
+                    @page { size: A4; margin: 15mm; }
+                    body { margin: 0; }
+                }
+            </style>
+        </head>
+        <body>
+            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #0f172a; padding-bottom: 12px; margin-bottom: 16px;">
+                <div>
+                    <h2 style="margin: 0; color: #0f172a; font-size: 20px;">شركة السجيني للمقاولات العامة</h2>
+                    <p style="margin: 4px 0 0 0; color: #64748b; font-size: 12px;">نظام إدارة المشروعات والمقاولات • كشف حساب مصروفات المرحلة</p>
+                </div>
+                <div style="text-align: left; font-size: 11px; color: #64748b;">
+                    <div>تاريخ الطباعة: <strong>${new Date().toLocaleDateString('ar-SA')}</strong></div>
+                    <div>المشروع: <strong>${phase.project_name || ''} (${phase.project_code || ''})</strong></div>
+                </div>
+            </div>
+
+            <div style="background: #f1f5f9; border-radius: 8px; padding: 14px; margin-bottom: 16px;">
+                <h3 style="margin: 0 0 10px 0; font-size: 16px; color: #0f172a;">مرحلة العمل: ${phase.name} (المرحلة رقم ${phase.order_num || 1})</h3>
+                <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; font-size: 12px;">
+                    <div>الميزانية التقديرية: <strong style="color: #475569; font-family: monospace;">${formatCurrency(effCost)}</strong></div>
+                    <div>إجمالي المنصرف الفعلي: <strong style="color: #b91c1c; font-family: monospace;">${formatCurrency(total_spent)}</strong></div>
+                    <div>موقف الميزانية: <strong>${isOver ? 'تجاوز (+ ' + formatCurrency(Math.abs(diff)) + ')' : 'وفر (' + formatCurrency(diff) + ')'}</strong></div>
+                    <div>إجمالي الفواتير: <strong>${(expenses || []).length} مصروف</strong></div>
+                </div>
+            </div>
+
+            <div style="margin-bottom: 12px;">
+                <div style="font-size: 12px; font-weight: bold; margin-bottom: 6px;">ملخص الصرف حسب التصنيف:</div>
+                <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                    ${catsHtml}
+                </div>
+            </div>
+
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width: 30px; text-align: center;">#</th>
+                        <th>التاريخ</th>
+                        <th>بيان المصروف</th>
+                        <th>بند الأعمال</th>
+                        <th>التصنيف</th>
+                        <th>المدفوع له</th>
+                        <th>طريقة الدفع</th>
+                        <th style="text-align: left;">المبلغ</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${rowsHtml}
+                </tbody>
+                <tfoot>
+                    <tr style="background: #f8fafc; font-weight: bold; font-size: 12px;">
+                        <td colspan="7" style="padding: 10px; text-align: right;">إجمالي منصرفات المرحلة:</td>
+                        <td style="padding: 10px; text-align: left; font-family: monospace; color: #b91c1c; font-size: 13px;">${formatCurrency(total_spent)}</td>
+                    </tr>
+                </tfoot>
+            </table>
+
+            <div style="margin-top: 36px; display: flex; justify-content: space-between; font-size: 12px; padding: 0 20px;">
+                <div style="text-align: center;">
+                    <div>المهندس المقيم / مدير المشروع</div>
+                    <div style="margin-top: 30px; border-bottom: 1px dotted #94a3b8; width: 140px;"></div>
+                </div>
+                <div style="text-align: center;">
+                    <div>المحاسب المالي</div>
+                    <div style="margin-top: 30px; border-bottom: 1px dotted #94a3b8; width: 140px;"></div>
+                </div>
+                <div style="text-align: center;">
+                    <div>اعتماد المدير العام / المدير المالي</div>
+                    <div style="margin-top: 30px; border-bottom: 1px dotted #94a3b8; width: 140px;"></div>
+                </div>
+            </div>
+        </body>
+        </html>
+    `);
+    printWin.document.close();
+    printWin.focus();
+    setTimeout(() => {
+        printWin.print();
+    }, 500);
 }
 
 async function deleteItem(itemId) {
@@ -7536,7 +7908,10 @@ function renderRepWbsBudgetReport(wbsProjects) {
 
                                 <div class="flex items-center gap-3 text-xs">
                                     <div><span class="text-[10px] text-slate-400">${isEn ? 'Est. Budget:' : 'الميزانية:'}</span> <strong class="text-rose-300 font-mono">${formatCurrency(ph.estimated_cost)}</strong></div>
-                                    <div><span class="text-[10px] text-slate-400">${isEn ? 'Actual Spent:' : 'المنصرف:'}</span> <strong class="text-rose-400 font-mono font-bold">${formatCurrency(ph.actual_spent)}</strong></div>
+                                    <div onclick="openPhaseExpensesModal(${ph.id}, '${escapeHtml(ph.name).replace(/'/g, "\\'")}', ${p.id})" class="cursor-pointer hover:bg-slate-750 px-1.5 py-0.5 rounded-lg border border-transparent hover:border-rose-500/30 transition" title="${isEn ? 'Click to view phase expenses statement' : 'انقر لعرض كشف فواتير ومصروفات المرحلة'}">
+                                        <span class="text-[10px] text-slate-400 block">${isEn ? 'Actual Spent:' : 'المنصرف:'}</span> 
+                                        <strong class="text-rose-400 font-mono font-bold flex items-center gap-1">${formatCurrency(ph.actual_spent)} <i data-lucide="receipt" class="w-2.5 h-2.5 text-rose-400"></i></strong>
+                                    </div>
                                     <div><span class="text-[10px] text-slate-400">${isEn ? 'Selling:' : 'البيع:'}</span> <strong class="text-emerald-400 font-mono">${formatCurrency(ph.selling_price)}</strong></div>
                                     <div>
                                         <span class="text-[10px] text-slate-400">${isEn ? 'Profit:' : 'الربح:'}</span> 

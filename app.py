@@ -86,6 +86,13 @@ def check_is_financial_manager(user_id=None, user_role='', user_name='', cursor=
 
     return is_fin, manager_title
 
+def is_financial_manager(user_id=None, user_role='', user_name='', cursor=None):
+    """
+    دالة مساعدة ترجع قيمة منطقية (True/False) للتحقق مما إذا كان المستخدم هو المدير المالي
+    """
+    is_fin, _ = check_is_financial_manager(user_id=user_id, user_role=user_role, user_name=user_name, cursor=cursor)
+    return is_fin
+
 
 def check_can_view_all_expenses(user_id=None, user_role='', user_name='', cursor=None):
     """
@@ -120,31 +127,6 @@ def check_can_view_all_expenses(user_id=None, user_role='', user_name='', cursor
         return True, ''
 
     return False, user_name
-
-def check_is_financial_manager(user_id=None, user_role='', user_name='', cursor=None):
-    """
-    التحقق مما إذا كان المستخدم هو المدير المالي (أ. ابوالنصر البغدادي)
-    صلاحية حصرية لتعديل المصاريف والفواتير المعمدة
-    """
-    if user_id and cursor:
-        try:
-            cursor.execute('SELECT id, name, role, username FROM team_members WHERE id = ?', (user_id,))
-            u = cursor.fetchone()
-            if u:
-                r = (u['role'] or '').lower()
-                un = (u['username'] or '').lower()
-                nm = (u['name'] or '').lower()
-                if any(x in r for x in ['مدير مالي', 'المدير المالي', 'financial']) or un == 'baghdadi' or 'ابوالنصر' in nm or 'البغدادي' in nm or u['id'] == 1:
-                    return True
-                return False
-        except Exception:
-            pass
-
-    r_str = (user_role or '').lower()
-    n_str = (user_name or '').lower()
-    if any(x in r_str for x in ['مدير مالي', 'المدير المالي', 'financial']) or 'ابوالنصر' in n_str or 'baghdadi' in n_str or 'البغدادي' in n_str:
-        return True
-    return False
 
 # Initialize database
 database.init_db()
@@ -1849,7 +1831,37 @@ def create_expense():
     if items_data and (not amount or amount <= 0):
         amount = total_items_amount
 
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+
+    # If project_id is missing or empty, attempt fallback (from custody or general administration project)
+    if not project_id or str(project_id).strip() in ('', 'null', 'None', '0'):
+        if custody_id:
+            try:
+                cursor.execute('SELECT project_id FROM custody_requests WHERE id = ?', (custody_id,))
+                c_row = cursor.fetchone()
+                if c_row and c_row[0]:
+                    project_id = c_row[0]
+            except Exception:
+                pass
+        if not project_id or str(project_id).strip() in ('', 'null', 'None', '0'):
+            try:
+                cursor.execute("SELECT id FROM projects WHERE code = 'HQ-GEN' OR name LIKE '%الإدارة العامة%' ORDER BY id ASC LIMIT 1")
+                hq_row = cursor.fetchone()
+                if hq_row:
+                    project_id = hq_row[0]
+                else:
+                    project_id = 7
+            except Exception:
+                project_id = 7
+
+    try:
+        project_id = int(project_id) if project_id and str(project_id).strip() not in ('', 'null', 'None') else None
+    except Exception:
+        project_id = None
+
     if not project_id or not title or (amount <= 0 and total_items_amount <= 0):
+        conn.close()
         return jsonify({'error': 'المشروع، وصف المصروف، والمبلغ أو بنود الفاتورة بيانات إلزامية'}), 400
 
     category = data.get('category', 'مواد بناء')
@@ -1933,8 +1945,6 @@ def create_expense():
             invoice_file_path = f"/uploads/{stored_name}"
             invoice_file_name = original_filename
 
-    conn = database.get_db_connection()
-    cursor = conn.cursor()
 
     # If supplier not explicitly selected, try resolving from quotation or payee name
     supplier_name = ''
@@ -2203,7 +2213,7 @@ def update_expense(expense_id):
         user_id = data.get('user_id') or request.headers.get('X-User-Id') or request.args.get('user_id')
         user_role = data.get('user_role') or request.headers.get('X-User-Role') or request.args.get('user_role', '')
         user_name = data.get('user_name') or request.headers.get('X-User-Name') or request.args.get('user_name', '')
-        if not check_is_financial_manager(user_id=user_id, user_role=user_role, user_name=user_name, cursor=cursor):
+        if not is_financial_manager(user_id=user_id, user_role=user_role, user_name=user_name, cursor=cursor):
             conn.close()
             return jsonify({'error': 'عفواً، هذا المصروف معتمد مالياً ولا يمكن تعديله إلا من قبل المدير المالي فقط.'}), 403
 
@@ -2574,7 +2584,7 @@ def transfer_expense_project(expense_id):
         user_id = data.get('user_id') or request.headers.get('X-User-Id') or request.args.get('user_id')
         user_role = data.get('user_role') or request.headers.get('X-User-Role') or request.args.get('user_role', '')
         user_name = data.get('user_name') or request.headers.get('X-User-Name') or request.args.get('user_name', '')
-        if not check_is_financial_manager(user_id=user_id, user_role=user_role, user_name=user_name, cursor=cursor):
+        if not is_financial_manager(user_id=user_id, user_role=user_role, user_name=user_name, cursor=cursor):
             conn.close()
             return jsonify({'error': 'عفواً، هذا المصروف معتمد مالياً ولا يمكن نقله أو تعديله إلا من قبل المدير المالي فقط.'}), 403
 
@@ -2673,7 +2683,7 @@ def delete_expense(expense_id):
             user_role = user_role or bdata.get('user_role')
             user_name = user_name or bdata.get('user_name')
 
-        if not check_is_financial_manager(user_id=user_id, user_role=user_role, user_name=user_name, cursor=cursor):
+        if not is_financial_manager(user_id=user_id, user_role=user_role, user_name=user_name, cursor=cursor):
             conn.close()
             return jsonify({
                 'success': False,

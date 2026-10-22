@@ -3532,17 +3532,6 @@ async function submitExpenseForm(e) {
             taxAmt = 0;
         }
 
-        const formData = new FormData();
-        formData.append('project_id', document.getElementById('expense-project-id').value);
-        formData.append('phase_id', document.getElementById('expense-phase-id')?.value || '');
-        formData.append('item_id', document.getElementById('expense-item-id')?.value || '');
-        formData.append('title', document.getElementById('expense-title').value);
-        formData.append('amount', document.getElementById('expense-amount').value);
-        formData.append('is_tax_invoice', isTax ? '1' : '0');
-        formData.append('tax_rate', '0.15');
-        formData.append('amount_without_tax', amtNoTax.toString());
-        formData.append('tax_amount', taxAmt.toString());
-        formData.append('category', selectedCategory);
         const payMethod = document.getElementById('expense-payment-method')?.value || 'تحويل بنكي';
         const custodyId = (payMethod === 'عهدة') ? (document.getElementById('expense-custody-id')?.value || '') : '';
         if (payMethod === 'عهدة' && !custodyId) {
@@ -3553,6 +3542,34 @@ async function submitExpenseForm(e) {
             if (typeof initLucide === 'function') initLucide();
             return;
         }
+
+        let projId = document.getElementById('expense-project-id')?.value || '';
+        // If project_id not selected and custody is used, ensure we default cleanly to custody project or general project
+        if (!projId && payMethod === 'عهدة' && custodyId) {
+            const selCustody = typeof activeCustodiesList !== 'undefined' ? activeCustodiesList.find(c => String(c.id) === String(custodyId)) : null;
+            if (selCustody && selCustody.project_id) {
+                projId = selCustody.project_id;
+            } else {
+                const prjSel = document.getElementById('expense-project-id');
+                const genOpt = prjSel ? Array.from(prjSel.options).find(o => o.text.includes('الإدارة العامة') || o.text.includes('HQ-GEN') || o.value === '7') : null;
+                projId = genOpt ? genOpt.value : (prjSel?.options[1]?.value || '7');
+            }
+            if (document.getElementById('expense-project-id')) {
+                document.getElementById('expense-project-id').value = projId;
+            }
+        }
+
+        const formData = new FormData();
+        formData.append('project_id', projId);
+        formData.append('phase_id', document.getElementById('expense-phase-id')?.value || '');
+        formData.append('item_id', document.getElementById('expense-item-id')?.value || '');
+        formData.append('title', document.getElementById('expense-title').value);
+        formData.append('amount', document.getElementById('expense-amount').value);
+        formData.append('is_tax_invoice', isTax ? '1' : '0');
+        formData.append('tax_rate', '0.15');
+        formData.append('amount_without_tax', amtNoTax.toString());
+        formData.append('tax_amount', taxAmt.toString());
+        formData.append('category', selectedCategory);
         formData.append('custody_id', custodyId);
         formData.append('payment_method', payMethod);
         formData.append('paid_by', document.getElementById('expense-paid-by').value);
@@ -3620,9 +3637,15 @@ async function submitExpenseForm(e) {
             method: method,
             body: formData
         });
-        const data = await res.json();
+        let data;
+        try {
+            data = await res.json();
+        } catch (jsonErr) {
+            console.error('Non-JSON response from server:', jsonErr);
+            data = { success: false, error: 'حدث خطأ غير متوقع في الخادم (' + res.status + ')' };
+        }
 
-        if (data.success) {
+        if (data && data.success) {
             if (data.approval_status === 'pending') {
                 showToast('تم تسجيل الفاتورة بنجاح وهي بانتظار تعميد المدير المالي ولن تُخصم إلا بعد التعميد', 'info');
             } else if (data.has_price_increase) {
@@ -3646,10 +3669,11 @@ async function submitExpenseForm(e) {
             }
             if (typeof loadCustody === 'function') loadCustody();
         } else {
-            showToast(data.error || 'حدث خطأ أثناء الحفظ', 'error');
+            showToast((data && data.error) || 'حدث خطأ أثناء الحفظ', 'error');
         }
     } catch (err) {
-        showToast('فشل في الاتصال بالخادم', 'error');
+        console.error('Submit expense error:', err);
+        showToast(err.message || 'فشل في الاتصال بالخادم', 'error');
     } finally {
         btn.disabled = false;
         const isEditing = Boolean(document.getElementById('expense-edit-id')?.value);
@@ -13833,6 +13857,13 @@ function onExpenseCustodyChanged() {
         if (!projectSelect.value || projectSelect.value === '' || String(projectSelect.value) !== String(custody.project_id)) {
             projectSelect.value = custody.project_id;
             loadPhasesForExpenseModal(custody.project_id);
+        }
+    } else if (!custody.project_id && projectSelect && (!projectSelect.value || projectSelect.value === '')) {
+        // General custody without project: auto-select General Admin project (HQ-GEN)
+        const genOpt = Array.from(projectSelect.options).find(o => o.text.includes('الإدارة العامة') || o.text.includes('HQ-GEN') || o.value === '7');
+        if (genOpt) {
+            projectSelect.value = genOpt.value;
+            loadPhasesForExpenseModal(genOpt.value);
         }
     }
 

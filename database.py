@@ -141,6 +141,8 @@ def init_db():
         cursor.execute("ALTER TABLE projects ADD COLUMN budget_mode TEXT DEFAULT 'boq'")
     if 'manual_remaining_budget' not in proj_cols:
         cursor.execute("ALTER TABLE projects ADD COLUMN manual_remaining_budget REAL")
+    if 'manager_id' not in proj_cols:
+        cursor.execute("ALTER TABLE projects ADD COLUMN manager_id INTEGER")
 
     # Expenses table (with invoice file upload & phase/item linking)
     cursor.execute('''
@@ -499,9 +501,11 @@ def init_db():
         cursor.execute("ALTER TABLE team_members ADD COLUMN password TEXT DEFAULT '123'")
     if 'permissions' not in tm_cols:
         cursor.execute("ALTER TABLE team_members ADD COLUMN permissions TEXT DEFAULT 'all'")
+    if 'assigned_projects' not in tm_cols:
+        cursor.execute("ALTER TABLE team_members ADD COLUMN assigned_projects TEXT DEFAULT 'all'")
 
     # Backfill default usernames, passwords & permissions
-    cursor.execute("UPDATE team_members SET username = 'baghdadi', password = COALESCE(password, '123'), permissions = 'all' WHERE id = 1 AND (username IS NULL OR username = '' OR permissions IS NULL OR permissions = '')")
+    cursor.execute("UPDATE team_members SET username = 'baghdadi', password = COALESCE(password, '123'), permissions = 'all', assigned_projects = 'all' WHERE id = 1 AND (username IS NULL OR username = '' OR permissions IS NULL OR permissions = '')")
     cursor.execute("UPDATE team_members SET username = 'jihad', password = COALESCE(password, '123'), permissions = COALESCE(permissions, 'all') WHERE id = 2 AND (username IS NULL OR username = '')")
     cursor.execute("UPDATE team_members SET name = 'نواف سجيني', username = 'nawaf', email = 'nawaf@segieny.sa', password = COALESCE(password, '123'), permissions = COALESCE(permissions, 'all') WHERE id = 3 OR username = 'farouk' OR name = 'فاروق محمد'")
     cursor.execute("UPDATE team_members SET password = '123' WHERE password IS NULL OR password = ''")

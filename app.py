@@ -128,6 +128,69 @@ def check_can_view_all_expenses(user_id=None, user_role='', user_name='', cursor
 
     return False, user_name
 
+def get_user_allowed_project_ids(user_id=None, cursor=None):
+    """
+    التحقق من قائمة المشاريع المصرح للمستخدم بالوصول إليها
+    يُرجع None إذا كان المستخدم مديراً عاماً أو مديراً مالياً أو غير مقيد (يرى كافة المشاريع)
+    يُرجع set() بمعرفات المشاريع (IDs) إذا كان مقيداً بمشاريع معينة
+    """
+    if not user_id:
+        return None
+
+    try:
+        user_id = int(user_id)
+    except Exception:
+        return None
+
+    # Top Admin (ابوالنصر البغدادي / نواف سجيني)
+    if user_id in (1, 3):
+        return None
+
+    close_conn = False
+    if cursor is None:
+        conn = database.get_db_connection()
+        cursor = conn.cursor()
+        close_conn = True
+
+    try:
+        cursor.execute('SELECT id, name, role, username, COALESCE(assigned_projects, "all") AS assigned_projects FROM team_members WHERE id = ?', (user_id,))
+        u = cursor.fetchone()
+        if not u:
+            return None
+
+        un = (u['username'] or '').lower()
+        nm = (u['name'] or '').lower()
+        rl = (u['role'] or '').lower()
+
+        # Higher management always sees all projects
+        if un in ('baghdadi', 'nawaf') or 'ابوالنصر' in nm or 'نواف' in nm or 'مدير عام' in rl or 'مدير مالي' in rl:
+            return None
+
+        assigned = u['assigned_projects']
+        if not assigned or assigned == 'all' or assigned == '*':
+            return None
+
+        allowed_ids = set()
+        for part in str(assigned).split(','):
+            part = part.strip()
+            if part.isdigit():
+                allowed_ids.add(int(part))
+
+        # Also add projects where manager_name matches u['name']
+        if u['name']:
+            cursor.execute('SELECT id FROM projects WHERE TRIM(LOWER(manager_name)) = TRIM(LOWER(?))', (u['name'],))
+            for row in cursor.fetchall():
+                pid = row[0] if isinstance(row, tuple) else row['id']
+                allowed_ids.add(pid)
+
+        return allowed_ids
+    except Exception as e:
+        print(f"Error checking allowed project ids: {e}")
+        return None
+    finally:
+        if close_conn:
+            conn.close()
+
 # Initialize database
 database.init_db()
 
@@ -192,8 +255,9 @@ def invalidate_dashboard_cache():
 
 @app.route('/api/dashboard/stats', methods=['GET'])
 def get_dashboard_stats():
+    user_id = request.args.get('user_id') or request.headers.get('X-User-Id')
     now = time.time()
-    if _dashboard_stats_cache['data'] is not None and (now - _dashboard_stats_cache['ts'] < 20):
+    if not user_id and _dashboard_stats_cache['data'] is not None and (now - _dashboard_stats_cache['ts'] < 20):
         return jsonify(_dashboard_stats_cache['data'])
 
     conn = database.get_db_connection()
@@ -300,6 +364,10 @@ def get_dashboard_stats():
     ''')
     recent_projects = [dict(row) for row in cursor.fetchall()]
 
+    allowed_ids = get_user_allowed_project_ids(user_id, cursor) if user_id else None
+    if allowed_ids is not None:
+        recent_projects = [p for p in recent_projects if p['id'] in allowed_ids]
+
     # Expenses by category for charts
     cursor.execute('''
         SELECT category, SUM(amount) as total
@@ -345,15 +413,20 @@ def get_dashboard_stats():
         'expenses_by_category': expenses_by_category,
         'notifications': notifications
     }
-    _dashboard_stats_cache['data'] = result_payload
-    _dashboard_stats_cache['ts'] = now
+    if not user_id:
+        _dashboard_stats_cache['data'] = result_payload
+        _dashboard_stats_cache['ts'] = now
     return jsonify(result_payload)
 
 # ----------------- PROJECTS API -----------------
 @app.route('/api/projects', methods=['GET'])
 def get_projects():
+    user_id = request.args.get('user_id') or request.headers.get('X-User-Id')
     conn = database.get_db_connection()
     cursor = conn.cursor()
+
+    allowed_ids = get_user_allowed_project_ids(user_id=user_id, cursor=cursor)
+
     cursor.execute('''
         SELECT p.*,
             COALESCE(e.total_spent, 0) AS total_spent,
@@ -383,6 +456,10 @@ def get_projects():
     ''')
     projects = [dict(row) for row in cursor.fetchall()]
     conn.close()
+
+    if allowed_ids is not None:
+        projects = [p for p in projects if p['id'] in allowed_ids]
+
     return jsonify(projects)
 
 _company_bank_balance_cache = {'balance': None, 'ts': 0}
@@ -775,19 +852,29 @@ def get_projects_quick():
     استعلام خفيف وفائق السرعة لجلب قائمة المشاريع للقوائم المنسدلة (Dropdowns) والعهد
     بدون أي استعلامات فرعية ثقيلة لحساب التكاليف والمهام، ومخزن مؤقتاً في الذاكرة
     """
-    now = time.time()
-    if _projects_quick_cache['data'] is not None and (now - _projects_quick_cache['ts'] < 60):
-        return jsonify(_projects_quick_cache['data'])
-
+    user_id = request.args.get('user_id') or request.headers.get('X-User-Id')
     conn = database.get_db_connection()
     cursor = conn.cursor()
+
+    allowed_ids = get_user_allowed_project_ids(user_id=user_id, cursor=cursor)
+
+    now = time.time()
+    if allowed_ids is None and _projects_quick_cache['data'] is not None and (now - _projects_quick_cache['ts'] < 60):
+        conn.close()
+        return jsonify(_projects_quick_cache['data'])
+
     cursor.execute('''
-        SELECT id, name, code, client_name, status 
+        SELECT id, name, code, client_name, status, manager_name 
         FROM projects 
         ORDER BY id DESC
     ''')
     projects = [dict(r) for r in cursor.fetchall()]
     conn.close()
+
+    if allowed_ids is not None:
+        projects = [p for p in projects if p['id'] in allowed_ids]
+        return jsonify({'projects': projects, 'success': True})
+
     payload = {'projects': projects, 'success': True}
     _projects_quick_cache['data'] = payload
     _projects_quick_cache['ts'] = now
@@ -940,6 +1027,7 @@ def delete_project(project_id):
 # ----------------- TASKS API -----------------
 @app.route('/api/tasks', methods=['GET'])
 def get_tasks():
+    user_id = request.args.get('user_id') or request.headers.get('X-User-Id')
     project_id = request.args.get('project_id')
     status = request.args.get('status')
     priority = request.args.get('priority')
@@ -947,6 +1035,8 @@ def get_tasks():
 
     conn = database.get_db_connection()
     cursor = conn.cursor()
+
+    allowed_ids = get_user_allowed_project_ids(user_id=user_id, cursor=cursor)
 
     query = '''
         SELECT t.*, p.name AS project_name, ph.name AS phase_name
@@ -959,6 +1049,14 @@ def get_tasks():
     if project_id:
         query += ' AND t.project_id = ?'
         params.append(project_id)
+    elif allowed_ids is not None:
+        if not allowed_ids:
+            conn.close()
+            return jsonify([])
+        placeholders = ','.join('?' for _ in allowed_ids)
+        query += f' AND t.project_id IN ({placeholders})'
+        params.extend(list(allowed_ids))
+
     if status:
         query += ' AND t.status = ?'
         params.append(status)
@@ -5016,7 +5114,9 @@ def auth_login():
     conn = database.get_db_connection()
     cursor = conn.cursor()
     cursor.execute('''
-        SELECT id, name, role, username, phone, email, status, password, COALESCE(permissions, 'all') AS permissions
+        SELECT id, name, role, username, phone, email, status, password, 
+               COALESCE(permissions, 'all') AS permissions,
+               COALESCE(assigned_projects, 'all') AS assigned_projects
         FROM team_members
     ''')
     members = [dict(r) for r in cursor.fetchall()]
@@ -5061,12 +5161,14 @@ def auth_login():
     # Check if user is Abu Al-Nasr / Admin
     is_admin = bool(
         user.get('id') == 1 or 
-        (user.get('username') and user['username'].lower() == 'baghdadi') or 
-        ('ابوالنصر' in (user.get('name') or ''))
+        (user.get('username') and user['username'].lower() in ['baghdadi', 'nawaf']) or 
+        ('ابوالنصر' in (user.get('name') or '')) or
+        ('نواف' in (user.get('name') or ''))
     )
     user['is_admin'] = is_admin
-    if is_admin:
+    if is_admin or user.get('id') in (1, 3):
         user['permissions'] = 'all'
+        user['assigned_projects'] = 'all'
 
     # Remove password before returning
     if 'password' in user:
@@ -5106,7 +5208,9 @@ def get_team():
     conn = database.get_db_connection()
     cursor = conn.cursor()
     cursor.execute('''
-        SELECT id, name, role, phone, email, status, username, COALESCE(permissions, 'all') AS permissions 
+        SELECT id, name, role, phone, email, status, username, 
+               COALESCE(permissions, 'all') AS permissions,
+               COALESCE(assigned_projects, 'all') AS assigned_projects 
         FROM team_members 
         ORDER BY id ASC
     ''')
@@ -5115,8 +5219,9 @@ def get_team():
         m = dict(row)
         m['is_admin'] = bool(
             m['id'] == 1 or 
-            (m.get('username') and m['username'].lower() == 'baghdadi') or 
-            ('ابوالنصر' in (m.get('name') or ''))
+            (m.get('username') and m['username'].lower() in ['baghdadi', 'nawaf']) or 
+            ('ابوالنصر' in (m.get('name') or '')) or
+            ('نواف' in (m.get('name') or ''))
         )
         team.append(m)
     conn.close()
@@ -5132,11 +5237,17 @@ def add_team_member():
     phone = (data.get('phone') or '').strip()
     email = (data.get('email') or '').strip()
     permissions = data.get('permissions')
+    assigned_projects = data.get('assigned_projects')
     
     if isinstance(permissions, list):
         permissions = ','.join(permissions)
     elif not permissions:
         permissions = 'all'
+
+    if isinstance(assigned_projects, list):
+        assigned_projects = ','.join(str(x) for x in assigned_projects)
+    elif not assigned_projects:
+        assigned_projects = 'all'
 
     if not name:
         return jsonify({'error': 'اسم الموظف مطلوب'}), 400
@@ -5157,9 +5268,9 @@ def add_team_member():
         return jsonify({'error': f'اسم المستخدم "{username}" مستخدم بالفعل، يرجى اختيار اسم مستخدم آخر'}), 400
 
     cursor.execute('''
-        INSERT INTO team_members (name, role, phone, email, status, username, password, permissions) 
-        VALUES (?, ?, ?, ?, 'active', ?, ?, ?)
-    ''', (name, role, phone, email, username, password, permissions))
+        INSERT INTO team_members (name, role, phone, email, status, username, password, permissions, assigned_projects) 
+        VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?)
+    ''', (name, role, phone, email, username, password, permissions, assigned_projects))
     member_id = cursor.lastrowid
     conn.commit()
     conn.close()
@@ -5176,9 +5287,15 @@ def update_team_member(member_id):
     status = (data.get('status') or 'active').strip()
     password = (data.get('password') or '').strip()
     permissions = data.get('permissions')
+    assigned_projects = data.get('assigned_projects')
     
     if isinstance(permissions, list):
         permissions = ','.join(permissions)
+
+    if isinstance(assigned_projects, list):
+        assigned_projects = ','.join(str(x) for x in assigned_projects)
+    elif not assigned_projects and 'assigned_projects' in data:
+        assigned_projects = 'all'
 
     conn = database.get_db_connection()
     cursor = conn.cursor()
@@ -5192,12 +5309,14 @@ def update_team_member(member_id):
     # Protect Abu Al-Nasr from losing admin status or deactivation
     is_abu_alnasr = bool(
         existing['id'] == 1 or 
-        (existing['username'] and existing['username'].lower() == 'baghdadi') or 
-        ('ابوالنصر' in (existing['name'] or ''))
+        (existing['username'] and existing['username'].lower() in ['baghdadi', 'nawaf']) or 
+        ('ابوالنصر' in (existing['name'] or '')) or
+        ('نواف' in (existing['name'] or ''))
     )
     if is_abu_alnasr:
         status = 'active'
         permissions = 'all'
+        assigned_projects = 'all'
 
     # Check username uniqueness if changed
     if username and username != (existing['username'] or '').lower():
@@ -5216,9 +5335,10 @@ def update_team_member(member_id):
                 email = ?,
                 status = ?,
                 password = ?,
-                permissions = COALESCE(?, permissions)
+                permissions = COALESCE(?, permissions),
+                assigned_projects = COALESCE(?, assigned_projects)
             WHERE id = ?
-        ''', (name, role, username, phone, email, status, password, permissions, member_id))
+        ''', (name, role, username, phone, email, status, password, permissions, assigned_projects, member_id))
     else:
         cursor.execute('''
             UPDATE team_members
@@ -5228,9 +5348,10 @@ def update_team_member(member_id):
                 phone = ?,
                 email = ?,
                 status = ?,
-                permissions = COALESCE(?, permissions)
+                permissions = COALESCE(?, permissions),
+                assigned_projects = COALESCE(?, assigned_projects)
             WHERE id = ?
-        ''', (name, role, username, phone, email, status, permissions, member_id))
+        ''', (name, role, username, phone, email, status, permissions, assigned_projects, member_id))
 
     conn.commit()
     conn.close()

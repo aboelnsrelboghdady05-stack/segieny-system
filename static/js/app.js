@@ -675,7 +675,8 @@ function escapeHtml(str) {
 // ----------------- LOAD DASHBOARD -----------------
 async function loadDashboard() {
     try {
-        const res = await fetch('/api/dashboard/stats');
+        const uid = currentUser?.id || '';
+        const res = await fetch(`/api/dashboard/stats${uid ? `?user_id=${uid}` : ''}`);
         const data = await res.json();
         const isEn = typeof currentLang !== 'undefined' && currentLang === 'en';
 
@@ -1024,7 +1025,8 @@ async function markAllNotificationsRead() {
 async function loadDashboardWidgets() {
     // Recent Tasks
     try {
-        const resTasks = await fetch('/api/tasks');
+        const uid = currentUser?.id || '';
+        const resTasks = await fetch(`/api/tasks?user_id=${uid}`);
         const tasks = await resTasks.json();
         const tasksCont = document.getElementById('dashboard-recent-tasks');
         tasksCont.innerHTML = '';
@@ -1115,13 +1117,14 @@ async function loadDashboardWidgets() {
 // ----------------- PROJECTS TAB -----------------
 async function loadProjects() {
     if (allProjectsList && allProjectsList.length > 0) {
-        renderProjectsGrid(allProjectsList);
+        renderProjectsGrid(filterProjectsForCurrentUser(allProjectsList));
     }
     try {
-        const res = await fetch('/api/projects');
+        const uid = currentUser?.id || '';
+        const res = await fetch(`/api/projects?user_id=${uid}`);
         allProjectsList = await res.json();
         window.allProjectsList = allProjectsList;
-        renderProjectsGrid(allProjectsList);
+        renderProjectsGrid(filterProjectsForCurrentUser(allProjectsList));
     } catch (err) {
         console.error('Error loading projects:', err);
     }
@@ -1258,7 +1261,7 @@ async function loadTasks() {
     const priority = document.getElementById('task-filter-priority')?.value || '';
     const assignee = document.getElementById('task-filter-assignee')?.value || '';
 
-    let url = `/api/tasks?`;
+    let url = `/api/tasks?user_id=${currentUser?.id || ''}&`;
     if (projId) url += `project_id=${projId}&`;
     if (status) url += `status=${status}&`;
     if (priority) url += `priority=${priority}&`;
@@ -7573,7 +7576,8 @@ async function getOrFetchProjects(forceRefresh = false) {
         return projectsQuickCache;
     }
     try {
-        const res = await fetch('/api/projects/quick');
+        const uid = currentUser?.id || '';
+        const res = await fetch(`/api/projects/quick?user_id=${uid}`);
         const data = await res.json();
         const list = Array.isArray(data) ? data : (data.projects || []);
         projectsQuickCache = list;
@@ -7588,7 +7592,8 @@ async function getOrFetchProjects(forceRefresh = false) {
 
 async function loadProjectsDropdowns() {
     try {
-        const projects = await getOrFetchProjects();
+        const rawProjects = await getOrFetchProjects();
+        const projects = filterProjectsForCurrentUser(rawProjects);
         const selects = [
             'expense-project-id',
             'transfer-exp-new-project-id',
@@ -7688,6 +7693,17 @@ async function loadTeamDropdowns() {
                 opt.value = m.name;
                 opt.innerText = isEn && typeof tr === 'function' ? tr(m.name) : m.name;
                 taskFilter.appendChild(opt);
+            });
+        }
+
+        const pmDatalist = document.getElementById('project-managers-list');
+        if (pmDatalist) {
+            pmDatalist.innerHTML = '';
+            allTeamMembers.forEach(m => {
+                const opt = document.createElement('option');
+                opt.value = m.name;
+                opt.label = `${m.name} (${m.role || 'فريق العمل'})`;
+                pmDatalist.appendChild(opt);
             });
         }
     } catch (err) {
@@ -8623,6 +8639,7 @@ function initCurrentUser() {
                     phone: valid.phone || '',
                     email: valid.email || '',
                     permissions: valid.permissions || 'all',
+                    assigned_projects: valid.assigned_projects || 'all',
                     is_admin: valid.is_admin || false
                 };
                 localStorage.setItem('segieny_auth_user', JSON.stringify(currentUser));
@@ -14103,6 +14120,34 @@ function isAbuAlnasr(user) {
     return false;
 }
 
+function isHigherManagement(user) {
+    if (!user) return false;
+    if (isAbuAlnasr(user)) return true;
+    const r = (user.role || '').toLowerCase();
+    const u = (user.username || '').toLowerCase();
+    const n = (user.name || '').toLowerCase();
+    if (user.id === 3 || u === 'nawaf' || n.includes('نواف') || r.includes('مدير عام') || r.includes('المدير العام') || r.includes('مدير مالي') || r.includes('المدير المالي')) {
+        return true;
+    }
+    return false;
+}
+
+function filterProjectsForCurrentUser(projects) {
+    if (!projects || !Array.isArray(projects)) return [];
+    if (!currentUser || isHigherManagement(currentUser)) return projects;
+    const assigned = currentUser.assigned_projects;
+    if (!assigned || assigned === 'all' || assigned === '*') return projects;
+    
+    const allowedIds = String(assigned).split(',').map(s => s.trim()).filter(Boolean);
+    const userCleanName = (currentUser.name || '').trim().toLowerCase();
+
+    return projects.filter(p => {
+        if (allowedIds.includes(String(p.id))) return true;
+        if (p.manager_name && userCleanName && p.manager_name.trim().toLowerCase() === userCleanName) return true;
+        return false;
+    });
+}
+
 function hasPermission(moduleKey) {
     if (!currentUser) return false;
     if (isAbuAlnasr(currentUser)) return true;
@@ -14271,6 +14316,41 @@ function renderTeamMembers(members) {
             `;
         }
 
+        // Parse assigned projects scope
+        let projectScopeBadge = '';
+        if (isAdmin || isHigherManagement(m) || !m.assigned_projects || m.assigned_projects === 'all' || m.assigned_projects === '*') {
+            projectScopeBadge = `
+                <div class="mt-2 p-2 rounded-xl bg-blue-950/30 border border-blue-800/30 text-[10px] text-blue-300 flex items-center justify-between font-semibold">
+                    <span class="flex items-center gap-1.5 font-bold">
+                        <i data-lucide="folder-check" class="w-3.5 h-3.5 text-blue-400"></i>
+                        <span>نطاق المشاريع:</span>
+                    </span>
+                    <span class="px-2 py-0.5 rounded bg-blue-900/60 text-blue-200 border border-blue-700/50 font-bold">كافة المشاريع (وصول شامل)</span>
+                </div>
+            `;
+        } else {
+            const assignedIds = String(m.assigned_projects).split(',').map(s => s.trim()).filter(Boolean);
+            const projList = (window.allProjectsList && window.allProjectsList.length > 0) ? window.allProjectsList : [];
+            const projBadges = assignedIds.map(pid => {
+                const p = projList.find(pr => String(pr.id) === String(pid));
+                const label = p ? (p.code || p.name) : `#${pid}`;
+                return `<span class="px-1.5 py-0.5 rounded bg-blue-950/70 border border-blue-800/40 text-blue-200 font-semibold text-[9px]">${escapeHtml(label)}</span>`;
+            }).join(' ');
+
+            projectScopeBadge = `
+                <div class="mt-2 p-2 rounded-xl bg-slate-900/80 border border-slate-750 text-[10px] space-y-1">
+                    <div class="flex items-center justify-between text-slate-300">
+                        <span class="flex items-center gap-1.5 font-bold text-blue-300">
+                            <i data-lucide="folder" class="w-3.5 h-3.5 text-blue-400"></i>
+                            <span>المشاريع المصرح بها:</span>
+                        </span>
+                        <span class="px-2 py-0.5 rounded bg-blue-500/10 text-blue-300 border border-blue-500/20 font-bold font-mono">${assignedIds.length} مشاريع</span>
+                    </div>
+                    <div class="flex flex-wrap gap-1 pt-1">${projBadges || '<span class="text-slate-500 text-[10px]">لم يتم اختيار مشاريع بعد</span>'}</div>
+                </div>
+            `;
+        }
+
         const avatarColor = isAdmin 
             ? 'from-purple-600 to-indigo-600 text-white' 
             : 'from-emerald-600 to-teal-600 text-white';
@@ -14321,8 +14401,9 @@ function renderTeamMembers(members) {
                     </div>
 
                     <!-- Permissions Section -->
-                    <div class="pt-2 border-t border-slate-750">
+                    <div class="pt-2 border-t border-slate-750 space-y-1">
                         ${permBadges}
+                        ${projectScopeBadge}
                     </div>
                 </div>
 
@@ -14365,6 +14446,59 @@ function filterTeamMembersTable() {
     renderTeamMembers(filtered);
 }
 
+function toggleTeamProjectScopeUI() {
+    const isCustom = document.getElementById('tm-scope-custom')?.checked;
+    const box = document.getElementById('tm-custom-projects-box');
+    if (box) {
+        if (isCustom) {
+            box.classList.remove('hidden');
+        } else {
+            box.classList.add('hidden');
+        }
+    }
+}
+
+async function populateTeamProjectsChecklist(selectedProjectIds = []) {
+    const container = document.getElementById('tm-projects-checklist');
+    if (!container) return;
+
+    if (!allProjectsList || allProjectsList.length === 0) {
+        try {
+            const res = await fetch('/api/projects');
+            allProjectsList = await res.json();
+            window.allProjectsList = allProjectsList;
+        } catch (e) {
+            console.error('Error fetching projects for team modal:', e);
+        }
+    }
+
+    const projects = allProjectsList || [];
+    if (projects.length === 0) {
+        container.innerHTML = `<div class="col-span-full p-2 text-center text-slate-400 text-xs">لا توجد مشاريع مسجلة حالياً</div>`;
+        return;
+    }
+
+    const selStrIds = selectedProjectIds.map(String);
+    container.innerHTML = projects.map(p => {
+        const isChecked = selStrIds.includes(String(p.id));
+        return `
+            <label class="flex items-center gap-2 p-2 rounded-lg bg-slate-950/70 border border-slate-800 hover:border-blue-500/50 cursor-pointer transition">
+                <input type="checkbox" name="tm_proj_cb" value="${p.id}" ${isChecked ? 'checked' : ''} class="tm-proj-cb rounded text-blue-600 focus:ring-0 bg-slate-900 border-slate-700 w-3.5 h-3.5">
+                <div class="min-w-0">
+                    <span class="block text-white text-xs font-bold truncate">${escapeHtml(p.name)}</span>
+                    <span class="text-[10px] text-blue-400 font-mono">${escapeHtml(p.code || 'PRJ')} ${p.client_name ? '— ' + escapeHtml(p.client_name) : ''}</span>
+                </div>
+            </label>
+        `;
+    }).join('');
+}
+
+function selectAllTeamProjects(checkAll = true) {
+    document.querySelectorAll('.tm-proj-cb').forEach(cb => {
+        cb.checked = checkAll;
+    });
+}
+
 function openAddTeamMemberModal() {
     const form = document.getElementById('team-member-form');
     if (form) form.reset();
@@ -14377,6 +14511,13 @@ function openAddTeamMemberModal() {
 
     // Default to all permissions for new employee
     setPermissionsPreset('all');
+
+    // Default to all projects scope
+    const scopeAll = document.getElementById('tm-scope-all');
+    if (scopeAll) scopeAll.checked = true;
+    toggleTeamProjectScopeUI();
+    populateTeamProjectsChecklist([]);
+
     openModal('team-member-modal');
 }
 
@@ -14411,6 +14552,20 @@ function openEditTeamMemberModal(memberId) {
             cb.checked = userPerms.includes(cb.value);
         });
     }
+
+    // Set Assigned Projects Scope
+    const isCustomScope = member.assigned_projects && member.assigned_projects !== 'all' && member.assigned_projects !== '*';
+    const scopeCustomEl = document.getElementById('tm-scope-custom');
+    const scopeAllEl = document.getElementById('tm-scope-all');
+    if (isCustomScope && !isAdmin) {
+        if (scopeCustomEl) scopeCustomEl.checked = true;
+        const pids = String(member.assigned_projects).split(',').map(s => s.trim()).filter(Boolean);
+        populateTeamProjectsChecklist(pids);
+    } else {
+        if (scopeAllEl) scopeAllEl.checked = true;
+        populateTeamProjectsChecklist([]);
+    }
+    toggleTeamProjectScopeUI();
 
     openModal('team-member-modal');
 }
@@ -14454,7 +14609,19 @@ async function submitTeamMemberForm(e) {
         permissions = checkedPerms.join(',');
     }
 
-    const payload = { name, role, username, phone, email, status, permissions };
+    // Collect assigned projects
+    let assigned_projects = 'all';
+    const isCustomProjScope = document.getElementById('tm-scope-custom')?.checked;
+    if (isCustomProjScope && !isAbuAlnasr({ id: id ? parseInt(id) : null, username })) {
+        const checkedProjs = Array.from(document.querySelectorAll('.tm-proj-cb:checked')).map(cb => cb.value);
+        if (checkedProjs.length === 0) {
+            showToast('يرجى اختيار مشروع واحد على الأقل للموظف أو اختيار (كافة المشاريع)', 'warning');
+            return;
+        }
+        assigned_projects = checkedProjs.join(',');
+    }
+
+    const payload = { name, role, username, phone, email, status, permissions, assigned_projects };
     if (password) payload.password = password;
 
     const submitBtn = document.getElementById('btn-submit-team-member');

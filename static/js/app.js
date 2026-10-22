@@ -1064,15 +1064,21 @@ async function loadDashboardWidgets() {
                         ` : '<span class="text-[10px] text-slate-500">بدون مرفق</span>'}
                     </div>
                     <div class="flex items-center gap-1 border-r border-slate-700/80 pr-2 mr-1">
-                        <button onclick="openTransferExpenseModal(${e.id})" title="نقل المصروف لمشروع آخر" class="p-1 text-slate-400 hover:text-emerald-400 rounded hover:bg-slate-750 transition">
-                            <i data-lucide="arrow-right-left" class="w-3.5 h-3.5"></i>
-                        </button>
-                        <button onclick="openEditExpenseModal(${e.id})" title="تعديل المصروف" class="p-1 text-slate-400 hover:text-amber-400 rounded hover:bg-slate-750 transition">
-                            <i data-lucide="edit-3" class="w-3.5 h-3.5"></i>
-                        </button>
-                        <button onclick="deleteExpense(${e.id})" title="حذف المصروف" class="p-1 text-slate-400 hover:text-rose-400 rounded hover:bg-slate-750 transition">
-                            <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
-                        </button>
+                        ${((e.approval_status === 'approved' || e.approval_status === 'معتمد' || !e.approval_status) && !isFinancialManagerUser()) ? `
+                            <span class="p-1 text-slate-600 cursor-not-allowed inline-flex items-center" title="المصروف معتمد مالياً ولا يمكن تعديله أو نقله أو حذفه إلا من قبل المدير المالي (أ. ابوالنصر البغدادي)">
+                                <i data-lucide="lock" class="w-3.5 h-3.5 text-slate-500"></i>
+                            </span>
+                        ` : `
+                            <button onclick="openTransferExpenseModal(${e.id})" title="نقل المصروف لمشروع آخر" class="p-1 text-slate-400 hover:text-emerald-400 rounded hover:bg-slate-750 transition">
+                                <i data-lucide="arrow-right-left" class="w-3.5 h-3.5"></i>
+                            </button>
+                            <button onclick="openEditExpenseModal(${e.id})" title="تعديل المصروف" class="p-1 text-slate-400 hover:text-amber-400 rounded hover:bg-slate-750 transition">
+                                <i data-lucide="edit-3" class="w-3.5 h-3.5"></i>
+                            </button>
+                            <button onclick="deleteExpense(${e.id})" title="حذف المصروف" class="p-1 text-slate-400 hover:text-rose-400 rounded hover:bg-slate-750 transition">
+                                <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                            </button>
+                        `}
                     </div>
                 </div>
             `;
@@ -2132,12 +2138,21 @@ function renderExpensesTable(expenses) {
                     <button onclick="openTransferExpenseModal(${e.id})" title="${isEn ? 'Transfer to Another Project' : 'نقل المصروف لمشروع آخر'}" class="p-1.5 text-slate-400 hover:text-emerald-400 rounded-lg hover:bg-slate-800 transition">
                         <i data-lucide="arrow-right-left" class="w-4 h-4"></i>
                     </button>
-                    <button onclick="openEditExpenseModal(${e.id})" title="${isEn ? 'Edit Expense' : 'تعديل المصروف'}" class="p-1.5 text-slate-400 hover:text-amber-400 rounded-lg hover:bg-slate-800 transition">
-                        <i data-lucide="edit-3" class="w-4 h-4"></i>
-                    </button>
-                    <button onclick="deleteExpense(${e.id})" title="${isEn ? 'Delete Expense' : 'حذف المصروف'}" class="p-1.5 text-slate-400 hover:text-rose-400 rounded-lg hover:bg-slate-800 transition">
-                        <i data-lucide="trash-2" class="w-4 h-4"></i>
-                    </button>
+                    ${(e.approval_status === 'approved' || e.approval_status === 'معتمد') && !isFinManager ? `
+                        <button onclick="showToast('عفواً، هذا المصروف معتمد ومقيد مالياً، ولا يمكن تعديله سوى من قبل المدير المالي فقط.', 'error')" title="مصروف معتمد - التعديل للمدير المالي فقط" class="p-1.5 text-slate-500 hover:text-amber-400 rounded-lg hover:bg-slate-800 transition">
+                            <i data-lucide="lock" class="w-4 h-4"></i>
+                        </button>
+                        <button onclick="showToast('عفواً، هذا المصروف معتمد ومقيد مالياً، ولا يمكن حذفه سوى من قبل المدير المالي فقط.', 'error')" title="مصروف معتمد - الحذف للمدير المالي فقط" class="p-1.5 text-slate-600 rounded-lg cursor-not-allowed transition">
+                            <i data-lucide="trash-2" class="w-4 h-4 opacity-40"></i>
+                        </button>
+                    ` : `
+                        <button onclick="openEditExpenseModal(${e.id})" title="${isEn ? 'Edit Expense' : 'تعديل المصروف'}" class="p-1.5 text-slate-400 hover:text-amber-400 rounded-lg hover:bg-slate-800 transition">
+                            <i data-lucide="edit-3" class="w-4 h-4"></i>
+                        </button>
+                        <button onclick="deleteExpense(${e.id})" title="${isEn ? 'Delete Expense' : 'حذف المصروف'}" class="p-1.5 text-slate-400 hover:text-rose-400 rounded-lg hover:bg-slate-800 transition">
+                            <i data-lucide="trash-2" class="w-4 h-4"></i>
+                        </button>
+                    `}
                 </div>
             </td>
         `;
@@ -2504,7 +2519,15 @@ async function deleteExpense(expenseId) {
         return;
     }
     try {
-        const res = await fetch(`/api/expenses/${expenseId}`, { method: 'DELETE' });
+        const u = currentUser || JSON.parse(localStorage.getItem('segieny_auth_user') || '{}');
+        const res = await fetch(`/api/expenses/${expenseId}`, {
+            method: 'DELETE',
+            headers: {
+                'X-User-Id': String(u.id || ''),
+                'X-User-Role': u.role || '',
+                'X-User-Name': encodeURIComponent(u.name || '')
+            }
+        });
         const data = await res.json();
         if (data.success) {
             showToast('تم حذف المصروف والفاتورة بنجاح وتحديث كافة الحسابات');
@@ -3642,31 +3665,48 @@ function markRemoveInvoiceFile() {
 }
 
 async function openEditExpenseModal(expenseId) {
+    // 1. Immediate permission check if expense is already in memory
+    const inMemExp = (typeof allLoadedExpensesList !== 'undefined' && allLoadedExpensesList ? allLoadedExpensesList.find(x => x.id === expenseId) : null)
+                  || (typeof currentPhaseExpensesList !== 'undefined' && currentPhaseExpensesList ? currentPhaseExpensesList.find(x => x.id === expenseId) : null);
+
+    if (inMemExp && (inMemExp.approval_status === 'approved' || inMemExp.approval_status === 'معتمد') && !isFinancialManagerUser()) {
+        showToast('عفواً، هذا المصروف معتمد ومقيد مالياً، ولا يمكن تعديله إلا من قبل المدير المالي (أ. ابوالنصر البغدادي) فقط.', 'error');
+        return;
+    }
+
+    // 2. Open modal immediately for instant visual response
+    resetExpenseModal();
+    openModal('expense-modal');
+    document.getElementById('expense-edit-id').value = expenseId;
+    document.getElementById('expense-remove-file').value = '0';
+    const titleEl = document.getElementById('expense-modal-title');
+    if (titleEl) titleEl.innerText = `تعديل بيانات المصروف / الفاتورة #${expenseId}`;
+    const btnTextEl = document.getElementById('expense-btn-submit-text');
+    if (btnTextEl) btnTextEl.innerText = 'تحديث وحفظ التعديلات';
+
     try {
         const res = await fetch(`/api/expenses/${expenseId}`);
         const data = await res.json();
         if (!data.success || !data.expense) {
+            closeModal('expense-modal');
             showToast('تعذر العثور على بيانات المصروف', 'error');
             return;
         }
         const exp = data.expense;
 
-        resetExpenseModal();
-
-        document.getElementById('expense-edit-id').value = exp.id;
-        document.getElementById('expense-remove-file').value = '0';
-
-        const titleEl = document.getElementById('expense-modal-title');
-        if (titleEl) titleEl.innerText = `تعديل بيانات المصروف / الفاتورة #${exp.id}`;
-        const btnTextEl = document.getElementById('expense-btn-submit-text');
-        if (btnTextEl) btnTextEl.innerText = 'تحديث وحفظ التعديلات';
+        // Verify permission again with server-returned approval_status
+        if ((exp.approval_status === 'approved' || exp.approval_status === 'معتمد') && !isFinancialManagerUser()) {
+            closeModal('expense-modal');
+            showToast('عفواً، هذا المصروف معتمد ومقيد مالياً، وتعديله متاح للمدير المالي (أ. ابوالنصر البغدادي) فقط.', 'error');
+            return;
+        }
 
         const projSelect = document.getElementById('expense-project-id');
         if (projSelect) projSelect.value = exp.project_id || '';
 
         await loadPhasesForExpenseModal(exp.project_id, exp.phase_id);
         if (exp.phase_id) {
-            await loadItemsForExpenseModal(exp.phase_id, exp.item_id);
+            loadItemsForExpenseModal(exp.phase_id, exp.item_id);
         }
 
         if (exp.supplier_id) {
@@ -3826,6 +3866,10 @@ async function openTransferExpenseModal(expenseId) {
         }
 
         const exp = data.expense;
+        if ((exp.approval_status === 'approved' || exp.approval_status === 'معتمد') && !isFinancialManagerUser()) {
+            showToast('عفواً، هذا المصروف معتمد ومقيد مالياً، ونقله أو تعديله متاح للمدير المالي (أ. ابوالنصر البغدادي) فقط.', 'error');
+            return;
+        }
         currentTransferExpenseData = exp;
 
         document.getElementById('transfer-exp-id').value = exp.id;
@@ -3874,10 +3918,10 @@ async function loadPhasesForTransferModal(projectId, selectedPhaseId = null) {
     if (!projectId) return;
 
     try {
-        const res = await fetch(`/api/projects/${projectId}`);
-        const p = await res.json();
-        if (p.phases && p.phases.length > 0) {
-            p.phases.forEach(ph => {
+        const tree = await fetchProjectPhasesTree(projectId);
+        const phases = tree.phases || [];
+        if (phases.length > 0) {
+            phases.forEach(ph => {
                 const opt = document.createElement('option');
                 opt.value = ph.id;
                 opt.innerText = `مرحلة ${ph.order_num}: ${ph.name}`;
@@ -3903,9 +3947,9 @@ async function loadItemsForTransferModal(phaseId, selectedItemId = null) {
     if (!projectId) return;
 
     try {
-        const res = await fetch(`/api/projects/${projectId}`);
-        const p = await res.json();
-        const ph = (p.phases || []).find(x => x.id == phaseId);
+        const tree = await fetchProjectPhasesTree(projectId);
+        const phases = tree.phases || [];
+        const ph = phases.find(x => x.id == phaseId);
         if (ph && ph.items && ph.items.length > 0) {
             ph.items.forEach(it => {
                 const opt = document.createElement('option');
@@ -3938,14 +3982,23 @@ async function submitTransferExpenseForm(e) {
     btn.innerHTML = `<span class="animate-spin inline-block mr-1">⌛</span> جاري نقل المصروف...`;
 
     try {
+        const u = currentUser || JSON.parse(localStorage.getItem('segieny_auth_user') || '{}');
         const res = await fetch(`/api/expenses/${expenseId}/transfer`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json',
+                'X-User-Id': String(u.id || ''),
+                'X-User-Role': u.role || '',
+                'X-User-Name': encodeURIComponent(u.name || '')
+            },
             body: JSON.stringify({
                 new_project_id: newProjectId,
                 phase_id: phaseId || null,
                 item_id: itemId || null,
-                notes: notes
+                notes: notes,
+                user_id: u.id || '',
+                user_role: u.role || '',
+                user_name: u.name || ''
             })
         });
 
@@ -4560,15 +4613,21 @@ async function openProjectDetails(projectId) {
                     <td class="p-2.5 text-center whitespace-nowrap">
                         <div class="flex items-center justify-center gap-1">
                             ${appActions}
-                            <button onclick="openTransferExpenseModal(${e.id})" title="نقل المصروف لمشروع آخر" class="p-1 text-slate-400 hover:text-emerald-400 rounded hover:bg-slate-800 transition">
-                                <i data-lucide="arrow-right-left" class="w-3.5 h-3.5"></i>
-                            </button>
-                            <button onclick="openEditExpenseModal(${e.id})" title="تعديل المصروف" class="p-1 text-slate-400 hover:text-amber-400 rounded hover:bg-slate-800 transition">
-                                <i data-lucide="edit-3" class="w-3.5 h-3.5"></i>
-                            </button>
-                            <button onclick="deleteExpense(${e.id})" title="حذف المصروف" class="p-1 text-slate-400 hover:text-rose-400 rounded hover:bg-slate-800 transition">
-                                <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
-                            </button>
+                            ${(isApproved && !isFinManager) ? `
+                                <span class="p-1 text-slate-600 cursor-not-allowed inline-flex items-center" title="المصروف معتمد مالياً ولا يمكن تعديله أو نقله أو حذفه إلا من قبل المدير المالي (أ. ابوالنصر البغدادي)">
+                                    <i data-lucide="lock" class="w-3.5 h-3.5 text-slate-500"></i>
+                                </span>
+                            ` : `
+                                <button onclick="openTransferExpenseModal(${e.id})" title="نقل المصروف لمشروع آخر" class="p-1 text-slate-400 hover:text-emerald-400 rounded hover:bg-slate-800 transition">
+                                    <i data-lucide="arrow-right-left" class="w-3.5 h-3.5"></i>
+                                </button>
+                                <button onclick="openEditExpenseModal(${e.id})" title="تعديل المصروف" class="p-1 text-slate-400 hover:text-amber-400 rounded hover:bg-slate-800 transition">
+                                    <i data-lucide="edit-3" class="w-3.5 h-3.5"></i>
+                                </button>
+                                <button onclick="deleteExpense(${e.id})" title="حذف المصروف" class="p-1 text-slate-400 hover:text-rose-400 rounded hover:bg-slate-800 transition">
+                                    <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                                </button>
+                            `}
                         </div>
                     </td>
                 `;
@@ -5247,7 +5306,26 @@ async function submitItemForm(e) {
     }
 }
 
-// ----------------- EXPENSE PHASE & ITEM LINKING -----------------
+// ----------------- EXPENSE PHASE & ITEM LINKING (HIGH PERFORMANCE CACHED) -----------------
+const projectPhasesTreeCache = {};
+
+async function fetchProjectPhasesTree(projectId) {
+    if (!projectId) return [];
+    if (projectPhasesTreeCache[projectId]) {
+        return projectPhasesTreeCache[projectId];
+    }
+    try {
+        const res = await fetch(`/api/projects/${projectId}/phases-tree`);
+        const data = await res.json();
+        const phases = data.phases || [];
+        projectPhasesTreeCache[projectId] = phases;
+        return phases;
+    } catch (err) {
+        console.error('Error fetching project phases tree:', err);
+        return [];
+    }
+}
+
 async function loadPhasesForExpenseModal(projectId, selectedPhaseId = null) {
     const phaseSel = document.getElementById('expense-phase-id');
     const itemSel = document.getElementById('expense-item-id');
@@ -5257,14 +5335,13 @@ async function loadPhasesForExpenseModal(projectId, selectedPhaseId = null) {
     if (!projectId) return;
 
     try {
-        const res = await fetch(`/api/projects/${projectId}`);
-        const p = await res.json();
-        if (p.phases && p.phases.length > 0) {
-            p.phases.forEach(ph => {
+        const phases = await fetchProjectPhasesTree(projectId);
+        if (phases && phases.length > 0) {
+            phases.forEach(ph => {
                 const opt = document.createElement('option');
                 opt.value = ph.id;
                 opt.innerText = `مرحلة ${ph.order_num}: ${ph.name}`;
-                if (selectedPhaseId && selectedPhaseId == ph.id) opt.selected = true;
+                if (selectedPhaseId && String(selectedPhaseId) === String(ph.id)) opt.selected = true;
                 phaseSel.appendChild(opt);
             });
             if (selectedPhaseId) {
@@ -5276,7 +5353,7 @@ async function loadPhasesForExpenseModal(projectId, selectedPhaseId = null) {
     }
 }
 
-async function loadItemsForExpenseModal(phaseId, selectedItemId = null) {
+function loadItemsForExpenseModal(phaseId, selectedItemId = null) {
     const itemSel = document.getElementById('expense-item-id');
     if (!itemSel) return;
     itemSel.innerHTML = '<option value="">-- عام للمرحلة (بدون بند محدد) --</option>';
@@ -5285,21 +5362,16 @@ async function loadItemsForExpenseModal(phaseId, selectedItemId = null) {
     const projectId = document.getElementById('expense-project-id')?.value;
     if (!projectId) return;
 
-    try {
-        const res = await fetch(`/api/projects/${projectId}`);
-        const p = await res.json();
-        const ph = (p.phases || []).find(x => x.id == phaseId);
-        if (ph && ph.items && ph.items.length > 0) {
-            ph.items.forEach(it => {
-                const opt = document.createElement('option');
-                opt.value = it.id;
-                opt.innerText = `${it.item_code ? it.item_code + ' - ' : ''}${it.title} (ميزانية: ${formatCurrency(it.cost_price)})`;
-                if (selectedItemId && selectedItemId == it.id) opt.selected = true;
-                itemSel.appendChild(opt);
-            });
-        }
-    } catch (err) {
-        console.error('Error loading items for expense:', err);
+    const phases = projectPhasesTreeCache[projectId] || [];
+    const ph = phases.find(x => String(x.id) === String(phaseId));
+    if (ph && ph.items && ph.items.length > 0) {
+        ph.items.forEach(it => {
+            const opt = document.createElement('option');
+            opt.value = it.id;
+            opt.innerText = `${it.item_code ? it.item_code + ' - ' : ''}${it.title} (ميزانية: ${formatCurrency(it.cost_price)})`;
+            if (selectedItemId && String(selectedItemId) === String(it.id)) opt.selected = true;
+            itemSel.appendChild(opt);
+        });
     }
 }
 
@@ -5518,9 +5590,15 @@ function renderPhaseExpensesRows(list) {
                 </td>
                 <td class="p-3 text-center whitespace-nowrap">
                     <div class="flex items-center justify-center gap-1">
-                        <button type="button" onclick="openEditExpenseModal(${exp.id})" class="p-1 rounded text-slate-400 hover:text-white hover:bg-slate-750 transition" title="تعديل المصروف">
-                            <i data-lucide="edit-3" class="w-3.5 h-3.5"></i>
-                        </button>
+                        ${(!isFinancialManagerUser() && (exp.approval_status === 'approved' || exp.approval_status === 'معتمد' || !exp.approval_status)) ? `
+                            <span class="p-1 rounded text-slate-600 cursor-not-allowed inline-flex items-center" title="المصروف معتمد مالياً ولا يمكن تعديله إلا من قبل المدير المالي (أ. ابوالنصر البغدادي)">
+                                <i data-lucide="lock" class="w-3.5 h-3.5 text-slate-500"></i>
+                            </span>
+                        ` : `
+                            <button type="button" onclick="openEditExpenseModal(${exp.id})" class="p-1 rounded text-slate-400 hover:text-white hover:bg-slate-750 transition" title="تعديل المصروف">
+                                <i data-lucide="edit-3" class="w-3.5 h-3.5"></i>
+                            </button>
+                        `}
                     </div>
                 </td>
             </tr>
@@ -10637,12 +10715,18 @@ function renderVariancesTable(variances) {
             </td>
             <td class="p-3.5 text-center whitespace-nowrap">
                 <div class="flex items-center justify-center gap-1">
-                    <button onclick="openEditExpenseModal(${v.expense_id || v.id})" title="تعديل الفاتورة وتصحيح السعر" class="p-1.5 text-slate-400 hover:text-amber-400 rounded-lg hover:bg-slate-800 transition">
-                        <i data-lucide="edit-3" class="w-4 h-4"></i>
-                    </button>
-                    <button onclick="deleteExpense(${v.expense_id || v.id})" title="حذف الفاتورة" class="p-1.5 text-slate-400 hover:text-rose-400 rounded-lg hover:bg-slate-800 transition">
-                        <i data-lucide="trash-2" class="w-4 h-4"></i>
-                    </button>
+                    ${(!isFinancialManagerUser() && (v.approval_status === 'approved' || v.approval_status === 'معتمد' || !v.approval_status)) ? `
+                        <span class="p-1.5 text-slate-600 cursor-not-allowed inline-flex items-center" title="الفاتورة معتمدة مالياً ولا يمكن تعديلها أو حذفها إلا من قبل المدير المالي (أ. ابوالنصر البغدادي)">
+                            <i data-lucide="lock" class="w-4 h-4 text-slate-500"></i>
+                        </span>
+                    ` : `
+                        <button onclick="openEditExpenseModal(${v.expense_id || v.id})" title="تعديل الفاتورة وتصحيح السعر" class="p-1.5 text-slate-400 hover:text-amber-400 rounded-lg hover:bg-slate-800 transition">
+                            <i data-lucide="edit-3" class="w-4 h-4"></i>
+                        </button>
+                        <button onclick="deleteExpense(${v.expense_id || v.id})" title="حذف الفاتورة" class="p-1.5 text-slate-400 hover:text-rose-400 rounded-lg hover:bg-slate-800 transition">
+                            <i data-lucide="trash-2" class="w-4 h-4"></i>
+                        </button>
+                    `}
                 </div>
             </td>
         `;
@@ -11037,12 +11121,18 @@ async function openSupplierDetailModal(supplierId) {
                                     <span>سداد</span>
                                 </button>
                             ` : ''}
-                            <button onclick="openEditExpenseModal(${e.id})" title="تعديل الفاتورة" class="p-1 text-slate-400 hover:text-amber-400 rounded hover:bg-slate-800 transition">
-                                <i data-lucide="edit-3" class="w-3.5 h-3.5"></i>
-                            </button>
-                            <button onclick="deleteExpense(${e.id})" title="حذف الفاتورة" class="p-1 text-slate-400 hover:text-rose-400 rounded hover:bg-slate-800 transition">
-                                <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
-                            </button>
+                            ${(!isFinancialManagerUser() && (e.approval_status === 'approved' || e.approval_status === 'معتمد' || !e.approval_status)) ? `
+                                <span class="p-1 text-slate-600 cursor-not-allowed inline-flex items-center" title="الفاتورة معتمدة مالياً ولا يمكن تعديلها أو حذفها إلا من قبل المدير المالي (أ. ابوالنصر البغدادي)">
+                                    <i data-lucide="lock" class="w-3.5 h-3.5 text-slate-500"></i>
+                                </span>
+                            ` : `
+                                <button onclick="openEditExpenseModal(${e.id})" title="تعديل الفاتورة" class="p-1 text-slate-400 hover:text-amber-400 rounded hover:bg-slate-800 transition">
+                                    <i data-lucide="edit-3" class="w-3.5 h-3.5"></i>
+                                </button>
+                                <button onclick="deleteExpense(${e.id})" title="حذف الفاتورة" class="p-1 text-slate-400 hover:text-rose-400 rounded hover:bg-slate-800 transition">
+                                    <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                                </button>
+                            `}
                         </div>
                     </td>
                 `;
@@ -13591,12 +13681,18 @@ async function viewCustodyExpenses(custodyId) {
                     <td class="p-2.5 text-center whitespace-nowrap">
                         <div class="flex items-center justify-center gap-1">
                             ${appActions}
-                            <button onclick="editCustodyExpense(${exp.id})" class="p-1 text-slate-400 hover:text-amber-400 rounded hover:bg-slate-750 transition" title="تعديل بيانات الفاتورة">
-                                <i data-lucide="edit-3" class="w-3.5 h-3.5"></i>
-                            </button>
-                            <button onclick="deleteCustodyExpense(${exp.id}, ${custodyId}, '${escapeHtml(exp.title || 'فاتورة')}', ${exp.amount})" class="p-1 text-slate-400 hover:text-rose-400 rounded hover:bg-slate-750 transition" title="حذف الفاتورة واسترجاع المبلغ للعهدة">
-                                <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
-                            </button>
+                            ${(isApproved && !isFinManager) ? `
+                                <span class="p-1 text-slate-600 cursor-not-allowed inline-flex items-center" title="المصروف معتمد مالياً ولا يمكن تعديله أو حذفه إلا من قبل المدير المالي (أ. ابوالنصر البغدادي)">
+                                    <i data-lucide="lock" class="w-3.5 h-3.5 text-slate-500"></i>
+                                </span>
+                            ` : `
+                                <button onclick="editCustodyExpense(${exp.id})" class="p-1 text-slate-400 hover:text-amber-400 rounded hover:bg-slate-750 transition" title="تعديل بيانات الفاتورة">
+                                    <i data-lucide="edit-3" class="w-3.5 h-3.5"></i>
+                                </button>
+                                <button onclick="deleteCustodyExpense(${exp.id}, ${custodyId}, '${escapeHtml(exp.title || 'فاتورة')}', ${exp.amount})" class="p-1 text-slate-400 hover:text-rose-400 rounded hover:bg-slate-750 transition" title="حذف الفاتورة واسترجاع المبلغ للعهدة">
+                                    <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                                </button>
+                            `}
                         </div>
                     </td>
                 </tr>
@@ -13621,7 +13717,15 @@ async function deleteCustodyExpense(expenseId, custodyId, title, amount) {
     if (!confirm(msg)) return;
 
     try {
-        const res = await fetch(`/api/expenses/${expenseId}`, { method: 'DELETE' });
+        const u = currentUser || JSON.parse(localStorage.getItem('segieny_auth_user') || '{}');
+        const res = await fetch(`/api/expenses/${expenseId}`, {
+            method: 'DELETE',
+            headers: {
+                'X-User-Id': String(u.id || ''),
+                'X-User-Role': u.role || '',
+                'X-User-Name': encodeURIComponent(u.name || '')
+            }
+        });
         const data = await res.json();
         if (res.ok && (data.success || !data.error)) {
             showToast('تم حذف الفاتورة واستعادة المبلغ لرصيد العهدة بنجاح', 'success');

@@ -120,6 +120,31 @@ def check_can_view_all_expenses(user_id=None, user_role='', user_name='', cursor
 
     return False, user_name
 
+def check_is_financial_manager(user_id=None, user_role='', user_name='', cursor=None):
+    """
+    التحقق مما إذا كان المستخدم هو المدير المالي (أ. ابوالنصر البغدادي)
+    صلاحية حصرية لتعديل المصاريف والفواتير المعمدة
+    """
+    if user_id and cursor:
+        try:
+            cursor.execute('SELECT id, name, role, username FROM team_members WHERE id = ?', (user_id,))
+            u = cursor.fetchone()
+            if u:
+                r = (u['role'] or '').lower()
+                un = (u['username'] or '').lower()
+                nm = (u['name'] or '').lower()
+                if any(x in r for x in ['مدير مالي', 'المدير المالي', 'financial']) or un == 'baghdadi' or 'ابوالنصر' in nm or 'البغدادي' in nm or u['id'] == 1:
+                    return True
+                return False
+        except Exception:
+            pass
+
+    r_str = (user_role or '').lower()
+    n_str = (user_name or '').lower()
+    if any(x in r_str for x in ['مدير مالي', 'المدير المالي', 'financial']) or 'ابوالنصر' in n_str or 'baghdadi' in n_str or 'البغدادي' in n_str:
+        return True
+    return False
+
 # Initialize database
 database.init_db()
 
@@ -643,6 +668,44 @@ def get_project_details(project_id):
 
     conn.close()
     return jsonify(project_data)
+
+@app.route('/api/projects/<int:project_id>/phases-tree', methods=['GET'])
+def get_project_phases_tree(project_id):
+    """
+    استعلام فائق السرعة وخفيف جداً لجلب شجرة مراحل وبنود المشروع لمودال المصروفات
+    بدون أي حسابات مالية ثقيلة
+    """
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute('''
+        SELECT id, name, order_num 
+        FROM project_phases 
+        WHERE project_id = ? 
+        ORDER BY order_num ASC, id ASC
+    ''', (project_id,))
+    phases = [dict(r) for r in cursor.fetchall()]
+
+    cursor.execute('''
+        SELECT id, phase_id, title, item_code, cost_price 
+        FROM phase_items 
+        WHERE project_id = ? 
+        ORDER BY id ASC
+    ''', (project_id,))
+    items = [dict(r) for r in cursor.fetchall()]
+    conn.close()
+
+    items_by_phase = {}
+    for it in items:
+        pid = it['phase_id']
+        if pid not in items_by_phase:
+            items_by_phase[pid] = []
+        items_by_phase[pid].append(it)
+
+    for ph in phases:
+        ph['items'] = items_by_phase.get(ph['id'], [])
+
+    return jsonify({'phases': phases})
 
 @app.route('/api/projects', methods=['POST'])
 def create_project():
@@ -2023,8 +2086,16 @@ def update_expense(expense_id):
     if not existing:
         conn.close()
         return jsonify({'error': 'المصروف غير موجود'}), 404
-
     existing = dict(existing)
+
+    # Restriction: Approved expenses cannot be edited except by Financial Manager (المصاريف المعمدة لا يمكن تعديلها سوى من قبل المدير المالي)
+    if existing.get('approval_status') in ('approved', 'معتمد'):
+        user_id = data.get('user_id') or request.headers.get('X-User-Id') or request.args.get('user_id')
+        user_role = data.get('user_role') or request.headers.get('X-User-Role') or request.args.get('user_role', '')
+        user_name = data.get('user_name') or request.headers.get('X-User-Name') or request.args.get('user_name', '')
+        if not check_is_financial_manager(user_id=user_id, user_role=user_role, user_name=user_name, cursor=cursor):
+            conn.close()
+            return jsonify({'error': 'عفواً، هذا المصروف معتمد مالياً ولا يمكن تعديله إلا من قبل المدير المالي فقط.'}), 403
 
     project_id = data.get('project_id') or existing['project_id']
     title = data.get('title') or existing['title']
@@ -2387,6 +2458,16 @@ def transfer_expense_project(expense_id):
         return jsonify({'error': 'المصروف غير موجود'}), 404
 
     exp = dict(exp)
+
+    # Restriction: Approved expenses cannot be transferred except by Financial Manager
+    if exp.get('approval_status') in ('approved', 'معتمد'):
+        user_id = data.get('user_id') or request.headers.get('X-User-Id') or request.args.get('user_id')
+        user_role = data.get('user_role') or request.headers.get('X-User-Role') or request.args.get('user_role', '')
+        user_name = data.get('user_name') or request.headers.get('X-User-Name') or request.args.get('user_name', '')
+        if not check_is_financial_manager(user_id=user_id, user_role=user_role, user_name=user_name, cursor=cursor):
+            conn.close()
+            return jsonify({'error': 'عفواً، هذا المصروف معتمد مالياً ولا يمكن نقله أو تعديله إلا من قبل المدير المالي فقط.'}), 403
+
     old_project_id = exp['project_id']
     if old_project_id == new_project_id:
         conn.close()
@@ -2469,7 +2550,25 @@ def delete_expense(expense_id):
     amt = row[3]
     custody_id = row[4]
     approval_status = row[5] or 'approved'
-    is_approved = (approval_status == 'approved')
+    is_approved = (approval_status in ('approved', 'معتمد'))
+
+    # Restriction: Approved expenses cannot be deleted except by Financial Manager
+    if is_approved:
+        user_id = request.headers.get('X-User-Id') or request.args.get('user_id')
+        user_role = request.headers.get('X-User-Role') or request.args.get('user_role', '')
+        user_name = request.headers.get('X-User-Name') or request.args.get('user_name', '')
+        if not user_role and request.is_json:
+            bdata = request.json or {}
+            user_id = user_id or bdata.get('user_id')
+            user_role = user_role or bdata.get('user_role')
+            user_name = user_name or bdata.get('user_name')
+
+        if not check_is_financial_manager(user_id=user_id, user_role=user_role, user_name=user_name, cursor=cursor):
+            conn.close()
+            return jsonify({
+                'success': False,
+                'error': 'عفواً، هذا المصروف معتمد مالياً ولا يمكن حذفه إلا من قبل المدير المالي فقط.'
+            }), 403
 
     if file_path:
         local_p = os.path.join(BASE_DIR, file_path.lstrip('/'))

@@ -7357,24 +7357,75 @@ async function printSupplierStatement(supplierId) {
 }
 
 // ----------------- POPULATE DROPDOWNS -----------------
+let projectsQuickCache = null;
+async function getOrFetchProjects(forceRefresh = false) {
+    if (!forceRefresh && projectsQuickCache && projectsQuickCache.length > 0) {
+        return projectsQuickCache;
+    }
+    if (!forceRefresh && allProjectsList && allProjectsList.length > 0) {
+        projectsQuickCache = allProjectsList;
+        return projectsQuickCache;
+    }
+    try {
+        const res = await fetch('/api/projects/quick');
+        const data = await res.json();
+        const list = Array.isArray(data) ? data : (data.projects || []);
+        projectsQuickCache = list;
+        allProjectsList = list;
+        window.allProjectsList = list;
+        return list;
+    } catch (e) {
+        console.error('Error fetching quick projects:', e);
+        return allProjectsList || [];
+    }
+}
+
 async function loadProjectsDropdowns() {
     try {
-        const res = await fetch('/api/projects');
-        const projects = await res.json();
-        const selects = ['expense-project-id', 'transfer-exp-new-project-id', 'task-project-id', 'sub-project-id', 'sub-pay-project-id', 'doc-project-id', 'task-filter-project', 'expense-filter-project', 'rep-filter-project'];
+        const projects = await getOrFetchProjects();
+        const selects = [
+            'expense-project-id',
+            'transfer-exp-new-project-id',
+            'task-project-id',
+            'sub-project-id',
+            'sub-pay-project-id',
+            'doc-project-id',
+            'task-filter-project',
+            'expense-filter-project',
+            'rep-filter-project',
+            'custody-req-project',
+            'custody-project-filter'
+        ];
         const isEn = typeof currentLang !== 'undefined' && currentLang === 'en';
         
         selects.forEach(selId => {
             const sel = document.getElementById(selId);
             if (!sel) return;
             const isFilter = selId.includes('filter');
-            sel.innerHTML = isFilter ? `<option value="">${isEn ? 'All Company Projects' : 'جميع مشاريع الشركة'}</option>` : `<option value="">${isEn ? '-- Select Project --' : '-- اختر المشروع --'}</option>`;
-            projects.forEach(p => {
-                const opt = document.createElement('option');
-                opt.value = p.id;
-                opt.innerText = `${p.name} (${p.code || ''})`;
-                sel.appendChild(opt);
-            });
+            const isCustodyReq = selId === 'custody-req-project';
+
+            if (isFilter) {
+                let opts = `<option value="">${isEn ? 'All Company Projects' : 'جميع مشاريع الشركة'}</option>`;
+                if (selId === 'custody-project-filter') {
+                    opts += `<option value="general">مصروف عام / إداري (بدون مشروع)</option>`;
+                }
+                projects.forEach(p => {
+                    opts += `<option value="${p.id}">${escapeHtml(p.name)} (${p.code || 'PRJ'})</option>`;
+                });
+                sel.innerHTML = opts;
+            } else if (isCustodyReq) {
+                let opts = `<option value="">مصروف عام / إداري (بدون مشروع)</option>`;
+                projects.forEach(p => {
+                    opts += `<option value="${p.id}">${escapeHtml(p.name)} (${p.code || 'PRJ'})</option>`;
+                });
+                sel.innerHTML = opts;
+            } else {
+                let opts = `<option value="">${isEn ? '-- Select Project --' : '-- اختر المشروع --'}</option>`;
+                projects.forEach(p => {
+                    opts += `<option value="${p.id}">${escapeHtml(p.name)} (${p.code || ''})</option>`;
+                });
+                sel.innerHTML = opts;
+            }
         });
     } catch (err) {
         console.error('Error populating projects:', err);
@@ -12576,11 +12627,11 @@ async function loadCustody() {
     }
 }
 
-function populateCustodyProjectFilter() {
+async function populateCustodyProjectFilter() {
     const sel = document.getElementById('custody-project-filter');
     if (!sel) return;
     const currentVal = sel.value;
-    const projs = allProjectsList || [];
+    const projs = await getOrFetchProjects();
     let opts = '<option value="">جميع المشاريع</option>';
     opts += '<option value="general">مصروف عام / إداري (بدون مشروع)</option>';
     projs.forEach(p => {
@@ -12822,7 +12873,12 @@ function renderCustodyTable() {
     initLucide();
 }
 
-function initCustodyRequestModal() {
+function openNewCustodyRequestModal() {
+    openModal('custody-request-modal');
+    initCustodyRequestModal();
+}
+
+async function initCustodyRequestModal() {
     const editIdEl = document.getElementById('custody-req-edit-id');
     if (editIdEl) editIdEl.value = '';
     const titleEl = document.getElementById('custody-req-modal-title');
@@ -12848,8 +12904,9 @@ function initCustodyRequestModal() {
     if (fileInput) fileInput.value = '';
 
     if (projSelect) {
+        const projs = await getOrFetchProjects();
         let opts = '<option value="">مصروف عام / إداري (بدون مشروع)</option>';
-        (allProjectsList || []).forEach(p => {
+        projs.forEach(p => {
             opts += `<option value="${p.id}">${escapeHtml(p.name)} (${p.code || 'PRJ'})</option>`;
         });
         projSelect.innerHTML = opts;
@@ -12897,8 +12954,9 @@ async function openEditCustodyModal(id) {
     if (fileInput) fileInput.value = '';
 
     if (projSelect) {
+        const projs = await getOrFetchProjects();
         let opts = '<option value="">مصروف عام / إداري (بدون مشروع)</option>';
-        (allProjectsList || []).forEach(p => {
+        projs.forEach(p => {
             const isSel = (item.project_id && String(p.id) === String(item.project_id)) ? 'selected' : '';
             opts += `<option value="${p.id}" ${isSel}>${escapeHtml(p.name)} (${p.code || 'PRJ'})</option>`;
         });
@@ -13537,10 +13595,12 @@ function onExpenseCustodyChanged() {
         paidByInput.value = `${custody.employee_name} (من العهدة)`;
     }
 
-    // Auto-align project if project not selected yet
-    if (custody.project_id && projectSelect && (!projectSelect.value || projectSelect.value === '')) {
-        projectSelect.value = custody.project_id;
-        if (typeof onExpenseProjectChanged === 'function') onExpenseProjectChanged();
+    // Auto-align project if project not selected yet or matches custody
+    if (custody.project_id && projectSelect) {
+        if (!projectSelect.value || projectSelect.value === '' || String(projectSelect.value) !== String(custody.project_id)) {
+            projectSelect.value = custody.project_id;
+            loadPhasesForExpenseModal(custody.project_id);
+        }
     }
 
     // Check expense amount vs balance
@@ -13742,17 +13802,24 @@ async function deleteCustodyExpense(expenseId, custodyId, title, amount) {
     }
 }
 
-function openExpenseForCustody(custodyId = null) {
+async function openExpenseForCustody(custodyId = null) {
     const targetId = custodyId || currentViewedCustodyId;
     closeModal('custody-expenses-modal');
     openModal('expense-modal');
     resetExpenseModal();
     setExpenseFormMode('general');
     
+    // Ensure projects dropdown in expense modal is populated
+    await getOrFetchProjects();
+    const pSel = document.getElementById('expense-project-id');
+    if (pSel && pSel.options.length <= 1) {
+        await loadProjectsDropdowns();
+    }
+
     const paySelect = document.getElementById('expense-payment-method');
     if (paySelect) {
         paySelect.value = 'عهدة';
-        onExpensePaymentMethodChanged(targetId);
+        await onExpensePaymentMethodChanged(targetId);
     }
 }
 

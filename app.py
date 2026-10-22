@@ -707,6 +707,23 @@ def get_project_phases_tree(project_id):
 
     return jsonify({'phases': phases})
 
+@app.route('/api/projects/quick', methods=['GET'])
+def get_projects_quick():
+    """
+    استعلام خفيف وفائق السرعة لجلب قائمة المشاريع للقوائم المنسدلة (Dropdowns) والعهد
+    بدون أي استعلامات فرعية ثقيلة لحساب التكاليف والمهام
+    """
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT id, name, code, client_name, status 
+        FROM projects 
+        ORDER BY id DESC
+    ''')
+    projects = [dict(r) for r in cursor.fetchall()]
+    conn.close()
+    return jsonify({'projects': projects, 'success': True})
+
 @app.route('/api/projects', methods=['POST'])
 def create_project():
     data = request.json or {}

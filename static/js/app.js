@@ -2596,6 +2596,12 @@ async function deleteExpense(expenseId) {
             if (typeof currentSelectedSupplierDetailId !== 'undefined' && currentSelectedSupplierDetailId) {
                 openSupplierDetailModal(currentSelectedSupplierDetailId);
             }
+            if (typeof currentPhaseExpensesContext !== 'undefined' && currentPhaseExpensesContext && currentPhaseExpensesContext.phaseId) {
+                const pModal = document.getElementById('phase-expenses-modal');
+                if (pModal && !pModal.classList.contains('hidden')) {
+                    openPhaseExpensesModal(currentPhaseExpensesContext.phaseId, currentPhaseExpensesContext.phaseName, currentPhaseExpensesContext.projectId);
+                }
+            }
         } else {
             showToast(data.error || 'تعذر حذف المصروف', 'error');
         }
@@ -3670,6 +3676,12 @@ async function submitExpenseForm(e) {
                     viewCustodyExpenses(currentViewedCustodyId);
                 }
             }
+            if (typeof currentPhaseExpensesContext !== 'undefined' && currentPhaseExpensesContext && currentPhaseExpensesContext.phaseId) {
+                const pModal = document.getElementById('phase-expenses-modal');
+                if (pModal && !pModal.classList.contains('hidden')) {
+                    openPhaseExpensesModal(currentPhaseExpensesContext.phaseId, currentPhaseExpensesContext.phaseName, currentPhaseExpensesContext.projectId);
+                }
+            }
             if (typeof loadCustody === 'function') loadCustody();
         } else {
             showToast((data && data.error) || 'حدث خطأ أثناء الحفظ', 'error');
@@ -3757,8 +3769,8 @@ function markRemoveInvoiceFile() {
 
 async function openEditExpenseModal(expenseId) {
     // 1. Immediate permission check if expense is already in memory
-    const inMemExp = (typeof allLoadedExpensesList !== 'undefined' && allLoadedExpensesList ? allLoadedExpensesList.find(x => x.id === expenseId) : null)
-                  || (typeof currentPhaseExpensesList !== 'undefined' && currentPhaseExpensesList ? currentPhaseExpensesList.find(x => x.id === expenseId) : null);
+    const inMemExp = (typeof allLoadedExpensesList !== 'undefined' && allLoadedExpensesList ? allLoadedExpensesList.find(x => String(x.id) === String(expenseId)) : null)
+                  || (typeof currentPhaseExpensesList !== 'undefined' && currentPhaseExpensesList ? currentPhaseExpensesList.find(x => String(x.id) === String(expenseId)) : null);
 
     if (inMemExp && (inMemExp.approval_status === 'approved' || inMemExp.approval_status === 'معتمد') && !isFinancialManagerUser()) {
         showToast('عفواً، هذا المصروف معتمد ومقيد مالياً، ولا يمكن تعديله إلا من قبل المدير المالي (أ. ابوالنصر البغدادي) فقط.', 'error');
@@ -3767,13 +3779,15 @@ async function openEditExpenseModal(expenseId) {
 
     // 2. Open modal immediately for instant visual response
     resetExpenseModal();
-    openModal('expense-modal');
-    document.getElementById('expense-edit-id').value = expenseId;
-    document.getElementById('expense-remove-file').value = '0';
+    const editIdInput = document.getElementById('expense-edit-id');
+    if (editIdInput) editIdInput.value = expenseId;
+    const remFileInput = document.getElementById('expense-remove-file');
+    if (remFileInput) remFileInput.value = '0';
     const titleEl = document.getElementById('expense-modal-title');
     if (titleEl) titleEl.innerText = `تعديل بيانات المصروف / الفاتورة #${expenseId}`;
     const btnTextEl = document.getElementById('expense-btn-submit-text');
     if (btnTextEl) btnTextEl.innerText = 'تحديث وحفظ التعديلات';
+    openModal('expense-modal');
 
     try {
         const res = await fetch(`/api/expenses/${expenseId}`);
@@ -3793,11 +3807,14 @@ async function openEditExpenseModal(expenseId) {
         }
 
         const projSelect = document.getElementById('expense-project-id');
+        if (projSelect && projSelect.options.length <= 1 && typeof loadProjectsDropdowns === 'function') {
+            await loadProjectsDropdowns();
+        }
         if (projSelect) projSelect.value = exp.project_id || '';
 
         await loadPhasesForExpenseModal(exp.project_id, exp.phase_id);
         if (exp.phase_id) {
-            loadItemsForExpenseModal(exp.phase_id, exp.item_id);
+            await loadItemsForExpenseModal(exp.phase_id, exp.item_id);
         }
 
         if (exp.supplier_id) {
@@ -5807,6 +5824,11 @@ function renderPhaseExpensesRows(list) {
                             <button type="button" onclick="openEditExpenseModal(${exp.id})" class="p-1 rounded text-slate-400 hover:text-white hover:bg-slate-750 transition" title="تعديل المصروف">
                                 <i data-lucide="edit-3" class="w-3.5 h-3.5"></i>
                             </button>
+                            ${isFinancialManagerUser() ? `
+                                <button type="button" onclick="deleteExpense(${exp.id})" class="p-1 rounded text-rose-400 hover:text-rose-200 hover:bg-rose-950/50 transition" title="حذف المصروف نهائياً">
+                                    <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                                </button>
+                            ` : ''}
                         `}
                     </div>
                 </td>
@@ -5823,7 +5845,6 @@ function openAddExpenseForCurrentPhase() {
         return;
     }
     const { phaseId, projectId } = currentPhaseExpensesContext;
-    closeModal('phase-expenses-modal');
     openAddExpenseForItem(null, phaseId, projectId);
 }
 

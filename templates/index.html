@@ -3485,7 +3485,7 @@
     </div>
 
     <!-- 1. EXPENSE & INVOICE MODAL -->
-    <div id="expense-modal" class="modal-overlay hidden fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+    <div id="expense-modal" class="modal-overlay hidden fixed inset-0 z-[70] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
         <div class="bg-slate-850 rounded-2xl border border-slate-750 w-full max-w-xl shadow-2xl p-6 space-y-5 animate-scaleUp overflow-y-auto max-h-[90vh]">
             <div class="flex items-center justify-between pb-3 border-b border-slate-750">
                 <div class="flex items-center gap-2.5">
@@ -3916,7 +3916,7 @@
     </div>
 
     <!-- 1B. TRANSFER EXPENSE MODAL (نقل مصروف لمشروع آخر) -->
-    <div id="transfer-expense-modal" class="modal-overlay hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+    <div id="transfer-expense-modal" class="modal-overlay hidden fixed inset-0 z-[75] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
         <div class="bg-slate-850 rounded-2xl border border-slate-750 w-full max-w-lg shadow-2xl p-6 space-y-5 animate-scaleUp">
             <div class="flex items-center justify-between pb-3 border-b border-slate-750">
                 <div class="flex items-center gap-2.5">
@@ -3991,7 +3991,7 @@
     </div>
 
     <!-- 2. TASK MODAL (إسناد ومتابعة مهمة) -->
-    <div id="task-modal" class="modal-overlay hidden fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+    <div id="task-modal" class="modal-overlay hidden fixed inset-0 z-[70] bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
         <div class="bg-slate-850 rounded-2xl border border-slate-750 w-full max-w-xl shadow-2xl p-6 space-y-5 animate-scaleUp overflow-y-auto max-h-[90vh]">
             <div class="flex items-center justify-between pb-3 border-b border-slate-750">
                 <div class="flex items-center gap-2.5">
@@ -4787,7 +4787,7 @@
     </div>
 
     <!-- PHASE MODAL (إضافة وتعديل مرحلة) -->
-    <div id="phase-modal" class="modal-overlay hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+    <div id="phase-modal" class="modal-overlay hidden fixed inset-0 z-[70] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
         <div class="bg-slate-850 rounded-2xl border border-slate-750 w-full max-w-lg shadow-2xl p-6 space-y-4 animate-scaleUp">
             <div class="flex items-center justify-between pb-3 border-b border-slate-750">
                 <div class="flex items-center gap-2">
@@ -4860,7 +4860,7 @@
     </div>
 
     <!-- ITEM MODAL (إضافة وتعديل بند للمرحلة) -->
-    <div id="item-modal" class="modal-overlay hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+    <div id="item-modal" class="modal-overlay hidden fixed inset-0 z-[70] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
         <div class="bg-slate-850 rounded-2xl border border-slate-750 w-full max-w-lg shadow-2xl p-6 space-y-4 animate-scaleUp">
             <div class="flex items-center justify-between pb-3 border-b border-slate-750">
                 <div class="flex items-center gap-2">
@@ -6160,7 +6160,7 @@
     </div>
 
     <!-- 8. INVOICE IMAGE/PDF VIEWER LIGHTBOX -->
-    <div id="lightbox-modal" class="modal-overlay hidden fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex items-center justify-center p-4" onclick="closeModal('lightbox-modal')">
+    <div id="lightbox-modal" class="modal-overlay hidden fixed inset-0 z-[90] bg-black/90 backdrop-blur-md flex items-center justify-center p-4" onclick="closeModal('lightbox-modal')">
         <div class="relative max-w-4xl max-h-[90vh] bg-slate-900 border border-slate-700 rounded-2xl p-4 shadow-2xl flex flex-col" onclick="event.stopPropagation()">
             <div class="flex items-center justify-between pb-3 border-b border-slate-800">
                 <span id="lightbox-title" class="font-bold text-sm text-slate-200 truncate"></span>
@@ -7087,7 +7087,7 @@
     </div>
 
     <!-- Phase Expenses Statement Modal (كشف مصروفات المرحلة) -->
-    <div id="phase-expenses-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/80 backdrop-blur-sm animate-fadeIn">
+    <div id="phase-expenses-modal" class="hidden fixed inset-0 z-[60] flex items-center justify-center p-3 sm:p-4 bg-slate-950/80 backdrop-blur-sm animate-fadeIn">
         <div class="bg-slate-850 border border-slate-750 w-full max-w-5xl max-h-[92vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden">
             <!-- Modal Header -->
             <div class="p-4 sm:p-5 border-b border-slate-750 flex items-center justify-between bg-slate-900/60 shrink-0">
@@ -7223,7 +7223,7 @@
 
     <!-- Scripts -->
     <script src="/static/js/i18n.js?v=20261020_v1"></script>
-    <script src="/static/js/app.js?v=20261022_v7"></script>
+    <script src="/static/js/app.js?v=20261022_v8"></script>
     <script>
     (function() {
         try {

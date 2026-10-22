@@ -127,10 +127,23 @@ document.addEventListener('DOMContentLoaded', () => {
     if (subPayDateEl) subPayDateEl.value = today;
 });
 
-function initLucide() {
-    if (window.lucide) {
-        lucide.createIcons();
+let _lucideBatchScheduled = false;
+function initLucide(rootElement) {
+    if (!window.lucide) return;
+    if (rootElement && rootElement.querySelectorAll) {
+        try {
+            lucide.createIcons({ root: rootElement });
+            return;
+        } catch(e) {}
     }
+    if (_lucideBatchScheduled) return;
+    _lucideBatchScheduled = true;
+    requestAnimationFrame(() => {
+        _lucideBatchScheduled = false;
+        try {
+            lucide.createIcons();
+        } catch(e) {}
+    });
 }
 
 // ----------------- TAB NAVIGATION -----------------
@@ -188,23 +201,31 @@ function switchTab(tabId) {
         mobileTabs[idx].classList.add('bg-emerald-600', 'text-white');
     }
 
-    // Trigger tab-specific data load
-    if (tabId === 'dashboard') loadDashboard();
-    else if (tabId === 'projects') loadProjects();
-    else if (tabId === 'tasks') loadTasks();
-    else if (tabId === 'expenses') {
-        loadExpenses();
-        if (typeof loadExpenseRequests === 'function') loadExpenseRequests();
+    // Trigger tab-specific data load with instant switch for recently loaded tabs
+    window._tabLastLoadTimes = window._tabLastLoadTimes || {};
+    const now = Date.now();
+    const lastLoad = window._tabLastLoadTimes[tabId] || 0;
+    const isRecent = (now - lastLoad) < 20000;
+
+    if (!isRecent) {
+        window._tabLastLoadTimes[tabId] = now;
+        if (tabId === 'dashboard') loadDashboard();
+        else if (tabId === 'projects') loadProjects();
+        else if (tabId === 'tasks') loadTasks();
+        else if (tabId === 'expenses') {
+            loadExpenses();
+            if (typeof loadExpenseRequests === 'function') loadExpenseRequests();
+        }
+        else if (tabId === 'suppliers') loadSuppliersData();
+        else if (tabId === 'cashflow') loadCashFlow();
+        else if (tabId === 'subcontractors') loadSubcontractors();
+        else if (tabId === 'custody') loadCustody();
+        else if (tabId === 'documents') loadDocuments();
+        else if (tabId === 'reports') loadDetailedReports();
+        else if (tabId === 'chat') initChatTab();
+        else if (tabId === 'team') loadTeamManagement();
+        else if (tabId === 'hr') loadHrData();
     }
-    else if (tabId === 'suppliers') loadSuppliersData();
-    else if (tabId === 'cashflow') loadCashFlow();
-    else if (tabId === 'subcontractors') loadSubcontractors();
-    else if (tabId === 'custody') loadCustody();
-    else if (tabId === 'documents') loadDocuments();
-    else if (tabId === 'reports') loadDetailedReports();
-    else if (tabId === 'chat') initChatTab();
-    else if (tabId === 'team') loadTeamManagement();
-    else if (tabId === 'hr') loadHrData();
 
     initLucide();
 }
@@ -1093,9 +1114,13 @@ async function loadDashboardWidgets() {
 
 // ----------------- PROJECTS TAB -----------------
 async function loadProjects() {
+    if (allProjectsList && allProjectsList.length > 0) {
+        renderProjectsGrid(allProjectsList);
+    }
     try {
         const res = await fetch('/api/projects');
         allProjectsList = await res.json();
+        window.allProjectsList = allProjectsList;
         renderProjectsGrid(allProjectsList);
     } catch (err) {
         console.error('Error loading projects:', err);
@@ -2186,21 +2211,95 @@ function renderExpensesTable(expenses) {
 }
 
 // ----------------- ASSIGN EXPENSE PAYER MODAL FUNCTIONS -----------------
+function populateAssignPayerModalData(exp) {
+    if (!exp) return;
+    const expIdEl = document.getElementById('assign-payer-expense-id');
+    if (expIdEl) expIdEl.value = exp.id;
+    const invIdEl = document.getElementById('assign-payer-inv-id');
+    if (invIdEl) invIdEl.innerText = `#${exp.id}`;
+    const prjEl = document.getElementById('assign-payer-inv-project');
+    if (prjEl) prjEl.innerText = exp.project_name || 'عام';
+    const titleEl = document.getElementById('assign-payer-inv-title');
+    if (titleEl) titleEl.innerText = exp.title || '-';
+    const catEl = document.getElementById('assign-payer-inv-cat');
+    if (catEl) catEl.innerText = exp.category || '-';
+    const amtEl = document.getElementById('assign-payer-inv-amount');
+    if (amtEl) amtEl.innerText = formatCurrency(exp.amount || 0);
+
+    const select = document.getElementById('assign-payer-member-select');
+    if (select) {
+        select.innerHTML = '';
+        const optDefault = document.createElement('option');
+        optDefault.value = '';
+        optDefault.innerText = '-- اختر المسؤول المكلف بالسداد --';
+        select.appendChild(optDefault);
+
+        if (Array.isArray(allTeamMembers) && allTeamMembers.length > 0) {
+            allTeamMembers.forEach(m => {
+                const opt = document.createElement('option');
+                opt.value = m.name;
+                opt.dataset.id = m.id;
+                opt.dataset.name = m.name;
+                opt.innerText = `👤 ${m.name} (${m.role || 'عضو فريق'})`;
+                if (exp.assigned_disburser_name && exp.assigned_disburser_name === m.name) {
+                    opt.selected = true;
+                } else if (!exp.assigned_disburser_name && exp.paid_by && exp.paid_by.includes(m.name)) {
+                    opt.selected = true;
+                }
+                select.appendChild(opt);
+            });
+        }
+
+        const optCustom = document.createElement('option');
+        optCustom.value = '__custom__';
+        optCustom.innerText = '✏️ جهة أخرى / كتابة اسم مخصص...';
+        if (exp.assigned_disburser_name && !Array.from(select.options).some(o => o.value === exp.assigned_disburser_name)) {
+            optCustom.selected = true;
+        }
+        select.appendChild(optCustom);
+    }
+
+    onAssignPayerMemberChange();
+
+    const methodSelect = document.getElementById('assign-payer-payment-method');
+    if (methodSelect) {
+        methodSelect.value = exp.payment_method || 'عهدة شخصية';
+    }
+
+    const statusSelect = document.getElementById('assign-payer-status-select');
+    if (statusSelect) {
+        statusSelect.value = exp.payment_status || 'unpaid';
+    }
+    onAssignPayerStatusSelectChange();
+
+    const dateInput = document.getElementById('assign-payer-payment-date');
+    if (dateInput) {
+        dateInput.value = exp.payment_date || new Date().toISOString().split('T')[0];
+    }
+
+    const notesInput = document.getElementById('assign-payer-notes-input');
+    if (notesInput) {
+        notesInput.value = '';
+    }
+}
+
 async function openAssignExpensePayerModal(expenseId) {
     if (!isFinancialManagerUser()) {
         showToast('عفواً، صلاحية تكليف وتوجيه سداد المصروفات والفواتير مقتصرة حصرياً على المدير المالي (أ. ابوالنصر البغدادي).', 'error');
         return;
     }
 
-    try {
-        const res = await fetch(`/api/expenses/${expenseId}`);
-        const data = await res.json();
-        if (!data.success || !data.expense) {
-            showToast('تعذر تحميل بيانات الفاتورة', 'error');
-            return;
-        }
-        const exp = data.expense;
+    // 1. Instant check in memory
+    const inMemExp = (typeof allLoadedExpensesList !== 'undefined' && allLoadedExpensesList ? allLoadedExpensesList.find(x => x.id === expenseId) : null)
+                  || (typeof currentPhaseExpensesList !== 'undefined' && currentPhaseExpensesList ? currentPhaseExpensesList.find(x => x.id === expenseId) : null);
 
+    if (inMemExp) {
+        populateAssignPayerModalData(inMemExp);
+        openModal('expense-assign-payer-modal');
+        initLucide();
+    }
+
+    try {
         // Ensure team members are loaded
         if (!Array.isArray(allTeamMembers) || allTeamMembers.length === 0) {
             try {
@@ -2211,79 +2310,19 @@ async function openAssignExpensePayerModal(expenseId) {
             }
         }
 
-        document.getElementById('assign-payer-expense-id').value = exp.id;
-        document.getElementById('assign-payer-inv-id').innerText = `#${exp.id}`;
-        document.getElementById('assign-payer-inv-project').innerText = exp.project_name || 'عام';
-        document.getElementById('assign-payer-inv-title').innerText = exp.title || '-';
-        document.getElementById('assign-payer-inv-cat').innerText = exp.category || '-';
-        document.getElementById('assign-payer-inv-amount').innerText = formatCurrency(exp.amount || 0);
-
-        // Populate team members select
-        const select = document.getElementById('assign-payer-member-select');
-        if (select) {
-            select.innerHTML = '';
-            
-            const optDefault = document.createElement('option');
-            optDefault.value = '';
-            optDefault.innerText = '-- اختر المسؤول المكلف بالسداد --';
-            select.appendChild(optDefault);
-
-            if (Array.isArray(allTeamMembers) && allTeamMembers.length > 0) {
-                allTeamMembers.forEach(m => {
-                    const opt = document.createElement('option');
-                    opt.value = m.name;
-                    opt.dataset.id = m.id;
-                    opt.dataset.name = m.name;
-                    opt.innerText = `👤 ${m.name} (${m.role || 'عضو فريق'})`;
-                    
-                    if (exp.assigned_disburser_name && exp.assigned_disburser_name === m.name) {
-                        opt.selected = true;
-                    } else if (!exp.assigned_disburser_name && exp.paid_by && exp.paid_by.includes(m.name)) {
-                        opt.selected = true;
-                    }
-                    select.appendChild(opt);
-                });
-            }
-
-            const optCustom = document.createElement('option');
-            optCustom.value = '__custom__';
-            optCustom.innerText = '✏️ جهة أخرى / كتابة اسم مخصص...';
-            if (exp.assigned_disburser_name && !Array.from(select.options).some(o => o.value === exp.assigned_disburser_name)) {
-                optCustom.selected = true;
-            }
-            select.appendChild(optCustom);
+        const res = await fetch(`/api/expenses/${expenseId}`);
+        const data = await res.json();
+        if (!data.success || !data.expense) {
+            if (!inMemExp) showToast('تعذر تحميل بيانات الفاتورة', 'error');
+            return;
         }
-
-        onAssignPayerMemberChange();
-
-        // Payment Method
-        const methodSelect = document.getElementById('assign-payer-payment-method');
-        if (methodSelect) {
-            methodSelect.value = exp.payment_method || 'عهدة شخصية';
-        }
-
-        // Status
-        const statusSelect = document.getElementById('assign-payer-status-select');
-        if (statusSelect) {
-            statusSelect.value = exp.payment_status || 'unpaid';
-        }
-        onAssignPayerStatusSelectChange();
-
-        const dateInput = document.getElementById('assign-payer-payment-date');
-        if (dateInput) {
-            dateInput.value = exp.payment_date || new Date().toISOString().split('T')[0];
-        }
-
-        const notesInput = document.getElementById('assign-payer-notes-input');
-        if (notesInput) {
-            notesInput.value = '';
-        }
-
+        const exp = data.expense;
+        populateAssignPayerModalData(exp);
         openModal('expense-assign-payer-modal');
         initLucide();
     } catch (err) {
         console.error('Error opening assign payer modal:', err);
-        showToast('حدث خطأ في تحميل الفاتورة', 'error');
+        if (!inMemExp) showToast('حدث خطأ في تحميل بيانات الفاتورة', 'error');
     }
 }
 
@@ -2407,54 +2446,67 @@ function canDisburseThisExpense(e) {
     return isAssigned || isFin;
 }
 
+function populateDisburseModalData(exp) {
+    if (!exp) return;
+    const idInput = document.getElementById('disburse-expense-id');
+    if (idInput) idInput.value = exp.id;
+
+    const titleDisplay = document.getElementById('disburse-expense-title-display');
+    if (titleDisplay) titleDisplay.textContent = exp.title || '-';
+
+    const projectDisplay = document.getElementById('disburse-expense-project-display');
+    if (projectDisplay) projectDisplay.textContent = exp.project_name || '-';
+
+    const amountDisplay = document.getElementById('disburse-expense-amount-display');
+    if (amountDisplay) amountDisplay.textContent = `${formatCurrency(exp.amount)} ر.س`;
+
+    const assignedDisplay = document.getElementById('disburse-expense-assigned-display');
+    if (assignedDisplay) assignedDisplay.textContent = exp.assigned_disburser_name || 'غير محدد';
+
+    const dateInput = document.getElementById('disburse-expense-date-input');
+    if (dateInput) dateInput.value = new Date().toISOString().split('T')[0];
+
+    const methodSelect = document.getElementById('disburse-expense-method-select');
+    if (methodSelect) {
+        if (exp.payment_method && exp.payment_method !== 'آجل') {
+            methodSelect.value = exp.payment_method;
+        } else {
+            methodSelect.value = 'عهدة شخصية للمسؤول';
+        }
+    }
+
+    const notesInput = document.getElementById('disburse-expense-notes-input');
+    if (notesInput) notesInput.value = '';
+
+    const receiptInput = document.getElementById('disburse-expense-receipt-file');
+    if (receiptInput) receiptInput.value = '';
+}
+
 async function openDisburseExpenseModal(expenseId) {
+    // 1. Instant open if in memory
+    const inMemExp = (typeof allLoadedExpensesList !== 'undefined' && allLoadedExpensesList ? allLoadedExpensesList.find(x => x.id === expenseId) : null)
+                  || (typeof currentPhaseExpensesList !== 'undefined' && currentPhaseExpensesList ? currentPhaseExpensesList.find(x => x.id === expenseId) : null);
+
+    if (inMemExp) {
+        populateDisburseModalData(inMemExp);
+        openModal('expense-disburse-modal');
+        initLucide();
+    }
+
     try {
         const res = await fetch(`/api/expenses/${expenseId}`);
         const data = await res.json();
         if (!data.success || !data.expense) {
-            showToast('تعذر تحميل بيانات الفاتورة', 'error');
+            if (!inMemExp) showToast('تعذر تحميل بيانات الفاتورة', 'error');
             return;
         }
         const exp = data.expense;
-
-        const idInput = document.getElementById('disburse-expense-id');
-        if (idInput) idInput.value = exp.id;
-
-        const titleDisplay = document.getElementById('disburse-expense-title-display');
-        if (titleDisplay) titleDisplay.textContent = exp.title || '-';
-
-        const projectDisplay = document.getElementById('disburse-expense-project-display');
-        if (projectDisplay) projectDisplay.textContent = exp.project_name || '-';
-
-        const amountDisplay = document.getElementById('disburse-expense-amount-display');
-        if (amountDisplay) amountDisplay.textContent = `${formatCurrency(exp.amount)} ر.س`;
-
-        const assignedDisplay = document.getElementById('disburse-expense-assigned-display');
-        if (assignedDisplay) assignedDisplay.textContent = exp.assigned_disburser_name || 'غير محدد';
-
-        const dateInput = document.getElementById('disburse-expense-date-input');
-        if (dateInput) dateInput.value = new Date().toISOString().split('T')[0];
-
-        const methodSelect = document.getElementById('disburse-expense-method-select');
-        if (methodSelect) {
-            if (exp.payment_method && exp.payment_method !== 'آجل') {
-                methodSelect.value = exp.payment_method;
-            } else {
-                methodSelect.value = 'عهدة شخصية للمسؤول';
-            }
-        }
-
-        const notesInput = document.getElementById('disburse-expense-notes-input');
-        if (notesInput) notesInput.value = '';
-
-        const receiptInput = document.getElementById('disburse-expense-receipt-file');
-        if (receiptInput) receiptInput.value = '';
-
+        populateDisburseModalData(exp);
         openModal('expense-disburse-modal');
         initLucide();
     } catch (err) {
         console.error('Error opening disburse modal:', err);
-        showToast('حدث خطأ في تحميل بيانات الفاتورة', 'error');
+        if (!inMemExp) showToast('حدث خطأ في تحميل بيانات الفاتورة', 'error');
     }
 }
 
@@ -2893,6 +2945,18 @@ async function openSubPaymentModal(subId, subName, defaultProjectId) {
 let currentStatementData = null;
 
 async function openSubcontractorStatementModal(subId) {
+    const container = document.getElementById('sub-statement-content');
+    if (container) {
+        container.innerHTML = `
+            <div class="p-12 text-center text-slate-400 flex flex-col items-center justify-center gap-3">
+                <div class="w-8 h-8 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
+                <span class="text-xs font-bold text-slate-300">جاري إعداد وتحميل كشف حساب المقاول...</span>
+            </div>
+        `;
+    }
+    openModal('subcontractor-statement-modal');
+    initLucide();
+
     try {
         const res = await fetch(`/api/subcontractors/${subId}/statement`);
         const data = await res.json();
@@ -3856,56 +3920,80 @@ async function openEditExpenseModal(expenseId) {
 // ----------------- EXPENSE PROJECT TRANSFER -----------------
 let currentTransferExpenseData = null;
 
+function populateTransferModalData(exp) {
+    if (!exp) return;
+    currentTransferExpenseData = exp;
+    const expIdEl = document.getElementById('transfer-exp-id');
+    if (expIdEl) expIdEl.value = exp.id;
+    const titleEl = document.getElementById('transfer-exp-title');
+    if (titleEl) titleEl.innerText = exp.title || `مصروف #${exp.id}`;
+    const amtEl = document.getElementById('transfer-exp-amount');
+    if (amtEl) amtEl.innerText = formatCurrency(exp.amount || 0);
+    const curPrjEl = document.getElementById('transfer-exp-current-project');
+    if (curPrjEl) curPrjEl.innerText = exp.project_name ? `${exp.project_name} (${exp.project_code || '#' + exp.project_id})` : `مشروع #${exp.project_id}`;
+    const notesEl = document.getElementById('transfer-exp-notes');
+    if (notesEl) notesEl.value = '';
+
+    // Populate and select projects
+    const sel = document.getElementById('transfer-exp-new-project-id');
+    if (sel) {
+        sel.innerHTML = '<option value="">-- اختر المشروع الجديد المحول إليه --</option>';
+        const projs = (allProjectsList && allProjectsList.length > 0) ? allProjectsList : (projectsQuickCache || []);
+        projs.forEach(p => {
+            const opt = document.createElement('option');
+            opt.value = p.id;
+            opt.innerText = `${p.name} (${p.code || '#' + p.id})`;
+            if (p.id == exp.project_id) {
+                opt.disabled = true;
+                opt.innerText += ' [المشروع الحالي]';
+            }
+            sel.appendChild(opt);
+        });
+    }
+
+    // Reset phases & items dropdown
+    const phaseSel = document.getElementById('transfer-exp-phase-id');
+    if (phaseSel) phaseSel.innerHTML = '<option value="">-- عام للمشروع (بدون مرحلة) --</option>';
+    const itemSel = document.getElementById('transfer-exp-item-id');
+    if (itemSel) itemSel.innerHTML = '<option value="">-- عام للمرحلة --</option>';
+}
+
 async function openTransferExpenseModal(expenseId) {
+    // 1. Instant check in memory
+    const inMemExp = (typeof allLoadedExpensesList !== 'undefined' && allLoadedExpensesList ? allLoadedExpensesList.find(x => x.id === expenseId) : null)
+                  || (typeof currentPhaseExpensesList !== 'undefined' && currentPhaseExpensesList ? currentPhaseExpensesList.find(x => x.id === expenseId) : null);
+
+    if (inMemExp) {
+        if ((inMemExp.approval_status === 'approved' || inMemExp.approval_status === 'معتمد') && !isFinancialManagerUser()) {
+            showToast('عفواً، هذا المصروف معتمد ومقيد مالياً، ونقله أو تعديله متاح للمدير المالي (أ. ابوالنصر البغدادي) فقط.', 'error');
+            return;
+        }
+        populateTransferModalData(inMemExp);
+        openModal('transfer-expense-modal');
+        initLucide();
+    }
+
     try {
         const res = await fetch(`/api/expenses/${expenseId}`);
         const data = await res.json();
         if (!data.success || !data.expense) {
-            showToast('تعذر العثور على بيانات المصروف', 'error');
+            if (!inMemExp) showToast('تعذر العثور على بيانات المصروف', 'error');
             return;
         }
 
         const exp = data.expense;
         if ((exp.approval_status === 'approved' || exp.approval_status === 'معتمد') && !isFinancialManagerUser()) {
+            if (inMemExp) closeModal('transfer-expense-modal');
             showToast('عفواً، هذا المصروف معتمد ومقيد مالياً، ونقله أو تعديله متاح للمدير المالي (أ. ابوالنصر البغدادي) فقط.', 'error');
             return;
         }
-        currentTransferExpenseData = exp;
 
-        document.getElementById('transfer-exp-id').value = exp.id;
-        document.getElementById('transfer-exp-title').innerText = exp.title || `مصروف #${exp.id}`;
-        document.getElementById('transfer-exp-amount').innerText = formatCurrency(exp.amount);
-        document.getElementById('transfer-exp-current-project').innerText = exp.project_name ? `${exp.project_name} (${exp.project_code || '#' + exp.project_id})` : `مشروع #${exp.project_id}`;
-        document.getElementById('transfer-exp-notes').value = '';
-
-        // Populate and select projects
-        const sel = document.getElementById('transfer-exp-new-project-id');
-        if (sel) {
-            sel.innerHTML = '<option value="">-- اختر المشروع الجديد المحول إليه --</option>';
-            const projs = (allProjectsList && allProjectsList.length > 0) ? allProjectsList : await (await fetch('/api/projects')).json();
-            projs.forEach(p => {
-                const opt = document.createElement('option');
-                opt.value = p.id;
-                opt.innerText = `${p.name} (${p.code || '#' + p.id})`;
-                if (p.id == exp.project_id) {
-                    opt.disabled = true;
-                    opt.innerText += ' [المشروع الحالي]';
-                }
-                sel.appendChild(opt);
-            });
-        }
-
-        // Reset phases & items dropdown
-        const phaseSel = document.getElementById('transfer-exp-phase-id');
-        if (phaseSel) phaseSel.innerHTML = '<option value="">-- عام للمشروع (بدون مرحلة) --</option>';
-        const itemSel = document.getElementById('transfer-exp-item-id');
-        if (itemSel) itemSel.innerHTML = '<option value="">-- عام للمرحلة --</option>';
-
+        populateTransferModalData(exp);
         openModal('transfer-expense-modal');
         initLucide();
     } catch (err) {
         console.error('Error opening transfer expense modal:', err);
-        showToast('حدث خطأ أثناء فتح نافذة نقل المصروف', 'error');
+        if (!inMemExp) showToast('حدث خطأ أثناء فتح نافذة نقل المصروف', 'error');
     }
 }
 
@@ -4102,61 +4190,85 @@ function openProjectModal() {
     initLucide();
 }
 
+function populateProjectModalFormData(p) {
+    if (!p) return;
+    const editIdInput = document.getElementById('project-edit-id');
+    if (editIdInput) editIdInput.value = p.id;
+
+    const titleEl = document.getElementById('project-modal-title');
+    if (titleEl) titleEl.innerText = `تعديل بيانات المشروع: ${p.name || ''}`;
+
+    const submitBtn = document.getElementById('project-modal-submit-text');
+    if (submitBtn) submitBtn.innerText = 'حفظ التعديلات';
+
+    const nameEl = document.getElementById('project-name');
+    if (nameEl) nameEl.value = p.name || '';
+    const codeInput = document.getElementById('project-code');
+    if (codeInput) codeInput.value = p.code || '';
+    const clientEl = document.getElementById('project-client');
+    if (clientEl) clientEl.value = p.client_name || '';
+    const locEl = document.getElementById('project-location');
+    if (locEl) locEl.value = p.location || '';
+    const cvEl = document.getElementById('project-contract-value');
+    if (cvEl) cvEl.value = p.contract_value || 0;
+    const mgrEl = document.getElementById('project-manager');
+    if (mgrEl) mgrEl.value = p.manager_name || '';
+    
+    const statusEl = document.getElementById('project-status');
+    if (statusEl) statusEl.value = p.status || 'in_progress';
+
+    const progEl = document.getElementById('project-progress');
+    if (progEl) progEl.value = p.progress_percent !== undefined ? p.progress_percent : 0;
+
+    const startEl = document.getElementById('project-start-date');
+    if (startEl) startEl.value = p.start_date || '';
+    const endEl = document.getElementById('project-end-date');
+    if (endEl) endEl.value = p.end_date || '';
+    const notesEl = document.getElementById('project-notes');
+    if (notesEl) notesEl.value = p.notes || '';
+
+    if (p.budget_mode === 'manual') {
+        const pmodeMan = document.getElementById('pmode-manual');
+        if (pmodeMan) pmodeMan.checked = true;
+    } else {
+        const pmodeBoq = document.getElementById('pmode-boq');
+        if (pmodeBoq) pmodeBoq.checked = true;
+    }
+    const manRemInput = document.getElementById('project-manual-remaining');
+    if (manRemInput) {
+        manRemInput.value = (p.manual_remaining_budget !== null && p.manual_remaining_budget !== undefined) ? p.manual_remaining_budget : '';
+    }
+    toggleProjectModalManualInput();
+}
+
 async function openEditProjectModal(projectId) {
     resetProjectModal();
+
+    // 1. Instant check in memory
+    const inMemProj = (currentProjectDetailData && String(currentProjectDetailData.id) === String(projectId) ? currentProjectDetailData : null)
+                   || (window.projectDetailsCache && window.projectDetailsCache[projectId] ? window.projectDetailsCache[projectId].data : null)
+                   || ((allProjectsList || []).find(x => String(x.id) === String(projectId)));
+
+    if (inMemProj) {
+        populateProjectModalFormData(inMemProj);
+        openModal('project-modal');
+        initLucide();
+    }
+
     try {
         const res = await fetch(`/api/projects/${projectId}`);
         const p = await res.json();
         if (!p || p.error) {
-            showToast(p?.error || 'تعذر تحميل بيانات المشروع', 'error');
+            if (!inMemProj) showToast(p?.error || 'تعذر تحميل بيانات المشروع', 'error');
             return;
         }
 
-        const editIdInput = document.getElementById('project-edit-id');
-        if (editIdInput) editIdInput.value = p.id;
-
-        const titleEl = document.getElementById('project-modal-title');
-        if (titleEl) titleEl.innerText = `تعديل بيانات المشروع: ${p.name}`;
-
-        const submitBtn = document.getElementById('project-modal-submit-text');
-        if (submitBtn) submitBtn.innerText = 'حفظ التعديلات';
-
-        document.getElementById('project-name').value = p.name || '';
-        const codeInput = document.getElementById('project-code');
-        if (codeInput) codeInput.value = p.code || '';
-        document.getElementById('project-client').value = p.client_name || '';
-        document.getElementById('project-location').value = p.location || '';
-        document.getElementById('project-contract-value').value = p.contract_value || 0;
-        document.getElementById('project-manager').value = p.manager_name || '';
-        
-        const statusEl = document.getElementById('project-status');
-        if (statusEl) statusEl.value = p.status || 'in_progress';
-
-        const progEl = document.getElementById('project-progress');
-        if (progEl) progEl.value = p.progress_percent !== undefined ? p.progress_percent : 0;
-
-        document.getElementById('project-start-date').value = p.start_date || '';
-        document.getElementById('project-end-date').value = p.end_date || '';
-        document.getElementById('project-notes').value = p.notes || '';
-
-        if (p.budget_mode === 'manual') {
-            const pmodeMan = document.getElementById('pmode-manual');
-            if (pmodeMan) pmodeMan.checked = true;
-        } else {
-            const pmodeBoq = document.getElementById('pmode-boq');
-            if (pmodeBoq) pmodeBoq.checked = true;
-        }
-        const manRemInput = document.getElementById('project-manual-remaining');
-        if (manRemInput) {
-            manRemInput.value = (p.manual_remaining_budget !== null && p.manual_remaining_budget !== undefined) ? p.manual_remaining_budget : '';
-        }
-        toggleProjectModalManualInput();
-
+        populateProjectModalFormData(p);
         openModal('project-modal');
         initLucide();
     } catch (err) {
         console.error('Error opening edit project modal:', err);
-        showToast('فشل في جلب بيانات المشروع', 'error');
+        if (!inMemProj) showToast('فشل في جلب بيانات المشروع', 'error');
     }
 }
 
@@ -11070,6 +11182,18 @@ async function deleteSupplier(supplierId) {
 // 8. Supplier Detail / Dossier Modal
 async function openSupplierDetailModal(supplierId) {
     currentSelectedSupplierDetailId = supplierId;
+
+    // 1. Instant visual opening
+    const memSup = (cachedSuppliers || []).find(s => s.id === supplierId);
+    if (memSup) {
+        const nameEl = document.getElementById('sd-name');
+        if (nameEl) nameEl.innerText = memSup.name;
+        const catEl = document.getElementById('sd-category');
+        if (catEl) catEl.innerText = memSup.category;
+    }
+    openModal('supplier-detail-modal');
+    initLucide();
+
     try {
         const res = await fetch(`/api/suppliers/${supplierId}`);
         const data = await res.json();
@@ -11631,12 +11755,19 @@ function openQuotationModal(preselectedSupplierId = null, preselectedProjectId =
 
 async function openEditQuotationModal(quotationId) {
     resetQuotationModal();
+    const itemsCont = document.getElementById('quo-items-rows-container');
+    if (itemsCont) {
+        itemsCont.innerHTML = '<div class="p-8 text-center text-slate-400 text-xs"><i data-lucide="loader-2" class="w-5 h-5 animate-spin mx-auto text-emerald-400 mb-2"></i>جاري تحميل بنود عرض السعر...</div>';
+    }
+    openModal('supplier-quotation-modal');
+    initLucide();
 
     try {
         const res = await fetch(`/api/supplier-quotations/${quotationId}`);
         const data = await res.json();
         if (!data.success || !data.quotation) {
             showToast(data.error || 'تعذر تحميل بيانات عرض السعر', 'error');
+            closeModal('supplier-quotation-modal');
             return;
         }
         const q = data.quotation;
@@ -12974,31 +13105,27 @@ async function initCustodyRequestModal() {
     if (fileInput) fileInput.value = '';
 
     if (projSelect) {
-        const projs = await getOrFetchProjects();
-        let opts = '<option value="">مصروف عام / إداري (بدون مشروع)</option>';
-        projs.forEach(p => {
-            opts += `<option value="${p.id}">${escapeHtml(p.name)} (${p.code || 'PRJ'})</option>`;
-        });
-        projSelect.innerHTML = opts;
+        const projs = (allProjectsList && allProjectsList.length > 0) ? allProjectsList : (projectsQuickCache || []);
+        if (projs.length > 0) {
+            let opts = '<option value="">مصروف عام / إداري (بدون مشروع)</option>';
+            projs.forEach(p => {
+                opts += `<option value="${p.id}">${escapeHtml(p.name)} (${p.code || 'PRJ'})</option>`;
+            });
+            projSelect.innerHTML = opts;
+        } else {
+            getOrFetchProjects().then(fetched => {
+                let opts = '<option value="">مصروف عام / إداري (بدون مشروع)</option>';
+                fetched.forEach(p => {
+                    opts += `<option value="${p.id}">${escapeHtml(p.name)} (${p.code || 'PRJ'})</option>`;
+                });
+                projSelect.innerHTML = opts;
+            });
+        }
     }
 }
 
-async function openEditCustodyModal(id) {
-    let item = allCustodyRequests.find(r => r.id === id);
-    if (!item) {
-        try {
-            const res = await fetch(`/api/custody/${id}`);
-            const data = await res.json();
-            if (data.custody) item = data.custody;
-        } catch (e) {
-            console.error('Error fetching custody for edit:', e);
-        }
-    }
-    if (!item) {
-        showToast('تعذر العثور على بيانات العهدة', 'error');
-        return;
-    }
-
+function populateCustodyModalFields(item) {
+    if (!item) return;
     const editIdEl = document.getElementById('custody-req-edit-id');
     if (editIdEl) editIdEl.value = item.id;
     const titleEl = document.getElementById('custody-req-modal-title');
@@ -13024,19 +13151,55 @@ async function openEditCustodyModal(id) {
     if (fileInput) fileInput.value = '';
 
     if (projSelect) {
-        const projs = await getOrFetchProjects();
-        let opts = '<option value="">مصروف عام / إداري (بدون مشروع)</option>';
-        projs.forEach(p => {
-            const isSel = (item.project_id && String(p.id) === String(item.project_id)) ? 'selected' : '';
-            opts += `<option value="${p.id}" ${isSel}>${escapeHtml(p.name)} (${p.code || 'PRJ'})</option>`;
-        });
-        projSelect.innerHTML = opts;
+        const projs = (allProjectsList && allProjectsList.length > 0) ? allProjectsList : (projectsQuickCache || []);
+        if (projs.length > 0) {
+            let opts = '<option value="">مصروف عام / إداري (بدون مشروع)</option>';
+            projs.forEach(p => {
+                const isSel = (item.project_id && String(p.id) === String(item.project_id)) ? 'selected' : '';
+                opts += `<option value="${p.id}" ${isSel}>${escapeHtml(p.name)} (${p.code || 'PRJ'})</option>`;
+            });
+            projSelect.innerHTML = opts;
+        } else {
+            getOrFetchProjects().then(fetched => {
+                let opts = '<option value="">مصروف عام / إداري (بدون مشروع)</option>';
+                fetched.forEach(p => {
+                    const isSel = (item.project_id && String(p.id) === String(item.project_id)) ? 'selected' : '';
+                    opts += `<option value="${p.id}" ${isSel}>${escapeHtml(p.name)} (${p.code || 'PRJ'})</option>`;
+                });
+                projSelect.innerHTML = opts;
+            });
+        }
     }
 
     const methodSelect = document.getElementById('custody-req-method');
     if (methodSelect) methodSelect.value = item.payment_method || 'تحويل بنكي';
+}
 
+async function openEditCustodyModal(id) {
+    let item = allCustodyRequests.find(r => r.id === id);
+    if (item) {
+        populateCustodyModalFields(item);
+        openModal('custody-request-modal');
+        initLucide();
+    }
+
+    if (!item) {
+        try {
+            const res = await fetch(`/api/custody/${id}`);
+            const data = await res.json();
+            if (data.custody) item = data.custody;
+        } catch (e) {
+            console.error('Error fetching custody for edit:', e);
+        }
+    }
+    if (!item) {
+        showToast('تعذر العثور على بيانات العهدة', 'error');
+        return;
+    }
+
+    populateCustodyModalFields(item);
     openModal('custody-request-modal');
+    initLucide();
 }
 
 async function submitCustodyRequest(e) {

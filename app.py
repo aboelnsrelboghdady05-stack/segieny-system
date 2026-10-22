@@ -201,43 +201,58 @@ def download_database_backup():
         return jsonify({'error': str(e)}), 500
 
 # ----------------- DASHBOARD API -----------------
+_dashboard_stats_cache = {'data': None, 'ts': 0}
+_projects_quick_cache = {'data': None, 'ts': 0}
+
+def invalidate_dashboard_cache():
+    _dashboard_stats_cache['ts'] = 0
+    _projects_quick_cache['ts'] = 0
+
 @app.route('/api/dashboard/stats', methods=['GET'])
 def get_dashboard_stats():
+    now = time.time()
+    if _dashboard_stats_cache['data'] is not None and (now - _dashboard_stats_cache['ts'] < 20):
+        return jsonify(_dashboard_stats_cache['data'])
+
     conn = database.get_db_connection()
     cursor = conn.cursor()
 
-    # Projects counts
-    cursor.execute('SELECT COUNT(*) FROM projects')
-    total_projects = cursor.fetchone()[0]
+    # Projects counts & contract values in a single consolidated query
+    cursor.execute('''
+        SELECT 
+            COUNT(*),
+            COALESCE(SUM(CASE WHEN status = 'in_progress' THEN 1 ELSE 0 END), 0),
+            COALESCE(SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END), 0),
+            COALESCE(SUM(contract_value), 0)
+        FROM projects
+    ''')
+    p_row = cursor.fetchone()
+    total_projects = p_row[0] or 0
+    active_projects = p_row[1] or 0
+    completed_projects = p_row[2] or 0
+    total_contract_value = float(p_row[3] or 0.0)
 
-    cursor.execute("SELECT COUNT(*) FROM projects WHERE status = 'in_progress'")
-    active_projects = cursor.fetchone()[0]
-
-    cursor.execute("SELECT COUNT(*) FROM projects WHERE status = 'completed'")
-    completed_projects = cursor.fetchone()[0]
-
-    # Contract values and expenses
-    cursor.execute('SELECT COALESCE(SUM(contract_value), 0) FROM projects')
-    total_contract_value = cursor.fetchone()[0]
-
+    # Expenses summary
     cursor.execute("SELECT COALESCE(SUM(amount), 0), COALESCE(SUM(amount_without_tax), 0), COALESCE(SUM(tax_amount), 0) FROM expenses WHERE COALESCE(approval_status, 'approved') = 'approved'")
     exp_stat_row = cursor.fetchone()
-    total_expenses = exp_stat_row[0]
-    total_expenses_without_tax = exp_stat_row[1]
-    total_tax_refundable = exp_stat_row[2]
+    total_expenses = float(exp_stat_row[0] or 0.0)
+    total_expenses_without_tax = float(exp_stat_row[1] or 0.0)
+    total_tax_refundable = float(exp_stat_row[2] or 0.0)
 
-    # Tasks stats
-    cursor.execute('SELECT COUNT(*) FROM tasks')
-    total_tasks = cursor.fetchone()[0]
-
-    cursor.execute("SELECT COUNT(*) FROM tasks WHERE status = 'done'")
-    completed_tasks = cursor.fetchone()[0]
-
-    cursor.execute("SELECT COUNT(*) FROM tasks WHERE status = 'in_progress'")
-    inprogress_tasks = cursor.fetchone()[0]
-
-    cursor.execute("SELECT COUNT(*) FROM tasks WHERE status = 'todo'")
-    todo_tasks = cursor.fetchone()[0]
+    # Tasks stats in a single consolidated query
+    cursor.execute('''
+        SELECT 
+            COUNT(*),
+            COALESCE(SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END), 0),
+            COALESCE(SUM(CASE WHEN status = 'in_progress' THEN 1 ELSE 0 END), 0),
+            COALESCE(SUM(CASE WHEN status = 'todo' THEN 1 ELSE 0 END), 0)
+        FROM tasks
+    ''')
+    t_row = cursor.fetchone()
+    total_tasks = t_row[0] or 0
+    completed_tasks = t_row[1] or 0
+    inprogress_tasks = t_row[2] or 0
+    todo_tasks = t_row[3] or 0
 
     # Subcontractors total paid
     cursor.execute('SELECT COALESCE(SUM(amount), 0) FROM subcontractor_payments')
@@ -257,37 +272,49 @@ def get_dashboard_stats():
         FROM client_payments
     ''')
     cp_row = cursor.fetchone()
-    total_client_milestones = cp_row[0]
-    total_client_received = cp_row[1]
+    total_client_milestones = float(cp_row[0] or 0.0)
+    total_client_received = float(cp_row[1] or 0.0)
     total_client_pending = max(0.0, total_client_milestones - total_client_received)
     client_collection_rate = round((total_client_received / total_client_milestones * 100), 1) if total_client_milestones > 0 else 0
 
     # Suppliers & Quotations stats
     cursor.execute('SELECT COUNT(*) FROM suppliers')
-    total_suppliers = cursor.fetchone()[0]
+    total_suppliers = cursor.fetchone()[0] or 0
 
     cursor.execute('SELECT COALESCE(SUM(total_amount), 0) FROM supplier_quotations')
-    suppliers_total_quoted = cursor.fetchone()[0]
+    suppliers_total_quoted = float(cursor.fetchone()[0] or 0.0)
 
     cursor.execute("SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE supplier_id IS NOT NULL AND COALESCE(approval_status, 'approved') = 'approved'")
-    suppliers_total_paid = cursor.fetchone()[0]
+    suppliers_total_paid = float(cursor.fetchone()[0] or 0.0)
 
     suppliers_total_remaining = max(0.0, suppliers_total_quoted - suppliers_total_paid)
 
     cursor.execute("SELECT COUNT(*), COALESCE(SUM(total_variance), 0) FROM expenses WHERE has_price_increase = 1 AND COALESCE(approval_status, 'approved') = 'approved'")
     v_stat_row = cursor.fetchone()
     suppliers_price_increases_count = v_stat_row[0] or 0
-    suppliers_total_variance = v_stat_row[1] or 0.0
+    suppliers_total_variance = float(v_stat_row[1] or 0.0)
 
-    # Recent projects with progress & spending
+    # Recent projects with progress & spending (single-pass joined query)
     cursor.execute('''
         SELECT p.*,
-            (SELECT COALESCE(SUM(e.amount), 0) FROM expenses e WHERE e.project_id = p.id AND COALESCE(e.approval_status, 'approved') = 'approved') AS total_spent,
-            (SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id) AS task_count,
-            (SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id AND t.status = 'done') AS completed_task_count
-        FROM projects p
+            COALESCE(e.total_spent, 0) AS total_spent,
+            COALESCE(t.task_count, 0) AS task_count,
+            COALESCE(t.completed_task_count, 0) AS completed_task_count
+        FROM (SELECT * FROM projects ORDER BY id DESC LIMIT 6) p
+        LEFT JOIN (
+            SELECT project_id, SUM(amount) AS total_spent 
+            FROM expenses 
+            WHERE COALESCE(approval_status, 'approved') = 'approved'
+            GROUP BY project_id
+        ) e ON e.project_id = p.id
+        LEFT JOIN (
+            SELECT project_id, 
+                   COUNT(*) AS task_count, 
+                   SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END) AS completed_task_count
+            FROM tasks
+            GROUP BY project_id
+        ) t ON t.project_id = p.id
         ORDER BY p.id DESC
-        LIMIT 6
     ''')
     recent_projects = [dict(row) for row in cursor.fetchall()]
 
@@ -307,7 +334,7 @@ def get_dashboard_stats():
 
     conn.close()
 
-    return jsonify({
+    result_payload = {
         'total_projects': total_projects,
         'active_projects': active_projects,
         'completed_projects': completed_projects,
@@ -335,7 +362,10 @@ def get_dashboard_stats():
         'recent_projects': recent_projects,
         'expenses_by_category': expenses_by_category,
         'notifications': notifications
-    })
+    }
+    _dashboard_stats_cache['data'] = result_payload
+    _dashboard_stats_cache['ts'] = now
+    return jsonify(result_payload)
 
 # ----------------- PROJECTS API -----------------
 @app.route('/api/projects', methods=['GET'])
@@ -344,11 +374,29 @@ def get_projects():
     cursor = conn.cursor()
     cursor.execute('''
         SELECT p.*,
-            (SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE project_id = p.id AND COALESCE(approval_status, 'approved') = 'approved') AS total_spent,
-            (SELECT COUNT(*) FROM tasks WHERE project_id = p.id) AS total_tasks,
-            (SELECT COUNT(*) FROM tasks WHERE project_id = p.id AND status = 'done') AS done_tasks,
-            (SELECT COUNT(*) FROM documents WHERE project_id = p.id) AS doc_count
+            COALESCE(e.total_spent, 0) AS total_spent,
+            COALESCE(t.total_tasks, 0) AS total_tasks,
+            COALESCE(t.done_tasks, 0) AS done_tasks,
+            COALESCE(d.doc_count, 0) AS doc_count
         FROM projects p
+        LEFT JOIN (
+            SELECT project_id, SUM(amount) AS total_spent
+            FROM expenses
+            WHERE COALESCE(approval_status, 'approved') = 'approved'
+            GROUP BY project_id
+        ) e ON e.project_id = p.id
+        LEFT JOIN (
+            SELECT project_id, 
+                   COUNT(*) AS total_tasks, 
+                   SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END) AS done_tasks
+            FROM tasks
+            GROUP BY project_id
+        ) t ON t.project_id = p.id
+        LEFT JOIN (
+            SELECT project_id, COUNT(*) AS doc_count
+            FROM documents
+            GROUP BY project_id
+        ) d ON d.project_id = p.id
         ORDER BY p.id DESC
     ''')
     projects = [dict(row) for row in cursor.fetchall()]
@@ -743,8 +791,12 @@ def get_project_phases_tree(project_id):
 def get_projects_quick():
     """
     استعلام خفيف وفائق السرعة لجلب قائمة المشاريع للقوائم المنسدلة (Dropdowns) والعهد
-    بدون أي استعلامات فرعية ثقيلة لحساب التكاليف والمهام
+    بدون أي استعلامات فرعية ثقيلة لحساب التكاليف والمهام، ومخزن مؤقتاً في الذاكرة
     """
+    now = time.time()
+    if _projects_quick_cache['data'] is not None and (now - _projects_quick_cache['ts'] < 60):
+        return jsonify(_projects_quick_cache['data'])
+
     conn = database.get_db_connection()
     cursor = conn.cursor()
     cursor.execute('''
@@ -754,7 +806,10 @@ def get_projects_quick():
     ''')
     projects = [dict(r) for r in cursor.fetchall()]
     conn.close()
-    return jsonify({'projects': projects, 'success': True})
+    payload = {'projects': projects, 'success': True}
+    _projects_quick_cache['data'] = payload
+    _projects_quick_cache['ts'] = now
+    return jsonify(payload)
 
 @app.route('/api/projects', methods=['POST'])
 def create_project():
@@ -1599,7 +1654,7 @@ def get_expenses():
 
     query = '''
         SELECT e.*, 
-               COALESCE(e.payment_date, (SELECT MAX(sp.payment_date) FROM supplier_payments sp WHERE sp.expense_id = e.id)) AS payment_date,
+               COALESCE(e.payment_date, sp_max.max_sp_date) AS payment_date,
                p.name AS project_name, 
                p.code AS project_code,
                ph.name AS phase_name, 
@@ -1622,6 +1677,12 @@ def get_expenses():
         LEFT JOIN supplier_quotations sq ON e.quotation_id = sq.id
         LEFT JOIN supplier_quotation_items sqi ON e.quotation_item_id = sqi.id
         LEFT JOIN custody_requests cust ON e.custody_id = cust.id
+        LEFT JOIN (
+            SELECT expense_id, MAX(payment_date) AS max_sp_date
+            FROM supplier_payments
+            WHERE expense_id IS NOT NULL
+            GROUP BY expense_id
+        ) sp_max ON sp_max.expense_id = e.id
         WHERE 1=1
     '''
     params = []

@@ -1,4 +1,5 @@
 import os
+import time
 import json
 import uuid
 from datetime import datetime, timedelta
@@ -354,6 +355,66 @@ def get_projects():
     conn.close()
     return jsonify(projects)
 
+_company_bank_balance_cache = {'balance': None, 'ts': 0}
+
+def get_cached_company_bank_balance(cursor):
+    now = time.time()
+    if _company_bank_balance_cache['balance'] is not None and (now - _company_bank_balance_cache['ts'] < 45):
+        return _company_bank_balance_cache['balance']
+
+    cursor.execute('''
+        SELECT COALESCE(SUM(amount), 0)
+        FROM expenses
+        WHERE custody_id IS NULL
+          AND (payment_method IS NULL OR payment_method NOT LIKE '%عهدة%')
+          AND COALESCE(payment_status, 'paid') = 'paid'
+          AND payment_status != 'unpaid'
+          AND (
+              payment_method LIKE '%تحويل%'
+              OR payment_method LIKE '%بنك%'
+              OR payment_method LIKE '%مدى%'
+              OR payment_method LIKE '%شيك%'
+              OR payment_method NOT IN ('آجل', 'نقدي')
+          )
+    ''')
+    bank_expenses_spent = float(cursor.fetchone()[0] or 0.0)
+
+    cursor.execute('''
+        SELECT 
+            COALESCE(SUM(CASE WHEN status IN ('disbursed', 'settled') THEN COALESCE(disbursed_amount, amount) ELSE 0 END), 0),
+            COALESCE(SUM(CASE WHEN status = 'settled' THEN COALESCE(returned_amount, 0) ELSE 0 END), 0)
+        FROM custody_requests
+        WHERE (
+            payment_method LIKE '%تحويل%'
+            OR payment_method LIKE '%بنك%'
+            OR payment_method LIKE '%شيك%'
+            OR payment_method IS NULL
+            OR payment_method = ''
+        )
+    ''')
+    c_row = cursor.fetchone()
+    total_custody_disbursed = float(c_row[0] or 0.0)
+    total_custody_returned = float(c_row[1] or 0.0)
+    net_custody_outflow = max(0.0, total_custody_disbursed - total_custody_returned)
+
+    cursor.execute('SELECT COALESCE(SUM(remaining_amount), 0) FROM hr_advances')
+    net_advances_outflow = float(cursor.fetchone()[0] or 0.0)
+
+    total_actual_bank_outflows = bank_expenses_spent + net_custody_outflow + net_advances_outflow
+
+    cursor.execute('''
+        SELECT COALESCE(SUM(received_amount), 0)
+        FROM client_payments
+        WHERE is_received = 1 OR status IN ('paid', 'partially_paid')
+    ''')
+    company_tot_received = float(cursor.fetchone()[0] or 0.0)
+    opening_cash = float(database.get_setting('opening_cash_balance', '300000.0') or 300000.0)
+    company_bank_balance = opening_cash + company_tot_received - total_actual_bank_outflows
+
+    _company_bank_balance_cache['balance'] = company_bank_balance
+    _company_bank_balance_cache['ts'] = now
+    return company_bank_balance
+
 @app.route('/api/projects/<int:project_id>', methods=['GET'])
 def get_project_details(project_id):
     conn = database.get_db_connection()
@@ -375,38 +436,66 @@ def get_project_details(project_id):
         ORDER BY p.order_num ASC, p.id ASC
     ''', (project_id,))
     phases = [dict(row) for row in cursor.fetchall()]
-    
+
+    # Batch query ALL items of this project in ONE query (سريع وفوري)
+    cursor.execute('''
+        SELECT it.*
+        FROM phase_items it
+        WHERE it.project_id = ?
+        ORDER BY it.id ASC
+    ''', (project_id,))
+    all_items = [dict(row) for row in cursor.fetchall()]
+
+    # Batch query actual spent per item in ONE query
+    cursor.execute('''
+        SELECT item_id, COALESCE(SUM(amount), 0) AS total_spent
+        FROM expenses
+        WHERE project_id = ? AND item_id IS NOT NULL AND COALESCE(approval_status, 'approved') = 'approved'
+        GROUP BY item_id
+    ''', (project_id,))
+    item_spent_map = {row['item_id']: float(row['total_spent'] or 0) for row in cursor.fetchall()}
+
+    # Batch query actual spent per phase in ONE query (يشمل مصاريف المرحلة ومصاريف بنودها)
+    cursor.execute('''
+        SELECT 
+            COALESCE(e.phase_id, it.phase_id) AS resolved_phase_id,
+            COALESCE(SUM(e.amount), 0) AS phase_total_spent
+        FROM expenses e
+        LEFT JOIN phase_items it ON e.item_id = it.id
+        WHERE e.project_id = ? AND COALESCE(e.approval_status, 'approved') = 'approved'
+          AND (e.phase_id IS NOT NULL OR it.phase_id IS NOT NULL)
+        GROUP BY resolved_phase_id
+    ''', (project_id,))
+    phase_spent_map = {row['resolved_phase_id']: float(row['phase_total_spent'] or 0) for row in cursor.fetchall()}
+
+    items_by_phase = {}
+    for it in all_items:
+        pid = it['phase_id']
+        if pid not in items_by_phase:
+            items_by_phase[pid] = []
+        it_spent = item_spent_map.get(it['id'], 0.0)
+        cost_price = float(it.get('cost_price') or 0)
+        selling_price = float(it.get('selling_price') or 0)
+        prog = float(it.get('progress_percent') or 0)
+        it['actual_spent'] = it_spent
+        it['budget_cost'] = cost_price
+        it['cost_price'] = cost_price
+        it['selling_price'] = selling_price
+        it['progress_percent'] = prog
+        it['variance'] = cost_price - it_spent
+        it['is_over_budget'] = it_spent > cost_price
+        it['over_amount'] = max(0.0, it_spent - cost_price)
+        it['savings_amount'] = max(0.0, cost_price - it_spent)
+        it['actual_profit'] = selling_price - it_spent
+        it['is_loss'] = it['actual_profit'] < 0
+        it['profit_percent'] = round((it['actual_profit'] / selling_price * 100), 1) if selling_price > 0 else 0
+        items_by_phase[pid].append(it)
+
     total_phases_cost = 0.0
     total_phases_selling = 0.0
+    phases_to_update = []
     for ph in phases:
-        # Load items (بنود المرحلة)
-        cursor.execute('''
-            SELECT * FROM phase_items
-            WHERE phase_id = ?
-            ORDER BY id ASC
-        ''', (ph['id'],))
-        items = [dict(row) for row in cursor.fetchall()]
-        
-        # Calculate actual spent per item
-        for it in items:
-            cursor.execute("SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE item_id = ? AND COALESCE(approval_status, 'approved') = 'approved'", (it['id'],))
-            it_spent = float(cursor.fetchone()[0] or 0)
-            cost_price = float(it.get('cost_price') or 0)
-            selling_price = float(it.get('selling_price') or 0)
-            prog = float(it.get('progress_percent') or 0)
-            it['actual_spent'] = it_spent
-            it['budget_cost'] = cost_price
-            it['cost_price'] = cost_price
-            it['selling_price'] = selling_price
-            it['progress_percent'] = prog
-            it['variance'] = cost_price - it_spent
-            it['is_over_budget'] = it_spent > cost_price
-            it['over_amount'] = max(0.0, it_spent - cost_price)
-            it['savings_amount'] = max(0.0, cost_price - it_spent)
-            it['actual_profit'] = selling_price - it_spent
-            it['is_loss'] = it['actual_profit'] < 0
-            it['profit_percent'] = round((it['actual_profit'] / selling_price * 100), 1) if selling_price > 0 else 0
-
+        items = items_by_phase.get(ph['id'], [])
         ph['items'] = items
         ph['item_count'] = len(items)
 
@@ -430,8 +519,7 @@ def get_project_details(project_id):
             calc_progress = 100.0 if all_done else round(avg_item_prog, 1)
 
             if abs(calc_progress - ph_prog) > 0.01:
-                cursor.execute('UPDATE project_phases SET progress_percent = ?, status = ? WHERE id = ?', 
-                               (calc_progress, 'completed' if all_done else 'in_progress', ph['id']))
+                phases_to_update.append((calc_progress, 'completed' if all_done else 'in_progress', ph['id']))
                 ph['progress_percent'] = calc_progress
                 ph['status'] = 'completed' if all_done else 'in_progress'
 
@@ -441,13 +529,7 @@ def get_project_details(project_id):
             ph['effective_cost'] = ph_cost
             ph['effective_selling'] = ph_selling
 
-        # Actual phase expenditure (from phase expenses or linked item expenses)
-        cursor.execute('''
-            SELECT COALESCE(SUM(amount), 0) FROM expenses 
-            WHERE (phase_id = ? OR item_id IN (SELECT id FROM phase_items WHERE phase_id = ?))
-              AND COALESCE(approval_status, 'approved') = 'approved'
-        ''', (ph['id'], ph['id']))
-        ph_spent = float(cursor.fetchone()[0] or 0)
+        ph_spent = phase_spent_map.get(ph['id'], 0.0)
         eff_cost = float(ph.get('effective_cost') or 0)
         eff_selling = float(ph.get('effective_selling') or 0)
         ph['actual_spent'] = ph_spent
@@ -465,21 +547,21 @@ def get_project_details(project_id):
         total_phases_cost += eff_cost
         total_phases_selling += eff_selling
 
-    # Update overall project progress based on phase weights
-    cursor.execute('''
-        SELECT COALESCE(SUM(progress_percent * (weight_percent / 100.0)), 0), COALESCE(SUM(weight_percent), 0)
-        FROM project_phases WHERE project_id = ?
-    ''', (project_id,))
-    row_prog = cursor.fetchone()
-    weighted_prog = float(row_prog[0] or 0)
-    total_weight = float(row_prog[1] or 0)
+    if phases_to_update:
+        for p_prog, p_stat, p_id in phases_to_update:
+            cursor.execute('UPDATE project_phases SET progress_percent = ?, status = ? WHERE id = ?', (p_prog, p_stat, p_id))
+
+    # Update overall project progress based on phase weights in memory
+    weighted_prog = sum(float(ph.get('progress_percent') or 0) * (float(ph.get('weight_percent') or 0) / 100.0) for ph in phases)
+    total_weight = sum(float(ph.get('weight_percent') or 0) for ph in phases)
     if total_weight > 0:
         overall_prog = min(100, max(0, round(weighted_prog)))
         if overall_prog != float(project_data.get('progress_percent') or 0):
             cursor.execute('UPDATE projects SET progress_percent = ? WHERE id = ?', (overall_prog, project_id))
             project_data['progress_percent'] = overall_prog
 
-    conn.commit()
+    if phases_to_update or (total_weight > 0 and overall_prog != float(project_data.get('progress_percent') or 0)):
+        conn.commit()
 
     # Total Spent & Recoverable Input Tax
     cursor.execute("SELECT COALESCE(SUM(amount), 0), COALESCE(SUM(amount_without_tax), 0), COALESCE(SUM(tax_amount), 0) FROM expenses WHERE project_id = ? AND COALESCE(approval_status, 'approved') = 'approved'", (project_id,))
@@ -606,58 +688,8 @@ def get_project_details(project_id):
         'paid_count': sum(1 for cp in client_payments if cp.get('is_received') or cp.get('status') == 'paid')
     }
 
-    # Exact Unified Bank Account Balance & Cash Flow Projections
-    cursor.execute('''
-        SELECT COALESCE(SUM(amount), 0)
-        FROM expenses
-        WHERE custody_id IS NULL
-          AND (payment_method IS NULL OR payment_method NOT LIKE '%عهدة%')
-          AND COALESCE(payment_status, 'paid') = 'paid'
-          AND payment_status != 'unpaid'
-          AND (
-              payment_method LIKE '%تحويل%'
-              OR payment_method LIKE '%بنك%'
-              OR payment_method LIKE '%مدى%'
-              OR payment_method LIKE '%شيك%'
-              OR payment_method NOT IN ('آجل', 'نقدي')
-          )
-    ''')
-    bank_expenses_spent = float(cursor.fetchone()[0] or 0.0)
-
-    cursor.execute('''
-        SELECT 
-            COALESCE(SUM(CASE WHEN status IN ('disbursed', 'settled') THEN COALESCE(disbursed_amount, amount) ELSE 0 END), 0),
-            COALESCE(SUM(CASE WHEN status = 'settled' THEN COALESCE(returned_amount, 0) ELSE 0 END), 0)
-        FROM custody_requests
-        WHERE (
-            payment_method LIKE '%تحويل%'
-            OR payment_method LIKE '%بنك%'
-            OR payment_method LIKE '%شيك%'
-            OR payment_method IS NULL
-            OR payment_method = ''
-        )
-    ''')
-    c_row = cursor.fetchone()
-    total_custody_disbursed = float(c_row[0] or 0.0)
-    total_custody_returned = float(c_row[1] or 0.0)
-    net_custody_outflow = max(0.0, total_custody_disbursed - total_custody_returned)
-
-    cursor.execute('''
-        SELECT COALESCE(SUM(remaining_amount), 0)
-        FROM hr_advances
-    ''')
-    net_advances_outflow = float(cursor.fetchone()[0] or 0.0)
-
-    total_actual_bank_outflows = bank_expenses_spent + net_custody_outflow + net_advances_outflow
-
-    cursor.execute('''
-        SELECT COALESCE(SUM(received_amount), 0)
-        FROM client_payments
-        WHERE is_received = 1 OR status IN ('paid', 'partially_paid')
-    ''')
-    company_tot_received = float(cursor.fetchone()[0] or 0.0)
-    opening_cash = float(database.get_setting('opening_cash_balance', '300000.0') or 300000.0)
-    company_bank_balance = opening_cash + company_tot_received - total_actual_bank_outflows
+    # Exact Unified Bank Account Balance & Cash Flow Projections (استرجاع سريع مخزن مؤقتاً)
+    company_bank_balance = get_cached_company_bank_balance(cursor)
 
     project_data['bank_balance'] = round(company_bank_balance, 2)
     # Projected final bank cash if this project alone completes (رصيد البنك لو المشروع ده بس خلص)

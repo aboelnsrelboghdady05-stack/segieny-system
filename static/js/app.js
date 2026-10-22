@@ -4480,72 +4480,85 @@ async function saveProjectBudgetMode(e) {
     }
 }
 
-// ----------------- PROJECT DETAILS MODAL -----------------
-async function openProjectDetails(projectId) {
-    currentProjectIdForModal = projectId;
-    try {
-        const res = await fetch(`/api/projects/${projectId}?_t=${Date.now()}`);
-        if (!res.ok) {
-            showToast('تعذر تحميل بيانات المشروع من السيرفر', 'error');
-            return;
+// ----------------- PROJECT DETAILS MODAL & CACHING -----------------
+window.projectDetailsCache = window.projectDetailsCache || {};
+
+function invalidateProjectDetailsCache(projectId) {
+    if (!projectId) {
+        window.projectDetailsCache = {};
+    } else {
+        delete window.projectDetailsCache[projectId];
+    }
+}
+
+function renderProjectDetailsBasicHeader(p) {
+    if (!p) return;
+    const codeEl = document.getElementById('detail-proj-code');
+    if (codeEl) codeEl.innerText = p.code || 'PRJ';
+    const nameEl = document.getElementById('detail-proj-name');
+    if (nameEl) nameEl.innerText = p.name || '';
+    const locEl = document.getElementById('detail-proj-client-loc');
+    if (locEl) locEl.innerText = `العميل: ${p.client_name || '-'} • الموقع: ${p.location || '-'} • مدير المشروع: ${p.manager_name || 'م. أحمد السجيني'}`;
+
+    const cvEl = document.getElementById('detail-contract-val');
+    if (cvEl) cvEl.innerText = formatCurrency(p.contract_value || 0);
+    const spEl = document.getElementById('detail-spent-val');
+    if (spEl) spEl.innerText = formatCurrency(p.total_spent || 0);
+    const trEl = document.getElementById('detail-tax-refundable-val');
+    if (trEl) trEl.innerText = formatCurrency(p.total_tax_refundable || 0);
+    const rbEl = document.getElementById('detail-remaining-val');
+    if (rbEl) rbEl.innerText = formatCurrency(p.remaining_budget || 0);
+
+    const modeBadge = document.getElementById('detail-budget-mode-badge');
+    const modeSubtext = document.getElementById('detail-budget-mode-subtext');
+    if (modeBadge) {
+        if (p.budget_mode === 'manual') {
+            modeBadge.innerText = 'محدد يدوياً';
+            modeBadge.className = 'text-amber-400 font-bold';
+        } else {
+            modeBadge.innerText = 'تلقائي BOQ';
+            modeBadge.className = 'text-emerald-400 font-bold';
         }
-        const p = await res.json();
-        if (p.error) {
-            showToast(p.error, 'error');
-            return;
+    }
+    if (modeSubtext) {
+        if (p.budget_mode === 'manual') {
+            modeSubtext.innerText = `ميزانية مصروفات يدوية: ${formatCurrency(p.manual_remaining_budget || 0)}`;
+        } else {
+            modeSubtext.innerText = 'حساب تلقائي من بنود الـ BOQ';
         }
-        currentProjectDetailData = p;
+    }
 
-        document.getElementById('detail-proj-code').innerText = p.code || 'PRJ';
-        document.getElementById('detail-proj-name').innerText = p.name;
-        document.getElementById('detail-proj-client-loc').innerText = `العميل: ${p.client_name} • الموقع: ${p.location} • مدير المشروع: ${p.manager_name || 'م. أحمد السجيني'}`;
+    const progEl = document.getElementById('detail-progress-val');
+    if (progEl) progEl.innerText = `${p.progress_percent || 0}%`;
+}
 
-        document.getElementById('detail-contract-val').innerText = formatCurrency(p.contract_value);
-        document.getElementById('detail-spent-val').innerText = formatCurrency(p.total_spent);
-        if (document.getElementById('detail-tax-refundable-val')) {
-            document.getElementById('detail-tax-refundable-val').innerText = formatCurrency(p.total_tax_refundable || 0);
-        }
-        document.getElementById('detail-remaining-val').innerText = formatCurrency(p.remaining_budget);
-        
-        const modeBadge = document.getElementById('detail-budget-mode-badge');
-        const modeSubtext = document.getElementById('detail-budget-mode-subtext');
-        if (modeBadge) {
-            if (p.budget_mode === 'manual') {
-                modeBadge.innerText = 'محدد يدوياً';
-                modeBadge.className = 'text-amber-400 font-bold';
-            } else {
-                modeBadge.innerText = 'تلقائي BOQ';
-                modeBadge.className = 'text-emerald-400 font-bold';
-            }
-        }
-        if (modeSubtext) {
-            if (p.budget_mode === 'manual') {
-                modeSubtext.innerText = `ميزانية مصروفات يدوية: ${formatCurrency(p.manual_remaining_budget || 0)}`;
-            } else {
-                modeSubtext.innerText = 'حساب تلقائي من بنود الـ BOQ';
-            }
-        }
+function renderProjectDetailsContent(p) {
+    currentProjectDetailData = p;
+    renderProjectDetailsBasicHeader(p);
 
-        document.getElementById('detail-progress-val').innerText = `${p.progress_percent}%`;
+    // Counts
+    const phasesCountEl = document.getElementById('dtab-count-phases');
+    if (phasesCountEl) phasesCountEl.innerText = (p.phases || []).length;
+    const paymentsCountEl = document.getElementById('dtab-count-payments');
+    if (paymentsCountEl) paymentsCountEl.innerText = (p.client_payments || []).length;
+    const expensesCountEl = document.getElementById('dtab-count-expenses');
+    if (expensesCountEl) expensesCountEl.innerText = (p.expenses || []).length;
+    const tasksCountEl = document.getElementById('dtab-count-tasks');
+    if (tasksCountEl) tasksCountEl.innerText = (p.tasks || []).length;
+    const subsCountEl = document.getElementById('dtab-count-subs');
+    if (subsCountEl) subsCountEl.innerText = (p.subcontractors || []).length;
+    const docsCountEl = document.getElementById('dtab-count-docs');
+    if (docsCountEl) docsCountEl.innerText = (p.documents || []).length;
 
-        // Counts
-        document.getElementById('dtab-count-phases').innerText = (p.phases || []).length;
-        if (document.getElementById('dtab-count-payments')) {
-            document.getElementById('dtab-count-payments').innerText = (p.client_payments || []).length;
-        }
-        document.getElementById('dtab-count-expenses').innerText = (p.expenses || []).length;
-        document.getElementById('dtab-count-tasks').innerText = (p.tasks || []).length;
-        document.getElementById('dtab-count-subs').innerText = (p.subcontractors || []).length;
-        document.getElementById('dtab-count-docs').innerText = (p.documents || []).length;
+    // 1. Render Project Phases (WBS & Costs & Selling & Weights)
+    renderProjectPhasesTab(p);
 
-        // 1. Render Project Phases (WBS & Costs & Selling & Weights)
-        renderProjectPhasesTab(p);
+    // 1.5 Render Client Payments & Milestones
+    renderProjectPaymentsTab(p);
 
-        // 1.5 Render Client Payments & Milestones
-        renderProjectPaymentsTab(p);
-
-        // 2. Render project expenses
-        const expTbody = document.getElementById('detail-expenses-tbody');
+    // 2. Render project expenses
+    const expTbody = document.getElementById('detail-expenses-tbody');
+    if (expTbody) {
         expTbody.innerHTML = '';
         const isFinManager = isFinancialManagerUser();
         if ((p.expenses || []).length === 0) {
@@ -4634,9 +4647,11 @@ async function openProjectDetails(projectId) {
                 expTbody.appendChild(tr);
             });
         }
+    }
 
-        // 3. Render project tasks
-        const tasksCont = document.getElementById('detail-tasks-container');
+    // 3. Render project tasks
+    const tasksCont = document.getElementById('detail-tasks-container');
+    if (tasksCont) {
         tasksCont.innerHTML = '';
         if ((p.tasks || []).length === 0) {
             tasksCont.innerHTML = '<p class="text-slate-500 text-xs py-4 text-center">لا توجد مهام مسندة بعد لهذا المشروع</p>';
@@ -4687,9 +4702,11 @@ async function openProjectDetails(projectId) {
                 tasksCont.appendChild(item);
             });
         }
+    }
 
-        // 4. Render project docs
-        const docsCont = document.getElementById('detail-docs-container');
+    // 4. Render project docs
+    const docsCont = document.getElementById('detail-docs-container');
+    if (docsCont) {
         docsCont.innerHTML = '';
         if ((p.documents || []).length === 0) {
             docsCont.innerHTML = '<p class="text-slate-500 text-xs py-4 text-center col-span-2">لا توجد مخططات مرفوعة</p>';
@@ -4707,13 +4724,66 @@ async function openProjectDetails(projectId) {
                 docsCont.appendChild(card);
             });
         }
+    }
 
-        switchDetailTab('phases');
+    initLucide();
+}
+
+async function openProjectDetails(projectId, forceRefresh = false) {
+    currentProjectIdForModal = projectId;
+    const cached = window.projectDetailsCache[projectId];
+
+    // 1. Instant 0ms Visual Feedback
+    if (cached && cached.data) {
+        renderProjectDetailsContent(cached.data);
         openModal('project-detail-modal');
-        initLucide();
+        switchDetailTab('phases');
+
+        // If not forced and cache is younger than 20 seconds, we don't need a blocking network call
+        if (!forceRefresh && (Date.now() - (cached.timestamp || 0) < 20000)) {
+            return;
+        }
+    } else {
+        // No full cache yet: show basic info from allProjectsList immediately
+        const basic = (window.allProjectsList || []).find(p => String(p.id) === String(projectId));
+        if (basic) {
+            renderProjectDetailsBasicHeader(basic);
+        }
+        const phasesCont = document.getElementById('detail-phases-container');
+        if (phasesCont) {
+            phasesCont.innerHTML = `
+                <div class="p-12 text-center text-slate-400 flex flex-col items-center justify-center gap-3">
+                    <div class="w-8 h-8 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
+                    <span class="text-xs font-bold text-slate-300">جاري تحميل بيانات وتفاصيل بنود ومراحل المشروع...</span>
+                </div>
+            `;
+        }
+        openModal('project-detail-modal');
+        switchDetailTab('phases');
+    }
+
+    // 2. Fetch fresh details from backend
+    try {
+        const res = await fetch(`/api/projects/${projectId}?_t=${Date.now()}`);
+        if (!res.ok) {
+            if (!cached) showToast('تعذر تحميل بيانات المشروع من السيرفر', 'error');
+            return;
+        }
+        const p = await res.json();
+        if (p.error) {
+            if (!cached) showToast(p.error, 'error');
+            return;
+        }
+        window.projectDetailsCache[projectId] = { data: p, timestamp: Date.now() };
+        // Only update UI if user is still looking at this project
+        if (String(currentProjectIdForModal) === String(projectId)) {
+            renderProjectDetailsContent(p);
+        }
     } catch (err) {
-        console.error('Error opening project details:', err);
-        showToast('حدث خطأ أثناء عرض تفاصيل المشروع', 'error');
+        console.error('Error fetching project details:', err);
+        if (!cached) {
+            showToast('حدث خطأ أثناء تحميل تفاصيل المشروع', 'error');
+        }
     }
 }
 

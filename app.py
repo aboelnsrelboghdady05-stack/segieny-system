@@ -954,7 +954,7 @@ def get_phase_expenses(phase_id):
         SELECT id, title, item_code, cost_price, selling_price, progress_percent, status
         FROM phase_items
         WHERE phase_id = ?
-        ORDER BY order_num ASC, id ASC
+        ORDER BY id ASC
     ''', (phase_id,))
     items = [dict(r) for r in cursor.fetchall()]
 

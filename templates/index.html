@@ -4498,18 +4498,18 @@
                         <p id="detail-proj-client-loc" class="text-xs text-slate-400 mt-0.5"></p>
                     </div>
                 </div>
-                <div class="flex items-center gap-2">
-                    <button onclick="editProjectFromDetail()" class="px-3.5 py-2 rounded-xl bg-blue-600/20 hover:bg-blue-600 text-blue-400 hover:text-white border border-blue-500/30 text-xs font-bold flex items-center gap-2 transition">
-                        <i data-lucide="edit-3" class="w-4 h-4"></i>
-                        <span>تعديل بيانات المشروع</span>
+                <div class="flex items-center gap-2 flex-wrap">
+                    <button onclick="viewClientProjectReport()" class="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold flex items-center gap-2 shadow-lg shadow-blue-900/40 transition" title="تقرير رسمي موجه للعميل والمالك بنسب الإنجاز والمبالغ المتبقية دون التكاليف الداخلية">
+                        <i data-lucide="file-check-2" class="w-4 h-4"></i>
+                        <span>تقرير العميل (للمالك)</span>
                     </button>
-                    <button onclick="viewProjectReport()" class="px-3.5 py-2 rounded-xl bg-emerald-600/20 hover:bg-emerald-600 text-emerald-400 hover:text-white border border-emerald-500/40 text-xs font-bold flex items-center gap-2 transition shadow-sm">
-                        <i data-lucide="eye" class="w-4 h-4"></i>
-                        <span>عرض التقرير</span>
+                    <button onclick="viewProjectReport()" class="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-200 border border-slate-700 text-xs font-bold flex items-center gap-2 transition shadow-sm" title="التقرير المالي والإداري الداخلي للشركة">
+                        <i data-lucide="file-text" class="w-4 h-4 text-emerald-400"></i>
+                        <span>التقرير الداخلي الشامل</span>
                     </button>
-                    <button onclick="printProjectReport()" class="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-bold flex items-center gap-2 transition">
-                        <i data-lucide="printer" class="w-4 h-4 text-emerald-400"></i>
-                        <span>طباعة التقرير</span>
+                    <button onclick="editProjectFromDetail()" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-300 hover:text-white border border-slate-700 text-xs font-bold flex items-center gap-1.5 transition">
+                        <i data-lucide="edit-3" class="w-3.5 h-3.5 text-blue-400"></i>
+                        <span>تعديل</span>
                     </button>
                     <button onclick="closeModal('project-detail-modal')" class="text-slate-400 hover:text-white p-2 rounded-lg hover:bg-slate-800">
                         <i data-lucide="x" class="w-5 h-5"></i>
@@ -4755,22 +4755,40 @@
     </div>
 
     <!-- PROJECT REPORT PREVIEW MODAL (معاينة وعرض تقرير المشروع) -->
-    <div id="project-report-preview-modal" class="modal-overlay hidden fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-2 sm:p-4">
+    <div id="project-report-preview-modal" class="modal-overlay hidden fixed inset-0 z-[80] bg-black/85 backdrop-blur-md flex items-center justify-center p-2 sm:p-4">
         <div class="bg-slate-900 rounded-2xl border border-slate-750 w-full max-w-6xl h-[94vh] flex flex-col shadow-2xl animate-scaleUp overflow-hidden">
-            <div class="px-5 py-3.5 bg-slate-850 border-b border-slate-750 flex items-center justify-between shrink-0">
+            <div class="px-4 py-3 bg-slate-850 border-b border-slate-750 flex items-center justify-between shrink-0 flex-wrap gap-2.5">
                 <div class="flex items-center gap-3">
-                    <div class="p-2.5 rounded-xl bg-emerald-500/20 text-emerald-400">
-                        <i data-lucide="file-text" class="w-5 h-5"></i>
+                    <div id="report-preview-icon" class="p-2.5 rounded-xl bg-blue-500/20 text-blue-400">
+                        <i data-lucide="file-check-2" class="w-5 h-5"></i>
                     </div>
                     <div>
-                        <div class="flex items-center gap-2">
+                        <div class="flex items-center gap-2 flex-wrap">
                             <h3 id="report-preview-title" class="text-base font-black text-white">معاينة تقرير الموقف التنفيذي والمالي</h3>
-                            <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">محدث لحظياً</span>
+                            <span id="report-preview-type-badge" class="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-500/20 text-blue-400 border border-blue-500/30">خاص بالعميل والمالك</span>
                         </div>
                         <p id="report-preview-subtitle" class="text-xs text-slate-400 mt-0.5"></p>
                     </div>
                 </div>
-                <div class="flex items-center gap-2">
+                <div class="flex items-center gap-2 flex-wrap">
+                    <!-- Switch between Client Report and Internal Report -->
+                    <div class="flex items-center bg-slate-800/90 p-1 rounded-xl border border-slate-700">
+                        <button type="button" id="tab-report-client" onclick="switchReportPreviewMode('client')" class="px-3 py-1.5 rounded-lg text-xs font-bold transition bg-blue-600 text-white shadow">
+                            <i data-lucide="user-check" class="w-3.5 h-3.5 inline ml-1"></i>
+                            <span>تقرير العميل (للمالك)</span>
+                        </button>
+                        <button type="button" id="tab-report-internal" onclick="switchReportPreviewMode('internal')" class="px-3 py-1.5 rounded-lg text-xs font-bold transition text-slate-400 hover:text-white">
+                            <i data-lucide="shield" class="w-3.5 h-3.5 inline ml-1"></i>
+                            <span>التقرير الداخلي الشامل</span>
+                        </button>
+                    </div>
+                    <button onclick="copyCurrentReportWhatsApp()" class="px-3 py-2 rounded-xl bg-emerald-600/20 hover:bg-emerald-600 text-emerald-400 hover:text-white border border-emerald-500/40 text-xs font-bold flex items-center gap-1.5 transition shadow" title="نسخ ملخص جاهز للإرسال الفوري عبر الواتساب للعميل">
+                        <i data-lucide="message-circle" class="w-4 h-4"></i>
+                        <span class="hidden sm:inline">نسخ للواتساب</span>
+                    </button>
+                    <button onclick="openCurrentReportInNewTab()" class="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition" title="فتح التقرير في صفحة مستقلة كاملة">
+                        <i data-lucide="external-link" class="w-4 h-4"></i>
+                    </button>
                     <button onclick="printFromReportPreview()" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-2 shadow-lg shadow-emerald-900/30 transition">
                         <i data-lucide="printer" class="w-4 h-4"></i>
                         <span>طباعة / حفظ PDF</span>
@@ -7223,7 +7241,7 @@
 
     <!-- Scripts -->
     <script src="/static/js/i18n.js?v=20261020_v1"></script>
-    <script src="/static/js/app.js?v=20261022_v8"></script>
+    <script src="/static/js/app.js?v=20261023_v1"></script>
     <script>
     (function() {
         try {

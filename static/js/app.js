@@ -1196,11 +1196,17 @@ function renderProjectsGrid(projects) {
             </div>
 
             <!-- Card Actions -->
-            <div class="pt-3 border-t border-slate-750 flex items-center justify-between">
-                <button onclick="openProjectDetails(${p.id})" class="px-3.5 py-1.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600 text-emerald-400 hover:text-white font-bold text-xs flex items-center gap-1.5 transition">
-                    <i data-lucide="eye" class="w-3.5 h-3.5"></i>
-                    <span>${isEn ? 'Project Details & Costs' : 'تفاصيل المشروع والفواتير'}</span>
-                </button>
+            <div class="pt-3 border-t border-slate-750 flex items-center justify-between flex-wrap gap-1.5">
+                <div class="flex items-center gap-1.5">
+                    <button onclick="openProjectDetails(${p.id})" class="px-3 py-1.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600 text-emerald-400 hover:text-white font-bold text-xs flex items-center gap-1.5 transition">
+                        <i data-lucide="eye" class="w-3.5 h-3.5"></i>
+                        <span>${isEn ? 'Details' : 'التفاصيل'}</span>
+                    </button>
+                    <button onclick="viewClientProjectReport(${p.id})" class="px-2.5 py-1.5 rounded-xl bg-blue-600/20 hover:bg-blue-600 text-blue-400 hover:text-white font-bold text-xs flex items-center gap-1 transition" title="تقرير المالك والعميل (بدون تكاليف)">
+                        <i data-lucide="file-check-2" class="w-3.5 h-3.5"></i>
+                        <span>${isEn ? 'Client Report' : 'تقرير العميل'}</span>
+                    </button>
+                </div>
                 <div class="flex items-center gap-1">
                     <button onclick="openEditProjectModal(${p.id})" title="${isEn ? 'Edit Project' : 'تعديل بيانات المشروع'}" class="p-1.5 text-slate-400 hover:text-blue-400 hover:bg-slate-800 rounded-lg transition">
                         <i data-lucide="edit-3" class="w-4 h-4"></i>
@@ -7153,15 +7159,223 @@ function generateProjectReportHtml(p) {
     return printHtml;
 }
 
-// ----------------- VIEW PROJECT REPORT MODAL (معاينة وعرض التقرير) -----------------
+// ----------------- GENERATE CLIENT-FACING PROJECT REPORT HTML (تقرير الموقف للمالك والعميل - خالٍ تماماً من التكاليف الداخلية) -----------------
+function generateClientProjectReportHtml(p) {
+    if (!p) return '<div style="padding:20px;text-align:center;font-family:sans-serif;">لا توجد بيانات متاحة للمشروع</div>';
+
+    const today = new Date();
+    const todayStr = today.toLocaleDateString('ar-SA', { year: 'numeric', month: 'long', day: 'numeric' });
+    const printTimeStr = today.toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' });
+
+    const contractVal = parseFloat(p.contract_value) || 0;
+    const progressPct = parseFloat(p.progress_percent) || 0;
+
+    const allCps = p.client_payments || [];
+    const isExtraWork = function(cp) {
+        if (!cp) return false;
+        if (cp.payment_type === 'extra_work') return true;
+        const txt = ((cp.milestone_name || '') + ' ' + (cp.notes || '')).toLowerCase();
+        return txt.includes('تغير') || txt.includes('تغيير') || txt.includes('إضاف') || txt.includes('اضاف') || txt.includes('خامات') || txt.includes('حديد') || txt.includes('بلوك') || txt.includes('فروق');
+    };
+    const contractCps = allCps.filter(function(cp) { return !isExtraWork(cp); });
+    const extraCps = allCps.filter(function(cp) { return isExtraWork(cp); });
+
+    let totalContractReq = 0, totalContractRecv = 0, totalContractRem = 0;
+    let contractRows = '';
+    contractCps.forEach(function(cp) {
+        const req = parseFloat(cp.amount_with_tax) || 0;
+        const recv = parseFloat(cp.received_amount) || 0;
+        const rem = Math.max(0, req - recv);
+        totalContractReq += req; totalContractRecv += recv; totalContractRem += rem;
+        const isPaid = cp.is_received === 1 || cp.status === 'paid';
+        const isPart = !isPaid && (recv > 0 || cp.status === 'partially_paid');
+        const stText = isPaid ? 'مسددة بالكامل ✓' : (isPart ? 'مسددة جزئياً' : 'مستحقة قيد السداد');
+        const stBg = isPaid ? '#dcfce7' : (isPart ? '#fef3c7' : '#eff6ff');
+        const stColor = isPaid ? '#15803d' : (isPart ? '#b45309' : '#1d4ed8');
+        contractRows += '<tr>' +
+            '<td style="text-align:center;font-weight:700;">' + (cp.payment_number || '-') + '</td>' +
+            '<td><strong>' + escapeHtml(cp.milestone_name) + '</strong>' + (cp.receipt_voucher_no ? '<div style="font-size:8.5px;color:#059669;">سند قبض: ' + escapeHtml(cp.receipt_voucher_no) + '</div>' : '') + '</td>' +
+            '<td style="text-align:center;">' + (cp.percentage ? cp.percentage + '%' : '-') + '</td>' +
+            '<td style="font-family:monospace;font-weight:700;text-align:left;">' + formatCurrency(req) + '</td>' +
+            '<td style="font-family:monospace;font-weight:700;color:#059669;text-align:left;">' + formatCurrency(recv) + '</td>' +
+            '<td style="font-family:monospace;font-weight:700;color:' + (rem > 0 ? '#dc2626' : '#059669') + ';text-align:left;">' + formatCurrency(rem) + '</td>' +
+            '<td style="text-align:center;">' + escapeHtml(cp.due_date || '-') + '</td>' +
+            '<td style="text-align:center;"><span style="background:' + stBg + ';color:' + stColor + ';padding:2px 7px;border-radius:4px;font-size:9px;font-weight:700;">' + stText + '</span></td>' +
+        '</tr>';
+    });
+    if (!contractRows) contractRows = '<tr><td colspan="8" style="text-align:center;color:#94a3b8;padding:12px;">لا توجد دفعات مسجلة</td></tr>';
+
+    let totalExtraReq = 0, totalExtraRecv = 0, totalExtraRem = 0;
+    let extraRows = '';
+    extraCps.forEach(function(cp) {
+        const req = parseFloat(cp.amount_with_tax) || 0;
+        const recv = parseFloat(cp.received_amount) || 0;
+        const rem = Math.max(0, req - recv);
+        totalExtraReq += req; totalExtraRecv += recv; totalExtraRem += rem;
+        const isPaid = cp.is_received === 1 || cp.status === 'paid';
+        const isPart = !isPaid && (recv > 0 || cp.status === 'partially_paid');
+        const stText = isPaid ? 'مسددة بالكامل ✓' : (isPart ? 'مسددة جزئياً' : 'مستحقة');
+        const stBg = isPaid ? '#dcfce7' : (isPart ? '#fef3c7' : '#eff6ff');
+        const stColor = isPaid ? '#15803d' : (isPart ? '#b45309' : '#1d4ed8');
+        extraRows += '<tr>' +
+            '<td style="text-align:center;font-weight:700;">+</td>' +
+            '<td><strong>' + escapeHtml(cp.milestone_name) + '</strong>' + (cp.notes ? '<div style="font-size:8.5px;color:#64748b;">' + escapeHtml(cp.notes) + '</div>' : '') + '</td>' +
+            '<td style="text-align:center;">إضافي</td>' +
+            '<td style="font-family:monospace;font-weight:700;text-align:left;">' + formatCurrency(req) + '</td>' +
+            '<td style="font-family:monospace;font-weight:700;color:#059669;text-align:left;">' + formatCurrency(recv) + '</td>' +
+            '<td style="font-family:monospace;font-weight:700;color:' + (rem > 0 ? '#dc2626' : '#059669') + ';text-align:left;">' + formatCurrency(rem) + '</td>' +
+            '<td style="text-align:center;">' + escapeHtml(cp.due_date || '-') + '</td>' +
+            '<td style="text-align:center;"><span style="background:' + stBg + ';color:' + stColor + ';padding:2px 7px;border-radius:4px;font-size:9px;font-weight:700;">' + stText + '</span></td>' +
+        '</tr>';
+    });
+
+    const totalContractValue = contractVal + totalExtraReq;
+    const totalReceived = totalContractRecv + totalExtraRecv;
+    const totalRemaining = Math.max(0, totalContractValue - totalReceived);
+    const collectionPct = totalContractValue > 0 ? Math.round((totalReceived / totalContractValue) * 100) : 0;
+
+    // Phases (NO CONTRACTOR COSTS!)
+    let totalPhasesWeight = 0;
+    let phasesRows = '';
+    (p.phases || []).forEach(function(ph, idx) {
+        const phProg = parseFloat(ph.progress_percent) || 0;
+        const phWeight = parseFloat(ph.weight_percent) || 0;
+        totalPhasesWeight += phWeight;
+        const phStatus = ph.status === 'completed' || phProg >= 100 ? '<span style="background:#dcfce7;color:#15803d;padding:2px 6px;border-radius:4px;font-weight:700;">مكتملة ✓</span>' : (phProg > 0 ? '<span style="background:#eff6ff;color:#1d4ed8;padding:2px 6px;border-radius:4px;font-weight:700;">قيد التنفيذ</span>' : '<span style="background:#f1f5f9;color:#64748b;padding:2px 6px;border-radius:4px;">مجدولة</span>');
+
+        phasesRows += '<tr>' +
+            '<td style="text-align:center;">' + (idx + 1) + '</td>' +
+            '<td><strong>' + escapeHtml(ph.name) + '</strong>' + (ph.notes ? '<div style="font-size:8.5px;color:#64748b;">' + escapeHtml(ph.notes) + '</div>' : '') + '</td>' +
+            '<td style="text-align:center;font-weight:700;">' + phWeight.toFixed(0) + '%</td>' +
+            '<td>' +
+                '<div style="display:flex;align-items:center;gap:6px;">' +
+                    '<div style="flex:1;background:#e2e8f0;border-radius:999px;height:8px;overflow:hidden;">' +
+                        '<div style="background:#059669;height:100%;width:' + Math.min(100, phProg) + '%;"></div>' +
+                    '</div>' +
+                    '<span style="font-size:9.5px;font-weight:700;font-family:monospace;width:32px;text-align:left;">' + phProg + '%</span>' +
+                '</div>' +
+            '</td>' +
+            '<td style="text-align:center;">' + phStatus + '</td>' +
+        '</tr>';
+    });
+    if (!phasesRows) phasesRows = '<tr><td colspan="5" style="text-align:center;color:#94a3b8;padding:12px;">لا توجد مراحل مسجلة للمشروع</td></tr>';
+
+    let extraSectionHtml = '';
+    if (extraCps.length > 0) {
+        extraSectionHtml = '<div class="section-title">✨ 2. الأعمال الإضافية وتعديلات المالك المعتمدة (' + extraCps.length + ' بند)</div>' +
+        '<table><thead><tr><th style="width:25px;">م</th><th>بيان العمل الإضافي / التعديل</th><th style="width:60px;text-align:center;">النوع</th><th>القيمة المطلوبة</th><th>المحصل</th><th>المتبقي</th><th style="width:80px;text-align:center;">التاريخ</th><th style="width:90px;text-align:center;">الحالة</th></tr></thead>' +
+        '<tbody>' + extraRows + '</tbody>' +
+        '<tfoot><tr class="total-row"><td colspan="3" style="text-align:center;">إجمالي الأعمال الإضافية المعتمدة</td><td style="font-family:monospace;">' + formatCurrency(totalExtraReq) + '</td><td style="font-family:monospace;">' + formatCurrency(totalExtraRecv) + '</td><td style="font-family:monospace;">' + formatCurrency(totalExtraRem) + '</td><td colspan="2"></td></tr></tfoot></table>';
+    }
+
+    return '<!DOCTYPE html>\n<html dir="rtl" lang="ar">\n<head>\n<meta charset="UTF-8">\n<title>تقرير العميل - ' + escapeHtml(p.name) + '</title>\n<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap" rel="stylesheet">\n<style>\n*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}\n@page{size:A4;margin:12mm 10mm 10mm 10mm;}\nbody{font-family:\'Cairo\',system-ui,sans-serif;background:#fff;color:#1e293b;font-size:10px;line-height:1.45;-webkit-print-color-adjust:exact;print-color-adjust:exact;padding:0;}\n.action-bar{background:#f1f5f9;border-bottom:1px solid #e2e8f0;padding:8px 14px;display:flex;align-items:center;gap:10px;}\n.btn-print{background:#059669;color:#fff;border:none;padding:7px 20px;font-size:12px;font-weight:700;border-radius:6px;cursor:pointer;font-family:inherit;}\n@media print{.action-bar{display:none!important;}}\n.report-header{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #0f172a;padding-bottom:10px;margin-bottom:12px;}\n.company-name{font-size:17px;font-weight:900;color:#0f172a;}\n.company-sub{font-size:10px;color:#059669;font-weight:700;margin-top:2px;}\n.report-badge{display:inline-block;background:#0284c7;color:#fff;font-weight:800;font-size:11px;padding:3px 12px;border-radius:5px;margin-top:5px;}\n.header-meta{text-align:left;font-size:9.5px;color:#64748b;line-height:1.7;}\n.header-meta strong{color:#0f172a;}\n.info-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;border:1px solid #e2e8f0;border-radius:8px;padding:8px 10px;background:#f8fafc;margin-bottom:12px;}\n.info-label{font-size:8.5px;color:#64748b;font-weight:600;display:block;}\n.info-value{font-size:11px;font-weight:800;color:#0f172a;}\n.kpi-row{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-bottom:12px;}\n.kpi-card{border-radius:8px;padding:10px 12px;border:1.5px solid;text-align:center;}\n.kpi-card .kpi-label{font-size:9px;font-weight:700;margin-bottom:4px;}\n.kpi-card .kpi-value{font-size:14px;font-weight:900;font-family:monospace;}\n.kpi-slate{background:#f8fafc;border-color:#cbd5e1;color:#1e293b;}\n.kpi-green{background:#f0fdf4;border-color:#bbf7d0;color:#065f46;}\n.kpi-green .kpi-value{color:#059669;}\n.kpi-amber{background:#fffbeb;border-color:#fde68a;color:#92400e;}\n.kpi-amber .kpi-value{color:#d97706;}\n.kpi-blue{background:#eff6ff;border-color:#bfdbfe;color:#1e40af;}\n.kpi-blue .kpi-value{color:#2563eb;}\n.progress-box{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px 14px;margin-bottom:12px;}\n.section-title{font-size:11.5px;font-weight:900;border-right:4px solid #0284c7;padding-right:8px;margin:14px 0 7px 0;color:#0f172a;}\ntable{width:100%;border-collapse:collapse;margin-bottom:8px;font-size:9.5px;}\nth{background:#0f172a;color:#fff;font-weight:700;padding:6px 7px;text-align:right;font-size:9.5px;border:1px solid #334155;}\ntd{border:1px solid #e2e8f0;padding:5px 6px;text-align:right;vertical-align:middle;}\ntr:nth-child(even) td{background:#f8fafc;}\n.total-row td{background:#0f172a!important;color:#fff!important;font-weight:900;padding:6px 7px;}\n.notice-box{background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:9px 12px;font-size:9.5px;color:#1e40af;margin-top:10px;line-height:1.6;}\n.sigs{display:flex;justify-content:space-between;margin-top:20px;padding-top:12px;border-top:2px solid #0f172a;page-break-inside:avoid;}\n.sig-col{width:30%;text-align:center;font-size:9.5px;font-weight:700;}\n.sig-line{margin-top:35px;border-top:1px solid #94a3b8;padding-top:4px;font-size:9px;color:#64748b;}\n.no-break{page-break-inside:avoid;}\n@media print{body{font-size:9.5px;}table{page-break-inside:auto;}tr{page-break-inside:avoid;page-break-after:auto;}thead{display:table-header-group;}tfoot{display:table-footer-group;}.section-title{page-break-after:avoid;}}\n</style>\n</head>\n<body>\n<div class="action-bar"><button class="btn-print" onclick="window.print()">🖨️ طباعة / حفظ PDF</button><span style="color:#64748b;font-size:10px;margin-right:10px;">تقرير معتمد ومخصص للمالك والعميل · لا يتضمن تكاليف أو حسابات داخلية للمقاول</span></div>\n' +
+    '<div class="report-header"><div><div class="company-name">شركة مقاولات السجيني العامة</div><div class="company-sub">إدارة وتنفيذ المشاريع والمقاولات الإنشائية</div><div class="report-badge">📋 تقرير الموقف التنفيذي والمالي للمشروع</div></div><div class="header-meta"><div><strong>كود المشروع:</strong> ' + escapeHtml(p.code || 'PRJ-000') + '</div><div><strong>تاريخ التقرير:</strong> ' + todayStr + '</div><div><strong>وقت الاستخراج:</strong> ' + printTimeStr + '</div><div><strong>حالة المشروع:</strong> ' + (p.status === 'completed' ? '<strong style="color:#059669">مكتمل بالكامل ✓</strong>' : '<strong style="color:#2563eb">جاري العمل والتنفيذ</strong>') + '</div></div></div>\n' +
+    '<div class="info-grid"><div><span class="info-label">اسم المشروع</span><span class="info-value">' + escapeHtml(p.name) + '</span></div><div><span class="info-label">العميل / المالك</span><span class="info-value">' + escapeHtml(p.client_name || '-') + '</span></div><div><span class="info-label">الموقع الجغرافي</span><span class="info-value">' + escapeHtml(p.location || '-') + '</span></div><div><span class="info-label">مدير المشروع المعتمد</span><span class="info-value">' + escapeHtml(p.manager_name || 'م. السجيني') + '</span></div><div><span class="info-label">تاريخ بدء المشروع</span><span class="info-value" style="font-family:monospace;">' + escapeHtml(p.start_date || '-') + '</span></div><div><span class="info-label">تاريخ التسليم المتوقع</span><span class="info-value" style="font-family:monospace;">' + escapeHtml(p.end_date || '-') + '</span></div><div><span class="info-label">نسبة الإنجاز الميداني</span><span class="info-value" style="color:#059669;">' + progressPct + '%</span></div><div><span class="info-label">نسبة السداد المالي</span><span class="info-value" style="color:#2563eb;">' + collectionPct + '%</span></div></div>\n' +
+    '<div class="kpi-row">' +
+        '<div class="kpi-card kpi-slate"><div class="kpi-label">قيمة التعاقد والأعمال المعتمدة</div><div class="kpi-value">' + formatCurrency(totalContractValue) + '</div><div style="font-size:8px;color:#64748b;margin-top:2px;">(العقد الأساسي + الإضافي)</div></div>' +
+        '<div class="kpi-card kpi-green"><div class="kpi-label">إجمالي المسدد حتى تاريخه</div><div class="kpi-value">' + formatCurrency(totalReceived) + '</div><div style="font-size:8px;color:#059669;margin-top:2px;">تم الاستلام (' + collectionPct + '%)</div></div>' +
+        '<div class="kpi-card kpi-amber"><div class="kpi-label">المستحق المتبقي للسداد</div><div class="kpi-value">' + formatCurrency(totalRemaining) + '</div><div style="font-size:8px;color:#d97706;margin-top:2px;">متبقي مستحق للتحصيل</div></div>' +
+        '<div class="kpi-card kpi-blue"><div class="kpi-label">نسبة الإنجاز الميداني</div><div class="kpi-value">' + progressPct + '%</div><div style="font-size:8px;color:#2563eb;margin-top:2px;">وفق مراحل WBS الفنية</div></div>' +
+    '</div>\n' +
+    '<div class="progress-box no-break">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">' +
+            '<span style="font-size:10px;font-weight:800;color:#0f172a;">🏗️ تقدم تنفيذ أعمال المشروع الميدانية</span>' +
+            '<span style="font-size:11px;font-weight:900;color:#059669;font-family:monospace;">' + progressPct + '% مكتمل</span>' +
+        '</div>' +
+        '<div style="background:#e2e8f0;border-radius:999px;height:12px;overflow:hidden;margin-bottom:6px;">' +
+            '<div style="background:linear-gradient(90deg, #059669, #10b981);height:100%;width:' + Math.min(100, progressPct) + '%;"></div>' +
+        '</div>' +
+        '<div style="display:flex;justify-content:space-between;font-size:8.5px;color:#64748b;">' +
+            '<span>تاريخ البدء: ' + escapeHtml(p.start_date || '-') + '</span>' +
+            '<span>حالة المشروع: ' + (p.status === 'completed' ? 'مكتمل بالكامل' : 'جاري التنفيذ الميداني') + '</span>' +
+            '<span>تاريخ التسليم: ' + escapeHtml(p.end_date || '-') + '</span>' +
+        '</div>' +
+    '</div>\n' +
+    '<div class="section-title">🏗️ 1. الموقف الميداني لمراحل المشروع (WBS)</div>\n' +
+    '<table><thead><tr><th style="width:25px;">م</th><th>المرحلة الفنية</th><th style="width:65px;text-align:center;">الوزن النسبي %</th><th style="width:130px;text-align:center;">نسبة الإنجاز</th><th style="width:90px;text-align:center;">حالة المرحلة</th></tr></thead>' +
+    '<tbody>' + phasesRows + '</tbody>' +
+    '<tfoot><tr class="total-row"><td colspan="2" style="text-align:center;">الإجمالي العام لكافة المراحل</td><td style="text-align:center;">' + totalPhasesWeight.toFixed(0) + '%</td><td style="text-align:center;">' + progressPct + '%</td><td></td></tr></tfoot></table>\n' +
+    '<div class="section-title">💰 ' + (extraCps.length > 0 ? '2' : '2') + '. جدول الدفعات والالتزامات المالية التعاقدية</div>\n' +
+    '<table><thead><tr><th style="width:25px;">م</th><th>بيان الدفعة التعاقدية</th><th style="width:65px;text-align:center;">النسبة %</th><th>المبلغ المطلوب</th><th>المسدد</th><th>المتبقي للسداد</th><th style="width:80px;text-align:center;">الاستحقاق</th><th style="width:95px;text-align:center;">الحالة</th></tr></thead>' +
+    '<tbody>' + contractRows + '</tbody>' +
+    '<tfoot><tr class="total-row"><td colspan="3" style="text-align:center;">إجمالي دفعات العقد الأساسية</td><td style="font-family:monospace;">' + formatCurrency(totalContractReq) + '</td><td style="font-family:monospace;">' + formatCurrency(totalContractRecv) + '</td><td style="font-family:monospace;">' + formatCurrency(totalContractRem) + '</td><td colspan="2"></td></tr></tfoot></table>\n' +
+    extraSectionHtml +
+    '<div class="notice-box no-break"><strong>📌 ملاحظة رسمية:</strong> كافة الأعمال المنفذة مطابقة للاشتراطات الهندسية والمواصفات الفنية المعتمدة في كود البناء السعودي وتحت إشراف ومتابعة هندسية دقيقة من شركة مقاولات السجيني.</div>\n' +
+    '<div class="sigs no-break"><div class="sig-col"><div>مهندس الموقع والمشروع</div><div style="font-size:8.5px;color:#64748b;margin-top:3px;">' + escapeHtml(p.manager_name || '-') + '</div><div class="sig-line">التوقيع: ................................</div></div><div class="sig-col"><div>إدارة شركة مقاولات السجيني</div><div style="font-size:8.5px;color:#64748b;margin-top:3px;">الإدارة العامة والمالية</div><div class="sig-line">الختم الرسمي: ..........................</div></div><div class="sig-col"><div>اعتماد واستلام العميل / المالك</div><div style="font-size:8.5px;color:#64748b;margin-top:3px;">' + escapeHtml(p.client_name || '-') + '</div><div class="sig-line">التوقيع: ................................</div></div></div>\n' +
+    '<div style="text-align:center;margin-top:12px;font-size:8.5px;color:#94a3b8;border-top:1px solid #e2e8f0;padding-top:6px;">تم إعداد واستخراج هذا التقرير رسمياً بواسطة المنظومة السحابية لشركة مقاولات السجيني — ' + todayStr + ' — جميع المبالغ بالريال السعودي (ر.س)</div>\n' +
+    '</body>\n</html>';
+}
+
+// ----------------- GENERATE CLIENT REPORT WHATSAPP TEXT (نسخ ملخص جاهز للمالك للواتساب) -----------------
+function generateClientReportWhatsAppText(p) {
+    if (!p) return '';
+    const contractVal = parseFloat(p.contract_value) || 0;
+    const allCps = p.client_payments || [];
+    const isExtraWork = function(cp) {
+        if (!cp) return false;
+        if (cp.payment_type === 'extra_work') return true;
+        const txt = ((cp.milestone_name || '') + ' ' + (cp.notes || '')).toLowerCase();
+        return txt.includes('تغير') || txt.includes('تغيير') || txt.includes('إضاف') || txt.includes('اضاف') || txt.includes('خامات') || txt.includes('حديد') || txt.includes('بلوك') || txt.includes('فروق');
+    };
+    const extraCps = allCps.filter(isExtraWork);
+    const totalExtraReq = extraCps.reduce((acc, c) => acc + (parseFloat(c.amount_with_tax) || 0), 0);
+    const totalReceived = allCps.filter(c => c.is_received || c.status === 'paid' || c.status === 'partially_paid').reduce((acc, c) => acc + (parseFloat(c.received_amount) || 0), 0);
+    const totalContractValue = contractVal + totalExtraReq;
+    const totalRemaining = Math.max(0, totalContractValue - totalReceived);
+    const collectionPct = totalContractValue > 0 ? Math.round((totalReceived / totalContractValue) * 100) : 0;
+    const progressPct = parseFloat(p.progress_percent) || 0;
+    const todayStr = new Date().toLocaleDateString('ar-SA', { year: 'numeric', month: 'long', day: 'numeric' });
+
+    let msg = `*📋 تقرير الموقف التنفيذي والمالي للمشروع*\n`;
+    msg += `━━━━━━━━━━━━━━━━━━━━━\n`;
+    msg += `🏗️ *المشروع:* ${p.name || ''} (${p.code || ''})\n`;
+    msg += `👤 *المالك / العميل:* ${p.client_name || '-'}\n`;
+    msg += `📍 *الموقع:* ${p.location || '-'}\n`;
+    msg += `📅 *تاريخ التقرير:* ${todayStr}\n`;
+    msg += `━━━━━━━━━━━━━━━━━━━━━\n`;
+    msg += `📊 *الموقف التنفيذي الميداني:*\n`;
+    msg += `• نسبة الإنجاز الكلية للمشروع: *${progressPct}%*\n`;
+    msg += `• حالة المشروع: *${p.status === 'completed' ? 'مكتمل بالكامل ✓' : 'جاري التنفيذ ⏳'}*\n`;
+    if (p.phases && p.phases.length > 0) {
+        msg += `\n*🏗️ مراحل العمل الميدانية:*\n`;
+        p.phases.forEach((ph, idx) => {
+            const prog = parseFloat(ph.progress_percent) || 0;
+            const st = prog >= 100 ? 'مكتملة ✓' : (prog > 0 ? `جاري العمل (${prog}%)` : 'مجدولة');
+            msg += `${idx + 1}. ${ph.name}: *${st}*\n`;
+        });
+    }
+    msg += `━━━━━━━━━━━━━━━━━━━━━\n`;
+    msg += `💰 *الموقف المالي والتعاقدي:*\n`;
+    msg += `• إجمالي قيمة التعاقد: *${formatCurrency(totalContractValue)}*\n`;
+    msg += `• إجمالي المسدد حتى تاريخه: *${formatCurrency(totalReceived)}* (${collectionPct}%)\n`;
+    msg += `• *المستحق المتبقي للسداد: ${formatCurrency(totalRemaining)}*\n`;
+    msg += `━━━━━━━━━━━━━━━━━━━━━\n`;
+    msg += `✨ *شركة مقاولات السجيني العامة*\n`;
+    msg += `_لأي استفسار يرجى التواصل مع إدارة المشاريع_`;
+    return msg;
+}
+
+// ----------------- VIEW PROJECT REPORT MODAL (معاينة وعرض التقرير بموديل المالك أو الداخلي) -----------------
+let currentReportPreviewMode = 'client'; // 'client' | 'internal'
+let currentReportProjectData = null;
+
+async function viewClientProjectReport(projectId = null) {
+    await renderProjectReportModal(projectId, 'client');
+}
+
 async function viewProjectReport(projectId = null) {
+    await renderProjectReportModal(projectId, 'internal');
+}
+
+async function renderProjectReportModal(projectId = null, mode = 'client') {
+    currentReportPreviewMode = mode;
     const targetId = projectId || (typeof currentProjectIdForModal !== 'undefined' ? currentProjectIdForModal : null) || (currentProjectDetailData ? currentProjectDetailData.id : null);
     if (!targetId) {
         showToast('يرجى فتح أو اختيار المشروع أولاً لعرض التقرير', 'warning');
         return;
     }
 
-    showToast('جاري تجهيز وتحديث تقرير الموقف التنفيذي والمالي...', 'info');
+    showToast(mode === 'client' ? 'جاري تجهيز تقرير العميل والمالك...' : 'جاري تجهيز تقرير الموقف الداخلي الشامل...', 'info');
 
     let p = null;
     try {
@@ -7181,23 +7395,107 @@ async function viewProjectReport(projectId = null) {
         return;
     }
 
-    const printHtml = generateProjectReportHtml(p);
+    currentReportProjectData = p;
+    applyReportPreviewMode(currentReportPreviewMode);
 
     const previewModal = document.getElementById('project-report-preview-modal');
-    const frame = document.getElementById('project-report-preview-frame');
-    const titleEl = document.getElementById('report-preview-title');
-    const subEl = document.getElementById('report-preview-subtitle');
-
-    if (titleEl) titleEl.textContent = `معاينة تقرير الموقف التنفيذي والمالي — ${p.name || ''}`;
-    if (subEl) subEl.textContent = `كود: ${p.code || '-'} | العميل: ${p.client_name || '-'} | نسبة الإنجاز: ${p.progress_percent || 0}%`;
-
-    if (frame) {
-        frame.srcdoc = printHtml;
-    }
-
     if (previewModal) {
         previewModal.classList.remove('hidden');
         if (typeof lucide !== 'undefined') lucide.createIcons();
+    }
+}
+
+function applyReportPreviewMode(mode) {
+    currentReportPreviewMode = mode;
+    const p = currentReportProjectData;
+    if (!p) return;
+
+    const frame = document.getElementById('project-report-preview-frame');
+    const titleEl = document.getElementById('report-preview-title');
+    const subEl = document.getElementById('report-preview-subtitle');
+    const badgeEl = document.getElementById('report-preview-type-badge');
+    const iconEl = document.getElementById('report-preview-icon');
+    const tabClient = document.getElementById('tab-report-client');
+    const tabInternal = document.getElementById('tab-report-internal');
+
+    if (mode === 'client') {
+        if (titleEl) titleEl.textContent = `تقرير العميل والمالك — ${p.name || ''}`;
+        if (subEl) subEl.textContent = `كود: ${p.code || '-'} | العميل: ${p.client_name || '-'} | نسبة الإنجاز: ${p.progress_percent || 0}%`;
+        if (badgeEl) {
+            badgeEl.textContent = 'خاص بالعميل والمالك (خالٍ من التكاليف الداخلية)';
+            badgeEl.className = 'px-2 py-0.5 rounded text-[10px] font-bold bg-blue-500/20 text-blue-400 border border-blue-500/30';
+        }
+        if (iconEl) {
+            iconEl.className = 'p-2.5 rounded-xl bg-blue-500/20 text-blue-400';
+            iconEl.innerHTML = '<i data-lucide="user-check" class="w-5 h-5"></i>';
+        }
+        if (tabClient) {
+            tabClient.className = 'px-3 py-1.5 rounded-lg text-xs font-bold transition bg-blue-600 text-white shadow';
+        }
+        if (tabInternal) {
+            tabInternal.className = 'px-3 py-1.5 rounded-lg text-xs font-bold transition text-slate-400 hover:text-white';
+        }
+        if (frame) {
+            frame.srcdoc = generateClientProjectReportHtml(p);
+        }
+    } else {
+        if (titleEl) titleEl.textContent = `تقرير الموقف التنفيذي والمالي المتكامل (إدارة الشركة) — ${p.name || ''}`;
+        if (subEl) subEl.textContent = `كود: ${p.code || '-'} | التدفقات النقدية · المصروفات · مقاولو الباطن`;
+        if (badgeEl) {
+            badgeEl.textContent = 'التقرير الداخلي الشامل (سري للإدارة)';
+            badgeEl.className = 'px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30';
+        }
+        if (iconEl) {
+            iconEl.className = 'p-2.5 rounded-xl bg-amber-500/20 text-amber-400';
+            iconEl.innerHTML = '<i data-lucide="shield" class="w-5 h-5"></i>';
+        }
+        if (tabClient) {
+            tabClient.className = 'px-3 py-1.5 rounded-lg text-xs font-bold transition text-slate-400 hover:text-white';
+        }
+        if (tabInternal) {
+            tabInternal.className = 'px-3 py-1.5 rounded-lg text-xs font-bold transition bg-amber-600 text-white shadow';
+        }
+        if (frame) {
+            frame.srcdoc = generateProjectReportHtml(p);
+        }
+    }
+
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+}
+
+function switchReportPreviewMode(mode) {
+    applyReportPreviewMode(mode);
+}
+
+function copyCurrentReportWhatsApp() {
+    const p = currentReportProjectData || currentProjectDetailData;
+    if (!p) {
+        showToast('لا توجد بيانات مشروع منتقاة لنسخ التقرير', 'warning');
+        return;
+    }
+    const msg = generateClientReportWhatsAppText(p);
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(msg).then(() => {
+            showToast('✔ تم نسخ ملخص التقرير للواتساب بنجاح! يمكنك لصقه وإرساله للعميل الآن', 'success');
+        }).catch(() => {
+            prompt('انسخ نص التقرير للواتساب:', msg);
+        });
+    } else {
+        prompt('انسخ نص التقرير للواتساب:', msg);
+    }
+}
+
+function openCurrentReportInNewTab() {
+    const p = currentReportProjectData || currentProjectDetailData;
+    if (!p || !p.id) {
+        showToast('يرجى تحديد المشروع أولاً', 'warning');
+        return;
+    }
+    if (currentReportPreviewMode === 'client') {
+        window.open(`/project/${p.id}/client-report`, '_blank');
+    } else {
+        const pId = p.id;
+        window.open(`/project/${pId}/client-report?mode=internal`, '_blank');
     }
 }
 

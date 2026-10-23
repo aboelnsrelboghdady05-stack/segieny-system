@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html dir="rtl" lang="ar">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>تقرير الموقف التنفيذي والمالي - شركة مقاولات السجيني</title>
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        body { font-family: 'Cairo', system-ui, sans-serif; background: #f8fafc; color: #1e293b; }
+        @media print {
+            .no-print { display: none !important; }
+            body { background: #fff !important; }
+            @page { size: A4; margin: 10mm; }
+        }
+    </style>
+</head>
+<body class="p-2 sm:p-6 min-h-screen">
+
+    <!-- Top Floating Actions Bar (Hidden on Print) -->
+    <div class="no-print max-w-5xl mx-auto mb-4 bg-slate-900 border border-slate-750 text-white rounded-2xl p-3 sm:p-4 shadow-xl flex items-center justify-between flex-wrap gap-3">
+        <div class="flex items-center gap-3">
+            <div class="p-2 rounded-xl bg-blue-500/20 text-blue-400">
+                <i data-lucide="file-check-2" class="w-5 h-5"></i>
+            </div>
+            <div>
+                <h1 class="text-sm sm:text-base font-black">تقرير الموقف التنفيذي والمالي للمشروع</h1>
+                <p class="text-xs text-slate-400">نسخة معتمدة موجهة للمالك والعميل</p>
+            </div>
+        </div>
+        <div class="flex items-center gap-2">
+            <button onclick="copyWhatsAppSummary()" class="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 transition shadow">
+                <i data-lucide="message-circle" class="w-4 h-4"></i>
+                <span>نسخ للواتساب</span>
+            </button>
+            <button onclick="window.print()" class="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs flex items-center gap-1.5 transition shadow">
+                <i data-lucide="printer" class="w-4 h-4"></i>
+                <span>طباعة / حفظ PDF</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- Main Report Container (Rendered into A4 Card) -->
+    <div id="report-container" class="max-w-5xl mx-auto bg-white border border-slate-200 rounded-2xl p-6 sm:p-8 shadow-sm">
+        <div class="flex items-center justify-center py-20 text-slate-400">
+            <div class="text-center">
+                <div class="inline-block animate-spin text-2xl mb-3">⏳</div>
+                <p class="text-sm font-bold">جاري تحميل بيانات التقرير المعتمد للمشروع...</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="hidden fixed bottom-6 left-1/2 -translate-x-1/2 px-4 py-2.5 rounded-xl bg-slate-900 text-white text-xs font-bold shadow-2xl border border-slate-750 transition-all duration-300 z-50"></div>
+
+    <script>
+        const projectId = {{ project_id }};
+        let projectData = null;
+
+        function showToast(msg) {
+            const t = document.getElementById('toast');
+            if (!t) return;
+            t.innerText = msg;
+            t.classList.remove('hidden');
+            setTimeout(() => { t.classList.add('hidden'); }, 3000);
+        }
+
+        function formatCurrency(val) {
+            const num = parseFloat(val) || 0;
+            return num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ر.س';
+        }
+
+        function escapeHtml(str) {
+            if (!str) return '';
+            return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        }
+
+        async function loadProjectData() {
+            try {
+                const res = await fetch(`/api/projects/${projectId}?_t=${Date.now()}`);
+                if (!res.ok) throw new Error('فشل في جلب بيانات المشروع');
+                projectData = await res.json();
+                renderReport(projectData);
+                if (window.location.search.includes('print=1')) {
+                    setTimeout(() => { window.print(); }, 600);
+                }
+            } catch (err) {
+                document.getElementById('report-container').innerHTML = `
+                    <div class="text-center py-16 text-rose-500 font-bold">
+                        <p class="text-lg mb-2">⚠️ تعذر تحميل بيانات تقرير المشروع</p>
+                        <p class="text-xs text-slate-500">${escapeHtml(err.message)}</p>
+                    </div>
+                `;
+            }
+        }
+
+        function renderReport(p) {
+            const today = new Date();
+            const todayStr = today.toLocaleDateString('ar-SA', { year: 'numeric', month: 'long', day: 'numeric' });
+            const printTimeStr = today.toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' });
+
+            const contractVal = parseFloat(p.contract_value) || 0;
+            const progressPct = parseFloat(p.progress_percent) || 0;
+
+            const allCps = p.client_payments || [];
+            const isExtraWork = function(cp) {
+                if (!cp) return false;
+                if (cp.payment_type === 'extra_work') return true;
+                const txt = ((cp.milestone_name || '') + ' ' + (cp.notes || '')).toLowerCase();
+                return txt.includes('تغير') || txt.includes('تغيير') || txt.includes('إضاف') || txt.includes('اضاف') || txt.includes('خامات') || txt.includes('حديد') || txt.includes('بلوك') || txt.includes('فروق');
+            };
+            const contractCps = allCps.filter(function(cp) { return !isExtraWork(cp); });
+            const extraCps = allCps.filter(function(cp) { return isExtraWork(cp); });
+
+            let totalContractReq = 0, totalContractRecv = 0, totalContractRem = 0;
+            let contractRows = '';
+            contractCps.forEach(function(cp) {
+                const req = parseFloat(cp.amount_with_tax) || 0;
+                const recv = parseFloat(cp.received_amount) || 0;
+                const rem = Math.max(0, req - recv);
+                totalContractReq += req; totalContractRecv += recv; totalContractRem += rem;
+                const isPaid = cp.is_received === 1 || cp.status === 'paid';
+                const isPart = !isPaid && (recv > 0 || cp.status === 'partially_paid');
+                const stText = isPaid ? 'مسددة بالكامل ✓' : (isPart ? 'مسددة جزئياً' : 'مستحقة قيد السداد');
+                const stBg = isPaid ? '#dcfce7' : (isPart ? '#fef3c7' : '#eff6ff');
+                const stColor = isPaid ? '#15803d' : (isPart ? '#b45309' : '#1d4ed8');
+                contractRows += `<tr>
+                    <td class="text-center font-bold p-2 border border-slate-200">${cp.payment_number || '-'}</td>
+                    <td class="p-2 border border-slate-200">
+                        <strong>${escapeHtml(cp.milestone_name)}</strong>
+                        ${cp.receipt_voucher_no ? `<div class="text-[9px] text-emerald-600">سند قبض: ${escapeHtml(cp.receipt_voucher_no)}</div>` : ''}
+                    </td>
+                    <td class="text-center p-2 border border-slate-200">${cp.percentage ? cp.percentage + '%' : '-'}</td>
+                    <td class="font-mono font-bold text-left p-2 border border-slate-200">${formatCurrency(req)}</td>
+                    <td class="font-mono font-bold text-emerald-600 text-left p-2 border border-slate-200">${formatCurrency(recv)}</td>
+                    <td class="font-mono font-bold ${rem > 0 ? 'text-rose-600' : 'text-emerald-600'} text-left p-2 border border-slate-200">${formatCurrency(rem)}</td>
+                    <td class="text-center text-xs p-2 border border-slate-200">${cp.due_date || '-'}</td>
+                    <td class="text-center p-2 border border-slate-200"><span style="background:${stBg};color:${stColor};padding:2px 8px;border-radius:4px;font-size:10px;font-weight:bold;">${stText}</span></td>
+                </tr>`;
+            });
+            if (!contractRows) contractRows = '<tr><td colspan="8" class="text-center text-slate-400 p-3">لا توجد دفعات مسجلة</td></tr>';
+
+            let totalExtraReq = 0, totalExtraRecv = 0, totalExtraRem = 0;
+            let extraRows = '';
+            extraCps.forEach(function(cp) {
+                const req = parseFloat(cp.amount_with_tax) || 0;
+                const recv = parseFloat(cp.received_amount) || 0;
+                const rem = Math.max(0, req - recv);
+                totalExtraReq += req; totalExtraRecv += recv; totalExtraRem += rem;
+                const isPaid = cp.is_received === 1 || cp.status === 'paid';
+                const isPart = !isPaid && (recv > 0 || cp.status === 'partially_paid');
+                const stText = isPaid ? 'مسددة بالكامل ✓' : (isPart ? 'مسددة جزئياً' : 'مستحقة قيد السداد');
+                const stBg = isPaid ? '#dcfce7' : (isPart ? '#fef3c7' : '#fdf2f8');
+                const stColor = isPaid ? '#15803d' : (isPart ? '#b45309' : '#9333ea');
+                extraRows += `<tr class="bg-purple-50/40">
+                    <td class="text-center font-bold text-purple-700 p-2 border border-slate-200">${cp.payment_number || '-'}</td>
+                    <td class="p-2 border border-slate-200">
+                        <span class="bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded text-[9px] font-bold ml-1 border border-purple-200">🏷️ أعمال إضافية</span>
+                        <strong>${escapeHtml(cp.milestone_name)}</strong>
+                        ${cp.notes ? `<div class="text-[9px] text-slate-500">${escapeHtml(cp.notes)}</div>` : ''}
+                    </td>
+                    <td class="text-center text-xs text-purple-700 font-bold p-2 border border-slate-200">ملحق إضافي</td>
+                    <td class="font-mono font-bold text-left text-purple-700 p-2 border border-slate-200">${formatCurrency(req)}</td>
+                    <td class="font-mono font-bold text-emerald-600 text-left p-2 border border-slate-200">${formatCurrency(recv)}</td>
+                    <td class="font-mono font-bold ${rem > 0 ? 'text-rose-600' : 'text-emerald-600'} text-left p-2 border border-slate-200">${formatCurrency(rem)}</td>
+                    <td class="text-center text-xs p-2 border border-slate-200">${cp.due_date || '-'}</td>
+                    <td class="text-center p-2 border border-slate-200"><span style="background:${stBg};color:${stColor};padding:2px 8px;border-radius:4px;font-size:10px;font-weight:bold;">${stText}</span></td>
+                </tr>`;
+            });
+
+            const totalBillable = (totalContractReq > 0 ? totalContractReq : contractVal) + totalExtraReq;
+            const totalReceived = totalContractRecv + totalExtraRecv;
+            const totalRemaining = Math.max(0, totalBillable - totalReceived);
+            const collectionPct = totalBillable > 0 ? Math.round((totalReceived / totalBillable) * 100) : 0;
+            const contractPct = totalContractReq > 0 ? Math.round((totalContractRecv / totalContractReq) * 100) : collectionPct;
+            const extraPct = totalExtraReq > 0 ? Math.round((totalExtraRecv / totalExtraReq) * 100) : 0;
+
+            let phasesRows = '';
+            let totalWeight = 0;
+            (p.phases || []).forEach(function(ph, idx) {
+                const weight = parseFloat(ph.weight_percent) || 0;
+                const prog = parseFloat(ph.progress_percent) || 0;
+                totalWeight += weight;
+                const isDone = prog >= 100 || ph.status === 'completed';
+                const inProg = prog > 0 && !isDone;
+                const stText = isDone ? 'مكتملة بالكامل ✓' : (inProg ? 'قيد التنفيذ ⏳' : 'مجدولة ⏱️');
+                const stBg = isDone ? '#dcfce7' : (inProg ? '#eff6ff' : '#f8fafc');
+                const stColor = isDone ? '#15803d' : (inProg ? '#1d4ed8' : '#64748b');
+                const barColor = isDone ? '#059669' : '#0284c7';
+
+                phasesRows += `<tr>
+                    <td class="text-center font-bold p-2.5 border border-slate-200">${ph.order_num || idx + 1}</td>
+                    <td class="p-2.5 border border-slate-200">
+                        <strong class="text-xs text-slate-900">${escapeHtml(ph.name)}</strong>
+                        ${ph.notes ? `<div class="text-[10px] text-slate-500 mt-0.5">${escapeHtml(ph.notes)}</div>` : ''}
+                    </td>
+                    <td class="text-center font-bold p-2.5 border border-slate-200">${weight}%</td>
+                    <td class="text-center p-2.5 border border-slate-200">
+                        <div class="flex items-center justify-center gap-2">
+                            <div class="w-20 bg-slate-200 h-2.5 rounded-full overflow-hidden">
+                                <div style="width:${prog}%;background:${barColor};" class="h-full rounded-full"></div>
+                            </div>
+                            <span class="font-extrabold text-xs" style="color:${barColor};">${prog}%</span>
+                        </div>
+                    </td>
+                    <td class="text-center p-2.5 border border-slate-200"><span style="background:${stBg};color:${stColor};padding:3px 9px;border-radius:4px;font-size:10px;font-weight:bold;">${stText}</span></td>
+                </tr>`;
+            });
+            if (!phasesRows) phasesRows = '<tr><td colspan="5" class="text-center text-slate-400 p-4">لا توجد مراحل مسجلة للمشروع</td></tr>';
+
+            const container = document.getElementById('report-container');
+            container.innerHTML = `
+                <!-- Official SGCC Header -->
+                <div class="flex items-start justify-between border-b-2 border-slate-900 pb-4 mb-4">
+                    <div>
+                        <div class="text-xl sm:text-2xl font-black text-slate-950">شركة مقاولات السجيني العامة</div>
+                        <div class="text-xs text-blue-600 font-bold mt-0.5">إدارة المشاريع الإنشائية والتطوير العقاري · المملكة العربية السعودية</div>
+                        <div class="inline-block bg-slate-900 text-white font-extrabold text-xs px-3 py-1 rounded-md mt-2">
+                            📋 تقرير الموقف التنفيذي والمالي للمشروع (خاص بالمالك والعميل)
+                        </div>
+                    </div>
+                    <div class="text-left text-xs text-slate-500 leading-relaxed font-mono">
+                        <div><strong class="text-slate-900">كود المشروع:</strong> ${escapeHtml(p.code || 'PRJ-000')}</div>
+                        <div><strong class="text-slate-900">تاريخ التقرير:</strong> ${todayStr}</div>
+                        <div><strong class="text-slate-900">وقت الاستخراج:</strong> ${printTimeStr}</div>
+                        <div><strong class="text-slate-900">حالة المشروع:</strong> ${p.status === 'completed' ? '<span class="text-emerald-600 font-bold">مكتمل بالكامل ✓</span>' : '<span class="text-blue-600 font-bold">جاري التنفيذ ⏳</span>'}</div>
+                        <div><strong class="text-slate-900">نسبة الإنجاز:</strong> <span class="text-blue-600 font-bold">${progressPct}%</span></div>
+                    </div>
+                </div>
+
+                <!-- Info Grid -->
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5 bg-slate-50 border border-slate-200 rounded-xl p-3 mb-4 text-xs">
+                    <div><span class="text-[10px] text-slate-400 block font-bold">اسم المشروع</span><span class="font-extrabold text-slate-900 text-sm">${escapeHtml(p.name || '')}</span></div>
+                    <div><span class="text-[10px] text-slate-400 block font-bold">المالك / العميل</span><span class="font-extrabold text-slate-900 text-sm">${escapeHtml(p.client_name || '-')}</span></div>
+                    <div><span class="text-[10px] text-slate-400 block font-bold">الموقع والمدينة</span><span class="font-extrabold text-slate-900">${escapeHtml(p.location || '-')}</span></div>
+                    <div><span class="text-[10px] text-slate-400 block font-bold">مدير المشروع</span><span class="font-extrabold text-slate-900">${escapeHtml(p.manager_name || 'إدارة المشاريع')}</span></div>
+                    <div><span class="text-[10px] text-slate-400 block font-bold">تاريخ بدء الأعمال</span><span class="font-mono font-bold text-slate-800">${escapeHtml(p.start_date || '-')}</span></div>
+                    <div><span class="text-[10px] text-slate-400 block font-bold">تاريخ التسليم المخطط</span><span class="font-mono font-bold text-slate-800">${escapeHtml(p.end_date || '-')}</span></div>
+                    <div><span class="text-[10px] text-slate-400 block font-bold">نسبة الإنجاز الميداني</span><span class="font-bold text-emerald-600 text-sm">${progressPct}%</span></div>
+                    <div><span class="text-[10px] text-slate-400 block font-bold">نسبة سداد المستحقات</span><span class="font-bold text-blue-600 text-sm">${collectionPct}%</span></div>
+                </div>
+
+                <!-- 4 KPI Cards for Client -->
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+                    <div class="bg-blue-50/60 border border-blue-200 p-3 rounded-xl text-center">
+                        <span class="text-xs font-bold text-blue-700 block mb-1">📄 إجمالي قيمة التعاقد</span>
+                        <div class="text-base sm:text-lg font-black font-mono text-blue-900">${formatCurrency(totalBillable)}</div>
+                        <span class="text-[10px] text-blue-600 font-semibold">${totalExtraReq > 0 ? 'شامل العقد والأعمال الإضافية' : 'قيمة العقد المعتمدة'}</span>
+                    </div>
+                    <div class="bg-emerald-50/60 border border-emerald-200 p-3 rounded-xl text-center">
+                        <span class="text-xs font-bold text-emerald-700 block mb-1">💰 المسدد حتى تاريخه</span>
+                        <div class="text-base sm:text-lg font-black font-mono text-emerald-900">${formatCurrency(totalReceived)}</div>
+                        <span class="text-[10px] text-emerald-600 font-semibold">نسبة السداد: ${collectionPct}%</span>
+                    </div>
+                    <div class="bg-amber-50/60 border border-amber-200 p-3 rounded-xl text-center">
+                        <span class="text-xs font-bold text-amber-700 block mb-1">⏳ المستحق المتبقي للسداد</span>
+                        <div class="text-base sm:text-lg font-black font-mono text-amber-900">${formatCurrency(totalRemaining)}</div>
+                        <span class="text-[10px] text-amber-600 font-semibold">المتبقي لإتمام كامل العقد</span>
+                    </div>
+                    <div class="bg-teal-50/60 border border-teal-200 p-3 rounded-xl text-center">
+                        <span class="text-xs font-bold text-teal-700 block mb-1">🏗️ نسبة الإنجاز الفعلي</span>
+                        <div class="text-base sm:text-lg font-black font-mono text-teal-900">${progressPct}%</div>
+                        <span class="text-[10px] text-teal-600 font-semibold">${p.status === 'completed' ? 'تم اكتمال المشروع' : 'الأعمال جارية بالموقع'}</span>
+                    </div>
+                </div>
+
+                <!-- Big Visual Progress Banner -->
+                <div class="bg-slate-50 border border-slate-200 rounded-xl p-3 sm:p-4 mb-4 flex items-center justify-between gap-4">
+                    <div class="shrink-0">
+                        <div class="font-black text-xs sm:text-sm text-slate-900">🏗️ مؤشر التقدم العام للمشروع</div>
+                        <div class="text-[10px] text-slate-500">إجمالي إنجاز المراحل والأعمال الإنشائية في الموقع</div>
+                    </div>
+                    <div class="flex-1 bg-slate-200 h-3.5 rounded-full overflow-hidden">
+                        <div style="width: ${progressPct}%;" class="bg-gradient-to-l from-emerald-500 to-blue-600 h-full rounded-full transition-all duration-700"></div>
+                    </div>
+                    <div class="font-black text-xl font-mono text-slate-900 min-w-[50px] text-left">${progressPct}%</div>
+                </div>
+
+                <!-- Section 1: Phases Table -->
+                <div class="font-black text-sm text-slate-900 border-r-4 border-blue-600 pr-2 my-3">
+                    🏗️ 1. مراحل التنفيذ الفني والإنجاز الميداني (WBS)
+                </div>
+                <div class="overflow-x-auto mb-4">
+                    <table class="w-full text-xs text-right border-collapse">
+                        <thead>
+                            <tr class="bg-slate-900 text-white">
+                                <th class="p-2 border border-slate-700 text-center w-10">م</th>
+                                <th class="p-2 border border-slate-700">مرحلة العمل الإنشائية</th>
+                                <th class="p-2 border border-slate-700 text-center w-24">الوزن النسبي</th>
+                                <th class="p-2 border border-slate-700 text-center w-36">نسبة الإنجاز الفعلي</th>
+                                <th class="p-2 border border-slate-700 text-center w-28">حالة الإنجاز</th>
+                            </tr>
+                        </thead>
+                        <tbody>${phasesRows}</tbody>
+                        <tfoot>
+                            <tr class="bg-slate-900 text-white font-black">
+                                <td colspan="2" class="p-2 text-center">إجمالي مراحل المشروع (${(p.phases || []).length} مرحلة)</td>
+                                <td class="p-2 text-center font-mono">${totalWeight > 0 ? Math.round(totalWeight) + '%' : '100%'}</td>
+                                <td class="p-2 text-center font-mono">إجمالي الإنجاز: ${progressPct}%</td>
+                                <td class="p-2 text-center">${p.status === 'completed' ? 'مكتمل بالكامل ✓' : 'جاري التنفيذ'}</td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+
+                <!-- Section 2: Payments Table -->
+                <div class="font-black text-sm text-slate-900 border-r-4 border-blue-600 pr-2 my-3">
+                    💰 2. جدول استحقاقات ودفعات العميل المعتمدة
+                </div>
+                <div class="overflow-x-auto mb-4">
+                    <table class="w-full text-xs text-right border-collapse">
+                        <thead>
+                            <tr class="bg-slate-900 text-white">
+                                <th class="p-2 border border-slate-700 text-center w-10">م</th>
+                                <th class="p-2 border border-slate-700">مرحلة الاستحقاق التعاقدية</th>
+                                <th class="p-2 border border-slate-700 text-center w-16">النسبة</th>
+                                <th class="p-2 border border-slate-700 text-left">المبلغ المطلوب (شامل الضريبة)</th>
+                                <th class="p-2 border border-slate-700 text-left">المسدد فعلياً</th>
+                                <th class="p-2 border border-slate-700 text-left">المتبقي للسداد</th>
+                                <th class="p-2 border border-slate-700 text-center w-24">الاستحقاق</th>
+                                <th class="p-2 border border-slate-700 text-center w-28">حالة السداد</th>
+                            </tr>
+                        </thead>
+                        <tbody>${contractRows}</tbody>
+                        <tfoot>
+                            <tr class="bg-slate-900 text-white font-black">
+                                <td colspan="3" class="p-2 text-center">إجمالي دفعات العقد الأساسي</td>
+                                <td class="p-2 font-mono text-left">${formatCurrency(totalContractReq)}</td>
+                                <td class="p-2 font-mono text-left text-emerald-400">${formatCurrency(totalContractRecv)}</td>
+                                <td class="p-2 font-mono text-left text-rose-300">${formatCurrency(totalContractRem)}</td>
+                                <td colspan="2" class="p-2 text-center">نسبة السداد: ${contractPct}%</td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+
+                ${extraRows ? `
+                <div class="font-black text-xs text-purple-700 my-2">🏷️ دفعات ملاحق الأعمال الإضافية وفروق الأسعار المعتمدة (${extraCps.length} دفعات)</div>
+                <div class="overflow-x-auto mb-4">
+                    <table class="w-full text-xs text-right border-collapse">
+                        <thead>
+                            <tr class="bg-purple-900 text-white">
+                                <th class="p-2 border border-purple-800 text-center w-10">م</th>
+                                <th class="p-2 border border-purple-800">بيان الأعمال الإضافية / الملحق</th>
+                                <th class="p-2 border border-purple-800 text-center w-24">النوع</th>
+                                <th class="p-2 border border-purple-800 text-left">المبلغ المطلوب</th>
+                                <th class="p-2 border border-purple-800 text-left">المسدد</th>
+                                <th class="p-2 border border-purple-800 text-left">المتبقي</th>
+                                <th class="p-2 border border-purple-800 text-center w-24">الاستحقاق</th>
+                                <th class="p-2 border border-purple-800 text-center w-28">حالة السداد</th>
+                            </tr>
+                        </thead>
+                        <tbody>${extraRows}</tbody>
+                        <tfoot>
+                            <tr class="bg-purple-950 text-white font-black">
+                                <td colspan="3" class="p-2 text-center">إجمالي الأعمال الإضافية</td>
+                                <td class="p-2 font-mono text-left">${formatCurrency(totalExtraReq)}</td>
+                                <td class="p-2 font-mono text-left text-emerald-300">${formatCurrency(totalExtraRecv)}</td>
+                                <td class="p-2 font-mono text-left text-rose-300">${formatCurrency(totalExtraRem)}</td>
+                                <td colspan="2" class="p-2 text-center">محصل: ${extraPct}%</td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>` : ''}
+
+                <!-- Notes Block -->
+                <div class="bg-slate-50 border-r-4 border-emerald-600 border border-slate-200 rounded-xl p-3.5 text-xs text-slate-700 leading-relaxed mb-6">
+                    <strong class="text-slate-900 block mb-1 text-xs">📋 إفادة سير الأعمال الإنشائية والالتزام الفني:</strong>
+                    تفيد إدارة مشاريع شركة مقاولات السجيني العامة بأن كافة الأعمال الإنشائية والتنفيذية في الموقع تسير طبقاً للمخططات الهندسية المعتمدة واشتراطات كود البناء السعودي. يتم الإشراف والفحص الدوري من قِبل مهندسينا لضمان تسليم الأعمال بأعلى مقاييس الجودة والسلامة والالتزام التام بالجدول الزمني المحدد.
+                </div>
+
+                <!-- Signatures -->
+                <div class="grid grid-cols-3 gap-4 pt-4 border-t-2 border-slate-900 text-center text-xs font-bold text-slate-800">
+                    <div>
+                        <div>مهندس ومسؤول المشروع</div>
+                        <div class="text-[10px] text-slate-500 mt-1">${escapeHtml(p.manager_name || 'إدارة المشاريع')}</div>
+                        <div class="mt-8 border-t border-slate-400 pt-1 text-[10px] text-slate-400">التوقيع: ............................</div>
+                    </div>
+                    <div>
+                        <div>إدارة شركة مقاولات السجيني</div>
+                        <div class="text-[10px] text-slate-500 mt-1">الإدارة التنفيذية والمالية</div>
+                        <div class="mt-8 border-t border-slate-400 pt-1 text-[10px] text-slate-400">الختم والاعتماد الرسمي: ..............</div>
+                    </div>
+                    <div>
+                        <div>المالك / العميل المعتمد</div>
+                        <div class="text-[10px] text-slate-500 mt-1">${escapeHtml(p.client_name || '-')}</div>
+                        <div class="mt-8 border-t border-slate-400 pt-1 text-[10px] text-slate-400">التوقيع بالاستلام: ....................</div>
+                    </div>
+                </div>
+
+                <div class="text-center text-[10px] text-slate-400 border-t border-slate-200 mt-6 pt-3">
+                    تم إعداد واستخراج هذا التقرير رسمياً بواسطة المنظومة السحابية لشركة مقاولات السجيني — ${todayStr} — جميع المبالغ بالريال السعودي (ر.س)
+                </div>
+            `;
+            if (typeof lucide !== 'undefined') lucide.createIcons();
+        }
+
+        function copyWhatsAppSummary() {
+            if (!projectData) return;
+            const p = projectData;
+            const contractVal = parseFloat(p.contract_value) || 0;
+            const allCps = p.client_payments || [];
+            const isExtraWork = function(cp) {
+                if (!cp) return false;
+                if (cp.payment_type === 'extra_work') return true;
+                const txt = ((cp.milestone_name || '') + ' ' + (cp.notes || '')).toLowerCase();
+                return txt.includes('تغير') || txt.includes('تغيير') || txt.includes('إضاف') || txt.includes('اضاف') || txt.includes('خامات') || txt.includes('حديد') || txt.includes('بلوك') || txt.includes('فروق');
+            };
+            const extraCps = allCps.filter(isExtraWork);
+            const totalExtraReq = extraCps.reduce((acc, c) => acc + (parseFloat(c.amount_with_tax) || 0), 0);
+            const totalReceived = allCps.filter(c => c.is_received || c.status === 'paid' || c.status === 'partially_paid').reduce((acc, c) => acc + (parseFloat(c.received_amount) || 0), 0);
+            const totalContractValue = contractVal + totalExtraReq;
+            const totalRemaining = Math.max(0, totalContractValue - totalReceived);
+            const collectionPct = totalContractValue > 0 ? Math.round((totalReceived / totalContractValue) * 100) : 0;
+            const progressPct = parseFloat(p.progress_percent) || 0;
+            const todayStr = new Date().toLocaleDateString('ar-SA', { year: 'numeric', month: 'long', day: 'numeric' });
+
+            let msg = `*📋 تقرير الموقف التنفيذي والمالي للمشروع*\n`;
+            msg += `━━━━━━━━━━━━━━━━━━━━━\n`;
+            msg += `🏗️ *المشروع:* ${p.name || ''} (${p.code || ''})\n`;
+            msg += `👤 *المالك / العميل:* ${p.client_name || '-'}\n`;
+            msg += `📍 *الموقع:* ${p.location || '-'}\n`;
+            msg += `📅 *تاريخ التقرير:* ${todayStr}\n`;
+            msg += `━━━━━━━━━━━━━━━━━━━━━\n`;
+            msg += `📊 *الموقف التنفيذي الميداني:*\n`;
+            msg += `• نسبة الإنجاز الكلية للمشروع: *${progressPct}%*\n`;
+            msg += `• حالة المشروع: *${p.status === 'completed' ? 'مكتمل بالكامل ✓' : 'جاري التنفيذ ⏳'}*\n`;
+            if (p.phases && p.phases.length > 0) {
+                msg += `\n*🏗️ مراحل العمل الميدانية:*\n`;
+                p.phases.forEach((ph, idx) => {
+                    const prog = parseFloat(ph.progress_percent) || 0;
+                    const st = prog >= 100 ? 'مكتملة ✓' : (prog > 0 ? `جاري العمل (${prog}%)` : 'قادمة');
+                    msg += `${idx + 1}. ${ph.name}: *${st}*\n`;
+                });
+            }
+            msg += `━━━━━━━━━━━━━━━━━━━━━\n`;
+            msg += `💰 *الموقف المالي والتعاقدي:*\n`;
+            msg += `• إجمالي قيمة التعاقد: *${formatCurrency(totalContractValue)}*\n`;
+            msg += `• إجمالي المسدد حتى تاريخه: *${formatCurrency(totalReceived)}* (${collectionPct}%)\n`;
+            msg += `• *المستحق المتبقي للسداد: ${formatCurrency(totalRemaining)}*\n`;
+            msg += `━━━━━━━━━━━━━━━━━━━━━\n`;
+            msg += `✨ *شركة مقاولات السجيني العامة*\n`;
+            msg += `_لأي استفسار يرجى التواصل مع إدارة المشاريع_`;
+
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(msg).then(() => {
+                    showToast('✔ تم نسخ ملخص التقرير! يمكنك لصقه مباشرة في محادثة الواتساب');
+                }).catch(() => {
+                    prompt('انسخ التقرير:', msg);
+                });
+            } else {
+                prompt('انسخ التقرير:', msg);
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            loadProjectData();
+            if (typeof lucide !== 'undefined') lucide.createIcons();
+        });
+    </script>
+</body>
+</html>

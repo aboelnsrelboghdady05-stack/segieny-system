@@ -199,6 +199,18 @@ database.init_db()
 def index():
     return render_template('index.html')
 
+# Standalone Client-Facing Project Report (تقرير العميل والمالك بدون تفاصيل التكاليف الداخلية)
+@app.route('/project/<int:project_id>/client-report', methods=['GET'])
+def client_project_report_page(project_id):
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT id, name, code, client_name FROM projects WHERE id = ?', (project_id,))
+    row = cursor.fetchone()
+    conn.close()
+    if not row:
+        return "عفواً، المشروع المطلوب غير موجود أو تم حذفه.", 404
+    return render_template('client_report.html', project_id=project_id, project_name=row['name'])
+
 # Serve Uploaded Files (Invoices, Receipts, Blueprints)
 @app.route('/uploads/<path:filename>')
 def uploaded_file(filename):

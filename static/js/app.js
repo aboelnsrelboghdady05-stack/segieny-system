@@ -5091,7 +5091,7 @@ function renderProjectPhasesTab(p) {
                             </div>
                         </td>
                         <td class="p-3 text-center whitespace-nowrap">
-                            <button onclick="toggleItemDone(${it.id}, '${it.status}')" class="px-2.5 py-1 rounded-xl font-bold text-xs transition flex items-center justify-center gap-1 shadow-sm ${isItemDone ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 hover:bg-rose-500/20 hover:text-rose-400 hover:border-rose-500/30' : 'bg-emerald-600 hover:bg-emerald-500 text-white'}" title="${isItemDone ? (isEn ? 'Click to mark uncompleted' : 'انقر لإلغاء الإتمام') : (isEn ? 'Click to complete 100%' : 'انقر لإتمام البند 100%')}">
+                            <button onclick="toggleItemDone(${it.id}, ${isItemDone})" class="px-2.5 py-1 rounded-xl font-bold text-xs transition flex items-center justify-center gap-1 shadow-sm ${isItemDone ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 hover:bg-rose-500/20 hover:text-rose-400 hover:border-rose-500/30' : 'bg-emerald-600 hover:bg-emerald-500 text-white'}" title="${isItemDone ? (isEn ? 'Click to mark uncompleted' : 'انقر لإلغاء الإتمام') : (isEn ? 'Click to complete 100%' : 'انقر لإتمام البند 100%')}">
                                 <i data-lucide="${isItemDone ? 'check-check' : 'check'}" class="w-3.5 h-3.5"></i>
                                 <span>${isItemDone ? (isEn ? 'Completed' : 'مكتمل ✔') : (isEn ? 'Done' : 'إتمام')}</span>
                             </button>
@@ -5206,6 +5206,12 @@ function renderProjectPhasesTab(p) {
                     <span class="text-xs font-black text-emerald-400 min-w-[40px] text-left">${ph.progress_percent}%</span>
                 </div>
                 <div class="flex items-center gap-2 shrink-0 justify-end flex-wrap">
+                    ${items.length > 0 ? `
+                        <button onclick="completeAllPhaseItems(${ph.id}, '${escapeHtml(ph.name).replace(/'/g, "\\'")}')" class="px-3 py-1.5 rounded-xl ${isPhaseCompleted ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/30' : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm'} font-bold text-xs flex items-center gap-1.5 transition" title="${isEn ? 'Complete all phase items 100%' : 'إتمام كافة بنود هذه المرحلة بنسبة 100% دفعة واحدة'}">
+                            <i data-lucide="${isPhaseCompleted ? 'check-check' : 'check'}" class="w-3.5 h-3.5"></i>
+                            <span>${isPhaseCompleted ? (isEn ? 'Phase Completed 100% ✔' : 'المرحلة مكتملة 100% ✔') : (isEn ? 'Complete All (100%)' : 'إتمام كافة البنود (100%)')}</span>
+                        </button>
+                    ` : ''}
                     <button onclick="openPhaseExpensesModal(${ph.id}, '${escapeHtml(ph.name).replace(/'/g, "\\'")}', ${p.id})" class="px-3 py-1.5 rounded-xl bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 hover:text-white border border-rose-500/40 font-bold text-xs flex items-center gap-1.5 transition shadow-sm" title="${isEn ? 'View Phase Expenses Statement' : 'عرض كشف وتفاصيل مصروفات هذه المرحلة'}">
                         <i data-lucide="receipt-text" class="w-3.5 h-3.5 text-rose-400"></i>
                         <span>${isEn ? 'Expenses Statement' : 'كشف المصروفات'}</span>
@@ -6002,10 +6008,35 @@ async function deleteItem(itemId) {
     }
 }
 
-async function toggleItemDone(itemId, currentStatus) {
-    const isDone = currentStatus === 'done';
+async function toggleItemDone(itemId, isCurrentDone) {
+    const isDone = isCurrentDone === true || isCurrentDone === 'true' || isCurrentDone === 'done';
     const newStatus = isDone ? 'in_progress' : 'done';
-    const newProgress = isDone ? 50 : 100;
+    const newProgress = isDone ? 0 : 100;
+
+    // 1. Optimistic Update on in-memory data for instant 0ms UI reaction
+    if (currentProjectDetailData && currentProjectDetailData.phases) {
+        for (const ph of currentProjectDetailData.phases) {
+            if (ph.items) {
+                const it = ph.items.find(x => x.id === itemId);
+                if (it) {
+                    it.status = newStatus;
+                    it.progress_percent = newProgress;
+                    const items = ph.items;
+                    const doneCount = items.filter(x => x.status === 'done' || (parseFloat(x.progress_percent) || 0) >= 100).length;
+                    const avgProg = items.length > 0 ? (items.reduce((acc, x) => acc + (parseFloat(x.progress_percent) || 0), 0) / items.length) : 0;
+                    const isAllDone = items.length > 0 && doneCount === items.length;
+                    ph.progress_percent = isAllDone ? 100 : Math.round(avgProg);
+                    ph.status = isAllDone ? 'completed' : (ph.progress_percent > 0 ? 'in_progress' : 'pending');
+                    break;
+                }
+            }
+        }
+        renderProjectDetailsContent(currentProjectDetailData);
+    }
+
+    if (window.projectDetailsCache && currentProjectDetailData) {
+        delete window.projectDetailsCache[currentProjectDetailData.id];
+    }
 
     try {
         const res = await fetch(`/api/phase-items/${itemId}`, {
@@ -6023,12 +6054,74 @@ async function toggleItemDone(itemId, currentStatus) {
             } else {
                 showToast('تمت إعادة فتح البند');
             }
-            if (currentProjectDetailData) openProjectDetails(currentProjectDetailData.id);
+            if (currentProjectDetailData) {
+                await openProjectDetails(currentProjectDetailData.id, true);
+            }
             loadDashboard();
             if (currentTab === 'projects') loadProjects();
+        } else {
+            showToast(data.error || 'تعذر تحديث حالة البند', 'error');
+            if (currentProjectDetailData) {
+                await openProjectDetails(currentProjectDetailData.id, true);
+            }
         }
     } catch (err) {
         console.error('Error toggling item:', err);
+        showToast('فشل في الاتصال بالخادم', 'error');
+        if (currentProjectDetailData) {
+            await openProjectDetails(currentProjectDetailData.id, true);
+        }
+    }
+}
+
+async function completeAllPhaseItems(phaseId, phaseName = '') {
+    if (!confirm(`هل أنت متأكد من رغبتك في إتمام كافة بنود مرحلة "${phaseName || ''}" بنسبة 100% دفعة واحدة؟`)) return;
+
+    // Optimistic UI update
+    if (currentProjectDetailData && currentProjectDetailData.phases) {
+        const ph = currentProjectDetailData.phases.find(x => x.id === phaseId);
+        if (ph) {
+            ph.status = 'completed';
+            ph.progress_percent = 100;
+            if (ph.items) {
+                ph.items.forEach(it => {
+                    it.status = 'done';
+                    it.progress_percent = 100;
+                });
+            }
+            renderProjectDetailsContent(currentProjectDetailData);
+        }
+    }
+
+    if (window.projectDetailsCache && currentProjectDetailData) {
+        delete window.projectDetailsCache[currentProjectDetailData.id];
+    }
+
+    try {
+        const res = await fetch(`/api/phases/${phaseId}/complete-all`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        const data = await res.json();
+        if (data.success) {
+            showToast('✔ تم إتمام كافة بنود المرحلة بنسبة 100% وتحديث المشروع!');
+            if (currentProjectDetailData) {
+                await openProjectDetails(currentProjectDetailData.id, true);
+            }
+            loadDashboard();
+            if (currentTab === 'projects') loadProjects();
+        } else {
+            showToast(data.error || 'تعذر إتمام المرحلة', 'error');
+            if (currentProjectDetailData) {
+                await openProjectDetails(currentProjectDetailData.id, true);
+            }
+        }
+    } catch (err) {
+        console.error('Error completing all items in phase:', err);
+        showToast('فشل في الاتصال بالخادم', 'error');
+        if (currentProjectDetailData) {
+            await openProjectDetails(currentProjectDetailData.id, true);
+        }
     }
 }
 

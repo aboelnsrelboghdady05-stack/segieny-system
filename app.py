@@ -1283,15 +1283,35 @@ def get_phase_expenses(phase_id):
     })
 
 def sync_phase_progress(cursor, phase_id):
-    cursor.execute('SELECT progress_percent, status, project_id FROM phase_items WHERE phase_id = ?', (phase_id,))
+    cursor.execute('SELECT id, progress_percent, status, project_id FROM phase_items WHERE phase_id = ?', (phase_id,))
     items = cursor.fetchall()
     if not items:
         return
-    project_id = items[0][2]
-    all_done = all(it[1] == 'done' or it[0] >= 100 for it in items)
-    avg_prog = sum(it[0] for it in items) / len(items)
+
+    first = items[0]
+    if hasattr(first, 'keys') or isinstance(first, dict):
+        project_id = first['project_id']
+    else:
+        project_id = first[3]
+
+    clean_items = []
+    for it in items:
+        if hasattr(it, 'keys') or isinstance(it, dict):
+            p_raw = it.get('progress_percent')
+            st_raw = it.get('status')
+        else:
+            p_raw = it[1]
+            st_raw = it[2]
+        try:
+            p_val = float(p_raw) if p_raw is not None else 0.0
+        except (ValueError, TypeError):
+            p_val = 0.0
+        clean_items.append({'progress': p_val, 'status': str(st_raw or '')})
+
+    all_done = len(clean_items) > 0 and all(it['status'] == 'done' or it['progress'] >= 100.0 for it in clean_items)
+    avg_prog = (sum(it['progress'] for it in clean_items) / len(clean_items)) if clean_items else 0.0
     phase_prog = 100.0 if all_done else round(avg_prog, 1)
-    phase_status = 'completed' if all_done else 'in_progress'
+    phase_status = 'completed' if all_done else ('in_progress' if phase_prog > 0 else 'pending')
 
     cursor.execute('UPDATE project_phases SET progress_percent = ?, status = ? WHERE id = ?', (phase_prog, phase_status, phase_id))
 
@@ -1300,9 +1320,21 @@ def sync_phase_progress(cursor, phase_id):
         SELECT COALESCE(SUM(progress_percent * (weight_percent / 100.0)), 0), COALESCE(SUM(weight_percent), 0)
         FROM project_phases WHERE project_id = ?
     ''', (project_id,))
-    weighted_prog, total_weight = cursor.fetchone()
-    if total_weight > 0:
-        cursor.execute('UPDATE projects SET progress_percent = ? WHERE id = ?', (min(100, max(0, round(weighted_prog))), project_id))
+    row = cursor.fetchone()
+    if row:
+        if hasattr(row, 'keys') or isinstance(row, dict):
+            vals = list(row.values())
+            w_prog = vals[0] if len(vals) > 0 else 0
+            t_weight = vals[1] if len(vals) > 1 else 0
+        else:
+            w_prog = row[0]
+            t_weight = row[1]
+        try:
+            if float(t_weight or 0) > 0:
+                calc_proj_prog = min(100, max(0, round(float(w_prog or 0))))
+                cursor.execute('UPDATE projects SET progress_percent = ? WHERE id = ?', (calc_proj_prog, project_id))
+        except (ValueError, TypeError):
+            pass
 
 # ----------------- PHASE ITEMS API (بنود المرحلة) -----------------
 @app.route('/api/phase-items', methods=['POST'])
@@ -1373,13 +1405,27 @@ def update_phase_item(item_id):
     if not row:
         conn.close()
         return jsonify({'error': 'البند غير موجود'}), 404
-    phase_id = row[0]
 
-    qty = float(data['quantity']) if 'quantity' in data and data['quantity'] != '' else row['quantity']
-    c_price = float(data['cost_price']) if 'cost_price' in data and data['cost_price'] != '' else row['cost_price']
-    s_price = float(data['selling_price']) if 'selling_price' in data and data['selling_price'] != '' else row['selling_price']
-    u_cost = float(data['unit_cost']) if 'unit_cost' in data and data['unit_cost'] != '' else row['unit_cost']
-    u_selling = float(data['unit_selling']) if 'unit_selling' in data and data['unit_selling'] != '' else row['unit_selling']
+    if hasattr(row, 'keys') or isinstance(row, dict):
+        phase_id = row['phase_id']
+        row_qty = row.get('quantity') or 1
+        row_c_price = row.get('cost_price') or 0
+        row_s_price = row.get('selling_price') or 0
+        row_u_cost = row.get('unit_cost') or 0
+        row_u_selling = row.get('unit_selling') or 0
+    else:
+        phase_id = row[0]
+        row_qty = row[2] or 1
+        row_c_price = row[3] or 0
+        row_s_price = row[4] or 0
+        row_u_cost = row[5] or 0
+        row_u_selling = row[6] or 0
+
+    qty = float(data['quantity']) if 'quantity' in data and data['quantity'] != '' else float(row_qty)
+    c_price = float(data['cost_price']) if 'cost_price' in data and data['cost_price'] != '' else float(row_c_price)
+    s_price = float(data['selling_price']) if 'selling_price' in data and data['selling_price'] != '' else float(row_s_price)
+    u_cost = float(data['unit_cost']) if 'unit_cost' in data and data['unit_cost'] != '' else float(row_u_cost)
+    u_selling = float(data['unit_selling']) if 'unit_selling' in data and data['unit_selling'] != '' else float(row_u_selling)
 
     # Auto sync unit and total if one was updated
     if 'unit_cost' in data and ('cost_price' not in data or float(data.get('cost_price', 0)) == 0):
@@ -1395,7 +1441,7 @@ def update_phase_item(item_id):
     progress_percent = data.get('progress_percent')
     status = data.get('status')
     if status == 'done' and (progress_percent is None or float(progress_percent) < 100):
-        progress_percent = 100
+        progress_percent = 100.0
     elif progress_percent is not None and float(progress_percent) >= 100 and status is None:
         status = 'done'
 
@@ -1435,6 +1481,49 @@ def update_phase_item(item_id):
     conn.commit()
     conn.close()
     return jsonify({'success': True, 'message': 'تم تحديث البند بنجاح'})
+
+# ----------------- COMPLETE ALL PHASE ITEMS AT ONCE (إتمام كافة بنود المرحلة بنسبة 100%) -----------------
+@app.route('/api/phases/<int:phase_id>/complete-all', methods=['POST'])
+def complete_all_phase_items(phase_id):
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT project_id FROM project_phases WHERE id = ?', (phase_id,))
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        return jsonify({'error': 'المرحلة غير موجودة'}), 404
+    project_id = row['project_id'] if hasattr(row, 'keys') or isinstance(row, dict) else row[0]
+
+    # Update all items of this phase to done / 100%
+    cursor.execute('''
+        UPDATE phase_items 
+        SET status = 'done', progress_percent = 100
+        WHERE phase_id = ?
+    ''', (phase_id,))
+
+    # Update phase status and progress to 100%
+    cursor.execute('''
+        UPDATE project_phases
+        SET status = 'completed', progress_percent = 100
+        WHERE id = ?
+    ''', (phase_id,))
+
+    # Recalculate project progress based on weighted phase progress
+    cursor.execute('''
+        SELECT COALESCE(SUM(progress_percent * (weight_percent / 100.0)), 0), COALESCE(SUM(weight_percent), 0)
+        FROM project_phases WHERE project_id = ?
+    ''', (project_id,))
+    prow = cursor.fetchone()
+    if prow:
+        if hasattr(prow, 'keys') or isinstance(prow, dict):
+            w_prog = list(prow.values())[0] if prow else 0
+        else:
+            w_prog = prow[0]
+        cursor.execute('UPDATE projects SET progress_percent = ? WHERE id = ?', (min(100, max(0, round(float(w_prog or 0)))), project_id))
+
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True, 'message': 'تم إتمام كافة بنود المرحلة بنجاح وتحديث إنجاز المرحلة إلى 100%'})
 
 @app.route('/api/phase-items/<int:item_id>', methods=['DELETE'])
 def delete_phase_item(item_id):

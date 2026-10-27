@@ -2436,14 +2436,10 @@ def update_expense(expense_id):
         return jsonify({'error': 'المصروف غير موجود'}), 404
     existing = dict(existing)
 
-    # Restriction: Approved expenses cannot be edited except by Financial Manager (المصاريف المعمدة لا يمكن تعديلها سوى من قبل المدير المالي)
-    if existing.get('approval_status') in ('approved', 'معتمد'):
-        user_id = data.get('user_id') or request.headers.get('X-User-Id') or request.args.get('user_id')
-        user_role = data.get('user_role') or request.headers.get('X-User-Role') or request.args.get('user_role', '')
-        user_name = data.get('user_name') or request.headers.get('X-User-Name') or request.args.get('user_name', '')
-        if not is_financial_manager(user_id=user_id, user_role=user_role, user_name=user_name, cursor=cursor):
-            conn.close()
-            return jsonify({'error': 'عفواً، هذا المصروف معتمد مالياً ولا يمكن تعديله إلا من قبل المدير المالي فقط.'}), 403
+    # Track user making the update
+    user_id = data.get('user_id') or request.headers.get('X-User-Id') or request.args.get('user_id')
+    user_role = data.get('user_role') or request.headers.get('X-User-Role') or request.args.get('user_role', '')
+    user_name = data.get('user_name') or request.headers.get('X-User-Name') or request.args.get('user_name', '')
 
     project_id = data.get('project_id') or existing['project_id']
     title = data.get('title') or existing['title']
@@ -2807,14 +2803,9 @@ def transfer_expense_project(expense_id):
 
     exp = dict(exp)
 
-    # Restriction: Approved expenses cannot be transferred except by Financial Manager
-    if exp.get('approval_status') in ('approved', 'معتمد'):
-        user_id = data.get('user_id') or request.headers.get('X-User-Id') or request.args.get('user_id')
-        user_role = data.get('user_role') or request.headers.get('X-User-Role') or request.args.get('user_role', '')
-        user_name = data.get('user_name') or request.headers.get('X-User-Name') or request.args.get('user_name', '')
-        if not is_financial_manager(user_id=user_id, user_role=user_role, user_name=user_name, cursor=cursor):
-            conn.close()
-            return jsonify({'error': 'عفواً، هذا المصروف معتمد مالياً ولا يمكن نقله أو تعديله إلا من قبل المدير المالي فقط.'}), 403
+    user_id = data.get('user_id') or request.headers.get('X-User-Id') or request.args.get('user_id')
+    user_role = data.get('user_role') or request.headers.get('X-User-Role') or request.args.get('user_role', '')
+    user_name = data.get('user_name') or request.headers.get('X-User-Name') or request.args.get('user_name', '')
 
     old_project_id = exp['project_id']
     if old_project_id == new_project_id:
@@ -2882,7 +2873,8 @@ def transfer_expense_project(expense_id):
         'new_project_name': new_p_name
     })
 
-@app.route('/api/expenses/<int:expense_id>', methods=['DELETE'])
+@app.route('/api/expenses/<int:expense_id>', methods=['DELETE', 'POST'])
+@app.route('/api/expenses/<int:expense_id>/delete', methods=['DELETE', 'POST'])
 def delete_expense(expense_id):
     conn = database.get_db_connection()
     cursor = conn.cursor()
@@ -2901,23 +2893,20 @@ def delete_expense(expense_id):
         approval_status = row[5] or 'approved'
         is_approved = (approval_status in ('approved', 'معتمد'))
 
-        # Restriction: Approved expenses cannot be deleted except by Financial Manager or General Manager
-        if is_approved:
-            user_id = request.headers.get('X-User-Id') or request.args.get('user_id')
-            user_role = request.headers.get('X-User-Role') or request.args.get('user_role', '')
-            user_name = request.headers.get('X-User-Name') or request.args.get('user_name', '')
-            if not user_role and request.is_json:
-                bdata = request.json or {}
-                user_id = user_id or bdata.get('user_id')
-                user_role = user_role or bdata.get('user_role')
-                user_name = user_name or bdata.get('user_name')
+        user_id = request.headers.get('X-User-Id') or request.args.get('user_id')
+        user_role = request.headers.get('X-User-Role') or request.args.get('user_role', '')
+        user_name = request.headers.get('X-User-Name') or request.args.get('user_name', '')
+        if not user_name and request.is_json:
+            bdata = request.json or {}
+            user_id = user_id or bdata.get('user_id')
+            user_role = user_role or bdata.get('user_role')
+            user_name = user_name or bdata.get('user_name')
 
-            if not is_financial_manager(user_id=user_id, user_role=user_role, user_name=user_name, cursor=cursor):
-                conn.close()
-                return jsonify({
-                    'success': False,
-                    'error': 'عفواً، هذا المصروف معتمد مالياً ولا يمكن حذفه إلا من قبل الإدارة المالية أو المدير العام.'
-                }), 403
+        if user_name:
+            try:
+                user_name = urllib.parse.unquote(str(user_name))
+            except Exception:
+                pass
 
         if file_path:
             local_p = os.path.join(BASE_DIR, file_path.lstrip('/'))
@@ -8237,26 +8226,46 @@ def disburse_expense_request(req_id):
     })
 
 
-@app.route('/api/expense-requests/<int:req_id>', methods=['DELETE'])
+@app.route('/api/expense-requests/<int:req_id>', methods=['DELETE', 'POST'])
+@app.route('/api/expense-requests/<int:req_id>/delete', methods=['DELETE', 'POST'])
 def delete_expense_request(req_id):
     conn = database.get_db_connection()
     cursor = conn.cursor()
+    try:
+        cursor.execute('SELECT * FROM expense_requests WHERE id = ?', (req_id,))
+        row = cursor.fetchone()
+        if not row:
+            conn.close()
+            return jsonify({'error': 'طلب الصرف غير موجود'}), 404
 
-    cursor.execute('SELECT * FROM expense_requests WHERE id = ?', (req_id,))
-    row = cursor.fetchone()
-    if not row:
+        row = dict(row)
+        # If disbursed, clean up the generated expense record and refund custody / budget if needed
+        if row.get('status') == 'disbursed' and row.get('generated_expense_id'):
+            gen_id = row['generated_expense_id']
+            cursor.execute('DELETE FROM expense_items WHERE expense_id = ?', (gen_id,))
+            cursor.execute('DELETE FROM expenses WHERE id = ?', (gen_id,))
+            if row.get('custody_id'):
+                cursor.execute('''
+                    UPDATE custody_requests
+                    SET spent_amount = MAX(0, COALESCE(spent_amount, 0) - ?)
+                    WHERE id = ?
+                ''', (float(row.get('amount') or 0.0), row['custody_id']))
+            if row.get('project_id'):
+                cursor.execute('''
+                    UPDATE projects
+                    SET manual_remaining_budget = COALESCE(manual_remaining_budget, 0) + ?
+                    WHERE id = ? AND budget_mode = 'manual' AND manual_remaining_budget IS NOT NULL
+                ''', (float(row.get('amount') or 0.0), row['project_id']))
+
+        cursor.execute('DELETE FROM expense_requests WHERE id = ?', (req_id,))
+        conn.commit()
         conn.close()
-        return jsonify({'error': 'طلب الصرف غير موجود'}), 404
-
-    if row['status'] == 'disbursed':
-        conn.close()
-        return jsonify({'error': 'لا يمكن حذف طلب تم صرفه وترحيله للمصروفات بالفعل. لحذفه يجب إلغاء المصروف المنشأ أولاً.'}), 400
-
-    cursor.execute('DELETE FROM expense_requests WHERE id = ?', (req_id,))
-    conn.commit()
-    conn.close()
-
-    return jsonify({'success': True, 'message': 'تم حذف طلب الصرف بنجاح'})
+        return jsonify({'success': True, 'message': 'تم حذف طلب الصرف بنجاح'})
+    except Exception as e:
+        if 'conn' in locals() and conn:
+            conn.rollback()
+            conn.close()
+        return jsonify({'error': f'فشل في حذف طلب الصرف: {str(e)}'}), 500
 
 
 if __name__ == '__main__':

@@ -2928,8 +2928,7 @@ def delete_expense(expense_id):
         cursor.execute('UPDATE supplier_payments SET expense_id = NULL WHERE expense_id = ?', (expense_id,))
         cursor.execute('UPDATE subcontractor_payments SET expense_id = NULL WHERE expense_id = ?', (expense_id,))
 
-        # 3. Delete quotation items & expense items
-        cursor.execute('DELETE FROM supplier_quotation_items WHERE expense_id = ?', (expense_id,))
+        # 3. Delete expense items
         cursor.execute('DELETE FROM expense_items WHERE expense_id = ?', (expense_id,))
 
         # 4. If expense was approved and deducted from a custody account, return amount to custody balance

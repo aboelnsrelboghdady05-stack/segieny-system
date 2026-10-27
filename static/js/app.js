@@ -2581,17 +2581,23 @@ async function deleteExpense(expenseId) {
     }
     try {
         const u = currentUser || JSON.parse(localStorage.getItem('segieny_auth_user') || '{}');
-        const res = await fetch(`/api/expenses/${expenseId}`, {
+        const queryParams = new URLSearchParams({
+            user_id: u.id || '',
+            user_role: u.role || '',
+            user_name: u.name || ''
+        });
+        const res = await fetch(`/api/expenses/${expenseId}?${queryParams.toString()}`, {
             method: 'DELETE',
             headers: {
+                'Content-Type': 'application/json',
                 'X-User-Id': String(u.id || ''),
-                'X-User-Role': u.role || '',
+                'X-User-Role': encodeURIComponent(u.role || ''),
                 'X-User-Name': encodeURIComponent(u.name || '')
             }
         });
-        const data = await res.json();
-        if (data.success) {
-            showToast('تم حذف المصروف والفاتورة بنجاح وتحديث كافة الحسابات');
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data.success) {
+            showToast(data.message || 'تم حذف المصروف والفاتورة بنجاح وتحديث كافة الحسابات');
             loadExpenses();
             loadDashboard();
             if (currentTab === 'suppliers' && typeof loadSuppliersData === 'function') loadSuppliersData();
@@ -2612,6 +2618,7 @@ async function deleteExpense(expenseId) {
             showToast(data.error || 'تعذر حذف المصروف', 'error');
         }
     } catch (err) {
+        console.error('deleteExpense error:', err);
         showToast('فشل في الاتصال بالخادم لحذف المصروف', 'error');
     }
 }
@@ -4126,7 +4133,7 @@ async function submitTransferExpenseForm(e) {
             headers: {
                 'Content-Type': 'application/json',
                 'X-User-Id': String(u.id || ''),
-                'X-User-Role': u.role || '',
+                'X-User-Role': encodeURIComponent(u.role || ''),
                 'X-User-Name': encodeURIComponent(u.name || '')
             },
             body: JSON.stringify({
@@ -14478,15 +14485,21 @@ async function deleteCustodyExpense(expenseId, custodyId, title, amount) {
 
     try {
         const u = currentUser || JSON.parse(localStorage.getItem('segieny_auth_user') || '{}');
-        const res = await fetch(`/api/expenses/${expenseId}`, {
+        const queryParams = new URLSearchParams({
+            user_id: u.id || '',
+            user_role: u.role || '',
+            user_name: u.name || ''
+        });
+        const res = await fetch(`/api/expenses/${expenseId}?${queryParams.toString()}`, {
             method: 'DELETE',
             headers: {
+                'Content-Type': 'application/json',
                 'X-User-Id': String(u.id || ''),
-                'X-User-Role': u.role || '',
+                'X-User-Role': encodeURIComponent(u.role || ''),
                 'X-User-Name': encodeURIComponent(u.name || '')
             }
         });
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         if (res.ok && (data.success || !data.error)) {
             showToast('تم حذف الفاتورة واستعادة المبلغ لرصيد العهدة بنجاح', 'success');
             await viewCustodyExpenses(custodyId);

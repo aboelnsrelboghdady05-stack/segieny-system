@@ -2,6 +2,7 @@ import os
 import time
 import json
 import uuid
+import urllib.parse
 from datetime import datetime, timedelta
 from flask import Flask, request, jsonify, render_template, send_from_directory, url_for, send_file
 from flask_cors import CORS
@@ -58,8 +59,19 @@ def save_uploaded_file_persistent(file_obj, filename, uploaded_by=None):
 
 def check_is_financial_manager(user_id=None, user_role='', user_name='', cursor=None):
     """
-    التحقق من صلاحية المدير المالي (أ. ابوالنصر البغدادي) حصرياً
+    التحقق من صلاحية الإدارة المالية أو الإدارة العامة (أ. ابوالنصر البغدادي وم. نواف سجيني)
     """
+    if user_role:
+        try:
+            user_role = urllib.parse.unquote(str(user_role))
+        except Exception:
+            pass
+    if user_name:
+        try:
+            user_name = urllib.parse.unquote(str(user_name))
+        except Exception:
+            pass
+
     is_fin = False
     manager_title = 'ابوالنصر البغدادي (المدير المالي)'
     
@@ -71,24 +83,30 @@ def check_is_financial_manager(user_id=None, user_role='', user_name='', cursor=
                 r = (u['role'] or '').lower()
                 un = (u['username'] or '').lower()
                 nm = u['name'] or ''
-                if 'مدير مالي' in r or 'المدير المالي' in r or un == 'baghdadi' or 'ابوالنصر' in nm or 'financial' in r:
+                if any(x in r for x in ['مدير مالي', 'المدير المالي', 'financial']) or un == 'baghdadi' or 'ابوالنصر' in nm:
                     is_fin = True
                     manager_title = f"{nm} (المدير المالي)"
+                elif any(x in r for x in ['مدير عام', 'المدير العام']) or un == 'nawaf' or 'نواف' in nm or 'سجيني' in nm or u['id'] in (1, 3):
+                    is_fin = True
+                    manager_title = f"{nm} (المدير العام)"
         except Exception:
             pass
 
     if not is_fin:
         r_str = (user_role or '').lower()
         n_str = (user_name or '').lower()
-        if 'مدير مالي' in r_str or 'المدير المالي' in r_str or 'ابوالنصر' in n_str or 'baghdadi' in n_str or 'financial' in r_str:
+        if any(x in r_str for x in ['مدير مالي', 'المدير المالي', 'financial']) or 'ابوالنصر' in n_str or 'baghdadi' in n_str:
             is_fin = True
             manager_title = f"{user_name or 'ابوالنصر البغدادي'} (المدير المالي)"
+        elif any(x in r_str for x in ['مدير عام', 'المدير العام']) or 'نواف' in n_str or 'سجيني' in n_str or 'nawaf' in n_str or str(user_id) in ('1', '3'):
+            is_fin = True
+            manager_title = f"{user_name or 'نواف سجيني'} (المدير العام)"
 
     return is_fin, manager_title
 
 def is_financial_manager(user_id=None, user_role='', user_name='', cursor=None):
     """
-    دالة مساعدة ترجع قيمة منطقية (True/False) للتحقق مما إذا كان المستخدم هو المدير المالي
+    دالة مساعدة ترجع قيمة منطقية (True/False) للتحقق مما إذا كان المستخدم يملك صلاحيات الإدارة المالية أو الإدارة العامة
     """
     is_fin, _ = check_is_financial_manager(user_id=user_id, user_role=user_role, user_name=user_name, cursor=cursor)
     return is_fin
@@ -99,6 +117,17 @@ def check_can_view_all_expenses(user_id=None, user_role='', user_name='', cursor
     التحقق مما إذا كان المستخدم يملك صلاحية رؤية كافة المصاريف
     (حصرية للمدير العام والمدير المالي فقط)
     """
+    if user_role:
+        try:
+            user_role = urllib.parse.unquote(str(user_role))
+        except Exception:
+            pass
+    if user_name:
+        try:
+            user_name = urllib.parse.unquote(str(user_name))
+        except Exception:
+            pass
+
     if user_id and cursor:
         try:
             cursor.execute('SELECT id, name, role, username FROM team_members WHERE id = ?', (user_id,))
@@ -109,7 +138,7 @@ def check_can_view_all_expenses(user_id=None, user_role='', user_name='', cursor
                 nm = (u['name'] or '').lower()
                 if any(x in r for x in ['مدير مالي', 'المدير المالي', 'financial']) or un == 'baghdadi' or 'ابوالنصر' in nm or 'البغدادي' in nm:
                     return True, u['name']
-                if any(x in r for x in ['مدير عام', 'المدير العام']) or un == 'nawaf' or 'نواف' in nm or 'سجيني' in nm:
+                if any(x in r for x in ['مدير عام', 'المدير العام']) or un == 'nawaf' or 'نواف' in nm or 'سجيني' in nm or u['id'] in (1, 3):
                     return True, u['name']
                 return False, u['name']
         except Exception:
@@ -119,7 +148,7 @@ def check_can_view_all_expenses(user_id=None, user_role='', user_name='', cursor
     n_str = (user_name or '').lower()
     if any(x in r_str for x in ['مدير مالي', 'المدير المالي', 'financial']) or 'ابوالنصر' in n_str or 'baghdadi' in n_str or 'البغدادي' in n_str:
         return True, user_name
-    if any(x in r_str for x in ['مدير عام', 'المدير العام']) or 'نواف' in n_str or 'سجيني' in n_str or 'nawaf' in n_str:
+    if any(x in r_str for x in ['مدير عام', 'المدير العام']) or 'نواف' in n_str or 'سجيني' in n_str or 'nawaf' in n_str or str(user_id) in ('1', '3'):
         return True, user_name
 
     # If neither user_id nor user_name was provided, return True (for internal background jobs)
@@ -2857,73 +2886,95 @@ def transfer_expense_project(expense_id):
 def delete_expense(expense_id):
     conn = database.get_db_connection()
     cursor = conn.cursor()
-    cursor.execute('SELECT invoice_file_path, project_id, title, amount, custody_id, approval_status FROM expenses WHERE id = ?', (expense_id,))
-    row = cursor.fetchone()
-    if not row:
-        conn.close()
-        return jsonify({'success': True, 'message': 'المصروف غير موجود أو تم حذفه مسبقاً'})
-
-    file_path = row[0]
-    proj_id = row[1]
-    title = row[2]
-    amt = row[3]
-    custody_id = row[4]
-    approval_status = row[5] or 'approved'
-    is_approved = (approval_status in ('approved', 'معتمد'))
-
-    # Restriction: Approved expenses cannot be deleted except by Financial Manager
-    if is_approved:
-        user_id = request.headers.get('X-User-Id') or request.args.get('user_id')
-        user_role = request.headers.get('X-User-Role') or request.args.get('user_role', '')
-        user_name = request.headers.get('X-User-Name') or request.args.get('user_name', '')
-        if not user_role and request.is_json:
-            bdata = request.json or {}
-            user_id = user_id or bdata.get('user_id')
-            user_role = user_role or bdata.get('user_role')
-            user_name = user_name or bdata.get('user_name')
-
-        if not is_financial_manager(user_id=user_id, user_role=user_role, user_name=user_name, cursor=cursor):
+    try:
+        cursor.execute('SELECT invoice_file_path, project_id, title, amount, custody_id, approval_status FROM expenses WHERE id = ?', (expense_id,))
+        row = cursor.fetchone()
+        if not row:
             conn.close()
-            return jsonify({
-                'success': False,
-                'error': 'عفواً، هذا المصروف معتمد مالياً ولا يمكن حذفه إلا من قبل المدير المالي فقط.'
-            }), 403
+            return jsonify({'success': True, 'message': 'المصروف غير موجود أو تم حذفه مسبقاً'})
 
-    if file_path:
-        local_p = os.path.join(BASE_DIR, file_path.lstrip('/'))
-        if os.path.exists(local_p):
-            try:
-                os.remove(local_p)
-            except Exception:
-                pass
+        file_path = row[0]
+        proj_id = row[1]
+        title = row[2]
+        amt = float(row[3] or 0.0)
+        custody_id = row[4]
+        approval_status = row[5] or 'approved'
+        is_approved = (approval_status in ('approved', 'معتمد'))
 
-    # If expense was approved and deducted from a custody account, return amount to custody balance
-    if is_approved and custody_id:
+        # Restriction: Approved expenses cannot be deleted except by Financial Manager or General Manager
+        if is_approved:
+            user_id = request.headers.get('X-User-Id') or request.args.get('user_id')
+            user_role = request.headers.get('X-User-Role') or request.args.get('user_role', '')
+            user_name = request.headers.get('X-User-Name') or request.args.get('user_name', '')
+            if not user_role and request.is_json:
+                bdata = request.json or {}
+                user_id = user_id or bdata.get('user_id')
+                user_role = user_role or bdata.get('user_role')
+                user_name = user_name or bdata.get('user_name')
+
+            if not is_financial_manager(user_id=user_id, user_role=user_role, user_name=user_name, cursor=cursor):
+                conn.close()
+                return jsonify({
+                    'success': False,
+                    'error': 'عفواً، هذا المصروف معتمد مالياً ولا يمكن حذفه إلا من قبل الإدارة المالية أو المدير العام.'
+                }), 403
+
+        if file_path:
+            local_p = os.path.join(BASE_DIR, file_path.lstrip('/'))
+            if os.path.exists(local_p):
+                try:
+                    os.remove(local_p)
+                except Exception:
+                    pass
+
+        # 1. Unlink any expense_requests that reference this expense
         cursor.execute('''
-            UPDATE custody_requests
-            SET spent_amount = MAX(0, COALESCE(spent_amount, 0) - ?)
-            WHERE id = ?
-        ''', (amt, custody_id))
+            UPDATE expense_requests 
+            SET generated_expense_id = NULL,
+                status = CASE WHEN status = 'disbursed' THEN 'approved' ELSE status END
+            WHERE generated_expense_id = ?
+        ''', (expense_id,))
 
-    cursor.execute('DELETE FROM expense_items WHERE expense_id = ?', (expense_id,))
-    cursor.execute('DELETE FROM expenses WHERE id = ?', (expense_id,))
-    
-    # Refund to project manual_remaining_budget if project is in manual mode and expense was approved
-    if is_approved and proj_id:
+        # 2. Unlink supplier payments & subcontractor payments referencing this expense
+        cursor.execute('UPDATE supplier_payments SET expense_id = NULL WHERE expense_id = ?', (expense_id,))
+        cursor.execute('UPDATE subcontractor_payments SET expense_id = NULL WHERE expense_id = ?', (expense_id,))
+
+        # 3. Delete quotation items & expense items
+        cursor.execute('DELETE FROM supplier_quotation_items WHERE expense_id = ?', (expense_id,))
+        cursor.execute('DELETE FROM expense_items WHERE expense_id = ?', (expense_id,))
+
+        # 4. If expense was approved and deducted from a custody account, return amount to custody balance
+        if is_approved and custody_id:
+            cursor.execute('''
+                UPDATE custody_requests
+                SET spent_amount = MAX(0, COALESCE(spent_amount, 0) - ?)
+                WHERE id = ?
+            ''', (amt, custody_id))
+
+        # 5. Delete expense itself
+        cursor.execute('DELETE FROM expenses WHERE id = ?', (expense_id,))
+        
+        # 6. Refund to project manual_remaining_budget if project is in manual mode and expense was approved
+        if is_approved and proj_id:
+            cursor.execute('''
+                UPDATE projects
+                SET manual_remaining_budget = COALESCE(manual_remaining_budget, 0) + ?
+                WHERE id = ? AND budget_mode = 'manual' AND manual_remaining_budget IS NOT NULL
+            ''', (amt, proj_id))
+
         cursor.execute('''
-            UPDATE projects
-            SET manual_remaining_budget = COALESCE(manual_remaining_budget, 0) + ?
-            WHERE id = ? AND budget_mode = 'manual' AND manual_remaining_budget IS NOT NULL
-        ''', (amt, proj_id))
+            INSERT INTO notifications (project_id, type, title, message)
+            VALUES (?, 'info', 'حذف فاتورة / مصروف', ?)
+        ''', (proj_id, f"تم حذف المصروف '{title}' بمبلغ {amt:,.2f} ر.س وتحديث الحسابات والميزانيات تلقائياً."))
 
-    cursor.execute('''
-        INSERT INTO notifications (project_id, type, title, message)
-        VALUES (?, 'info', 'حذف فاتورة / مصروف', ?)
-    ''', (proj_id, f"تم حذف المصروف '{title}' بمبلغ {amt:,.2f} ر.س وتحديث الحسابات والميزانيات تلقائياً."))
-
-    conn.commit()
-    conn.close()
-    return jsonify({'success': True, 'message': 'تم حذف المصروف والفاتورة بنجاح وتحديث كافة الأرصدة تلقائياً'})
+        conn.commit()
+        conn.close()
+        return jsonify({'success': True, 'message': 'تم حذف المصروف والفاتورة بنجاح وتحديث كافة الأرصدة تلقائياً'})
+    except Exception as e:
+        if 'conn' in locals() and conn:
+            conn.rollback()
+            conn.close()
+        return jsonify({'success': False, 'error': f'فشل في حذف المصروف: {str(e)}'}), 500
 
 
 @app.route('/api/expenses/<int:expense_id>/approve', methods=['POST'])

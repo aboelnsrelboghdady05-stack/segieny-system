@@ -7015,82 +7015,121 @@ def create_custody_request():
     conn = database.get_db_connection()
     cursor = conn.cursor()
 
-    if request.is_json:
-        data = request.get_json() or {}
-    else:
-        data = request.form.to_dict()
-
-    employee_name = data.get('employee_name', '').strip()
-    project_id = data.get('project_id')
-    amount = float(data.get('amount', 0))
-    purpose = data.get('purpose', '').strip()
-    request_date = data.get('request_date', datetime.now().strftime('%Y-%m-%d'))
-    approval_notes = data.get('notes', '').strip()
-
-    if not employee_name:
-        conn.close()
-        return jsonify({'error': 'اسم الموظف أو مقدم الطلب مطلوب'}), 400
-    if amount <= 0:
-        conn.close()
-        return jsonify({'error': 'المبلغ المطلوب يجب أن يكون أكبر من صفر'}), 400
-    if not purpose:
-        conn.close()
-        return jsonify({'error': 'الغرض من طلب العهدة مطلوب'}), 400
-
     try:
-        project_id = int(project_id) if project_id else None
-    except (ValueError, TypeError):
-        project_id = None
+        if request.is_json:
+            data = request.get_json() or {}
+        else:
+            data = request.form.to_dict()
 
-    # Generate sequential request_number
-    year_str = datetime.now().strftime('%Y')
-    cursor.execute('SELECT COUNT(*) FROM custody_requests')
-    count = cursor.fetchone()[0] + 1
-    request_number = f"CUST-{year_str}-{count:04d}"
+        employee_name = data.get('employee_name', '').strip()
+        project_id = data.get('project_id')
+        try:
+            amount = float(data.get('amount', 0))
+        except (ValueError, TypeError):
+            amount = 0.0
 
-    # Handle optional receipt attachment
-    receipt_file_path = None
-    receipt_file_name = None
-    if 'attachment' in request.files:
-        file = request.files['attachment']
-        if file and file.filename and allowed_file(file.filename):
-            receipt_file_name = secure_filename(file.filename)
-            unique_name = f"custody_{uuid.uuid4().hex[:8]}_{receipt_file_name}"
-            save_uploaded_file_persistent(file, unique_name)
-            receipt_file_path = f"/uploads/{unique_name}"
+        purpose = data.get('purpose', '').strip()
+        request_date = data.get('request_date', datetime.now().strftime('%Y-%m-%d'))
+        approval_notes = data.get('notes', '').strip()
 
-    payment_method = data.get('payment_method') or 'تحويل بنكي'
+        if not employee_name:
+            conn.close()
+            return jsonify({'error': 'اسم الموظف أو مقدم الطلب مطلوب'}), 400
+        if amount <= 0:
+            conn.close()
+            return jsonify({'error': 'المبلغ المطلوب يجب أن يكون أكبر من صفر'}), 400
+        if not purpose:
+            conn.close()
+            return jsonify({'error': 'الغرض من طلب العهدة مطلوب'}), 400
 
-    cursor.execute('''
-        INSERT INTO custody_requests (
-            request_number, employee_name, project_id, amount, purpose,
-            request_date, status, approval_notes, receipt_file_path, receipt_file_name,
-            payment_method
-        ) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)
-    ''', (request_number, employee_name, project_id, amount, purpose, request_date, approval_notes, receipt_file_path, receipt_file_name, payment_method))
-    custody_id = cursor.lastrowid
+        try:
+            project_id = int(project_id) if project_id and str(project_id).strip() not in ('', 'null', 'None') else None
+        except (ValueError, TypeError):
+            project_id = None
 
-    # Notification for Financial Manager
-    proj_name = 'مصروف عام / إداري'
-    if project_id:
-        cursor.execute('SELECT name FROM projects WHERE id = ?', (project_id,))
-        p_row = cursor.fetchone()
-        if p_row:
-            proj_name = p_row[0]
+        # Verify project exists if given
+        proj_name = 'مصروف عام / إداري'
+        if project_id:
+            cursor.execute('SELECT name FROM projects WHERE id = ?', (project_id,))
+            p_row = cursor.fetchone()
+            if p_row:
+                proj_name = p_row[0]
+            else:
+                project_id = None
 
-    cursor.execute('''
-        INSERT INTO notifications (project_id, type, title, message)
-        VALUES (?, 'custody', 'طلب عهدة جديد ينتظر الاعتماد', ?)
-    ''', (project_id, f"رفع {employee_name} طلب عهدة برقم {request_number} بمبلغ {amount:,.2f} ر.س لمشروع '{proj_name}' - الغرض: {purpose}"))
+        # Generate sequential request_number safely (never colliding with existing UNIQUE numbers)
+        year_str = datetime.now().strftime('%Y')
+        cursor.execute("SELECT request_number FROM custody_requests WHERE request_number LIKE ?", (f"CUST-{year_str}-%",))
+        existing_nums = cursor.fetchall()
+        max_num = 0
+        for r in existing_nums:
+            try:
+                val = r[0] if isinstance(r, (list, tuple)) else r['request_number']
+                num_part = int(str(val).split('-')[-1])
+                if num_part > max_num:
+                    max_num = num_part
+            except Exception:
+                pass
 
-    conn.commit()
-    conn.close()
+        seq = max_num + 1
+        request_number = f"CUST-{year_str}-{seq:04d}"
+        while True:
+            candidate = f"CUST-{year_str}-{seq:04d}"
+            cursor.execute("SELECT 1 FROM custody_requests WHERE request_number = ?", (candidate,))
+            if not cursor.fetchone():
+                request_number = candidate
+                break
+            seq += 1
 
-    return jsonify({
-        'message': 'تم رفع طلب العهدة بنجاح، وهو الآن في انتظار اعتماد المدير المالي',
-        'id': custody_id,
-        'request_number': request_number
-    }), 201
+        # Handle optional receipt attachment
+        receipt_file_path = None
+        receipt_file_name = None
+        if 'attachment' in request.files:
+            file = request.files['attachment']
+            if file and file.filename and allowed_file(file.filename):
+                receipt_file_name = secure_filename(file.filename)
+                unique_name = f"custody_{uuid.uuid4().hex[:8]}_{receipt_file_name}"
+                save_uploaded_file_persistent(file, unique_name)
+                receipt_file_path = f"/uploads/{unique_name}"
+
+        payment_method = data.get('payment_method') or 'تحويل بنكي'
+
+        cursor.execute('''
+            INSERT INTO custody_requests (
+                request_number, employee_name, project_id, amount, purpose,
+                request_date, status, approval_notes, receipt_file_path, receipt_file_name,
+                payment_method
+            ) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)
+        ''', (request_number, employee_name, project_id, amount, purpose, request_date, approval_notes, receipt_file_path, receipt_file_name, payment_method))
+        custody_id = cursor.lastrowid
+
+        # Notification for Financial Manager
+        try:
+            cursor.execute('''
+                INSERT INTO notifications (project_id, type, title, message)
+                VALUES (?, 'custody', 'طلب عهدة جديد ينتظر الاعتماد', ?)
+            ''', (project_id, f"رفع {employee_name} طلب عهدة برقم {request_number} بمبلغ {amount:,.2f} ر.س لمشروع '{proj_name}' - الغرض: {purpose}"))
+        except Exception:
+            pass
+
+        conn.commit()
+        conn.close()
+
+        return jsonify({
+            'success': True,
+            'message': 'تم رفع طلب العهدة بنجاح، وهو الآن في انتظار اعتماد المدير المالي',
+            'id': custody_id,
+            'custody_id': custody_id,
+            'request_number': request_number
+        }), 201
+    except Exception as e:
+        try:
+            conn.rollback()
+            conn.close()
+        except Exception:
+            pass
+        print(f"Error in create_custody_request: {e}")
+        return jsonify({'error': f'فشل في حفظ طلب العهدة: {str(e)}'}), 500
 
 
 @app.route('/api/custody/<int:custody_id>/approve', methods=['POST'])
@@ -7502,11 +7541,13 @@ def get_expense_requests():
         SELECT er.*, 
                p.name as project_name, p.code as project_code,
                tm.name as requester_full_name, tm.role as requester_role,
-               e.id as linked_expense_id, e.title as linked_expense_title
+               e.id as linked_expense_id, e.title as linked_expense_title,
+               c.employee_name as custody_employee_name, c.request_number as custody_request_number
         FROM expense_requests er
         LEFT JOIN projects p ON er.project_id = p.id
         LEFT JOIN team_members tm ON er.requester_id = tm.id
         LEFT JOIN expenses e ON er.generated_expense_id = e.id
+        LEFT JOIN custody_requests c ON er.custody_id = c.id
         WHERE 1=1
     '''
     params = []
@@ -7613,11 +7654,13 @@ def get_expense_request_detail(req_id):
     cursor.execute('''
         SELECT er.*, p.name as project_name, p.code as project_code,
                tm.name as requester_full_name, tm.role as requester_role,
-               e.id as linked_expense_id, e.title as linked_expense_title
+               e.id as linked_expense_id, e.title as linked_expense_title,
+               c.employee_name as custody_employee_name, c.request_number as custody_request_number
         FROM expense_requests er
         LEFT JOIN projects p ON er.project_id = p.id
         LEFT JOIN team_members tm ON er.requester_id = tm.id
         LEFT JOIN expenses e ON er.generated_expense_id = e.id
+        LEFT JOIN custody_requests c ON er.custody_id = c.id
         WHERE er.id = ?
     ''', (req_id,))
     row = cursor.fetchone()
@@ -7678,11 +7721,29 @@ def create_expense_request():
     except (ValueError, TypeError):
         beneficiary_id = None
 
-    # Sequential Request Number
+    # Sequential Request Number safely generated
     year_str = datetime.now().strftime('%Y')
-    cursor.execute('SELECT COUNT(*) FROM expense_requests')
-    count = cursor.fetchone()[0] + 1
-    request_number = f"REQ-{year_str}-{count:04d}"
+    cursor.execute("SELECT request_number FROM expense_requests WHERE request_number LIKE ?", (f"REQ-{year_str}-%",))
+    existing_nums = cursor.fetchall()
+    max_num = 0
+    for r in existing_nums:
+        try:
+            val = r[0] if isinstance(r, (list, tuple)) else r['request_number']
+            num_part = int(str(val).split('-')[-1])
+            if num_part > max_num:
+                max_num = num_part
+        except Exception:
+            pass
+
+    seq = max_num + 1
+    request_number = f"REQ-{year_str}-{seq:04d}"
+    while True:
+        candidate = f"REQ-{year_str}-{seq:04d}"
+        cursor.execute("SELECT 1 FROM expense_requests WHERE request_number = ?", (candidate,))
+        if not cursor.fetchone():
+            request_number = candidate
+            break
+        seq += 1
 
     # Handle file attachment
     attachment_path = None
@@ -7974,9 +8035,33 @@ def disburse_expense_request(req_id):
     bank_name = data.get('bank_name', '').strip()
     transfer_reference = data.get('transfer_reference', '').strip()
     disbursement_notes = data.get('disbursement_notes', '').strip()
+
+    # Check if custody deduction was chosen
+    raw_custody_id = data.get('custody_id')
+    custody_id = None
+    if raw_custody_id:
+        try:
+            custody_id = int(raw_custody_id)
+        except (ValueError, TypeError):
+            custody_id = None
+
+    custody_row = None
+    if custody_id:
+        cursor.execute('SELECT * FROM custody_requests WHERE id = ?', (custody_id,))
+        custody_row = cursor.fetchone()
+        if not custody_row:
+            conn.close()
+            return jsonify({'error': 'طلب العهدة المحدد غير موجود'}), 400
     
     # Determine who actually paid / the source of payment
-    paid_by = data.get('paid_by', '').strip() or row['assigned_disburser_name'] or row['disbursement_source'] or disburser_title
+    if custody_row:
+        payment_method = f"عهدة - {custody_row['employee_name']}"
+        if not bank_name:
+            bank_name = f"عهدة {custody_row['employee_name']} ({custody_row['request_number'] or custody_row['id']})"
+        paid_by = data.get('paid_by', '').strip() or custody_row['employee_name']
+    else:
+        paid_by = data.get('paid_by', '').strip() or row['assigned_disburser_name'] or row['disbursement_source'] or disburser_title
+
     now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
     # Receipt file upload if provided
@@ -8004,20 +8089,23 @@ def disburse_expense_request(req_id):
             transfer_reference = ?,
             disbursement_receipt_path = ?,
             disbursement_receipt_name = ?,
-            disbursement_notes = ?
+            disbursement_notes = ?,
+            custody_id = ?
         WHERE id = ?
     ''', (
         disburser_title, now_str, disbursed_date, disbursed_amount,
         payment_method, bank_name, transfer_reference,
         disbursement_receipt_path, disbursement_receipt_name, disbursement_notes,
-        req_id
+        custody_id, req_id
     ))
 
     # 2. AUTOMATICALLY CREATE VERIFIED EXPENSE
     category = row['category'] or 'نثريات وإداريات'
     expense_title = f"صرف طلب {row['request_number']}: {row['purpose']}"
     exp_notes = f"صرف بموجب طلب رقم {row['request_number']} - المستفيد: {row['beneficiary_type']} ({row['beneficiary_name']}) - وسيلة الصرف: {payment_method}"
-    if row.get('disbursement_source'):
+    if custody_row:
+        exp_notes += f" - خصماً من عهدة: {custody_row['employee_name']} ({custody_row['request_number']})"
+    elif row.get('disbursement_source'):
         exp_notes += f" - المصدر: {row['disbursement_source']}"
     if bank_name:
         exp_notes += f" - البنك/الخزينة: {bank_name}"
@@ -8033,19 +8121,34 @@ def disburse_expense_request(req_id):
             project_id, title, category, amount, payment_method,
             paid_by, paid_to, expense_date, invoice_file_path, invoice_file_name,
             notes, approval_status, approved_by, approved_at, approval_notes,
-            created_by, supplier_id, expense_request_id, assigned_disburser_name
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'approved', ?, ?, ?, ?, ?, ?, ?)
+            created_by, supplier_id, expense_request_id, assigned_disburser_name,
+            custody_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'approved', ?, ?, ?, ?, ?, ?, ?, ?)
     ''', (
         row['project_id'], expense_title, category, disbursed_amount, payment_method,
         paid_by, row['beneficiary_name'], disbursed_date,
         disbursement_receipt_path, disbursement_receipt_name, exp_notes,
         row['approved_by'] or mgr_title, now_str, f"معمد من الإدارة المالية ومصروف بواسطة ({paid_by})",
-        disburser_title, supplier_id, req_id, row['assigned_disburser_name']
+        disburser_title, supplier_id, req_id, row['assigned_disburser_name'],
+        custody_id
     ))
     new_expense_id = cursor.lastrowid
 
     # 3. Link generated expense to request
     cursor.execute('UPDATE expense_requests SET generated_expense_id = ? WHERE id = ?', (new_expense_id, req_id))
+
+    # 3.b Update Custody spent_amount if disbursed from employee custody
+    if custody_id:
+        cursor.execute('''
+            UPDATE custody_requests
+            SET spent_amount = COALESCE(spent_amount, 0) + ?
+            WHERE id = ?
+        ''', (disbursed_amount, custody_id))
+
+        cursor.execute('''
+            INSERT INTO notifications (project_id, type, title, message)
+            VALUES (?, 'custody', 'خصم من العهدة بموجب طلب صرف', ?)
+        ''', (row['project_id'], f"تم خصم مبلغ {disbursed_amount:,.2f} ر.س من عهدة ({custody_row['employee_name']}) لصالح طلب الصرف رقم {row['request_number']}."))
 
     # 4. Deduct from Project Budget if manual
     if row['project_id']:
@@ -8056,17 +8159,29 @@ def disburse_expense_request(req_id):
         ''', (disbursed_amount, row['project_id']))
 
     # 5. Send Notification
+    notif_msg = f"تم صرف مبلغ {disbursed_amount:,.2f} ر.س لطلب الصرف {row['request_number']} لـ ({row['beneficiary_name']}) من ({paid_by}) بواسطة {disburser_title}"
+    if custody_row:
+        notif_msg += f" خصماً من عهدة ({custody_row['employee_name']}) ولن يخصم من كاش فلو البنك."
+    else:
+        notif_msg += " وتم ترحيله لمصروفات المشروع والكاش فلو."
+
     cursor.execute('''
         INSERT INTO notifications (project_id, type, title, message)
         VALUES (?, 'expense_request', 'تم صرف طلب المصروف بنجاح', ?)
-    ''', (row['project_id'], f"تم صرف مبلغ {disbursed_amount:,.2f} ر.س لطلب الصرف {row['request_number']} لـ ({row['beneficiary_name']}) من ({paid_by}) بواسطة {disburser_title} وتم ترحيله لمصروفات المشروع والكاش فلو."))
+    ''', (row['project_id'], notif_msg))
 
     conn.commit()
     conn.close()
 
+    success_msg = f"تم صرف الطلب {row['request_number']} بنجاح بمبلغ {disbursed_amount:,.2f} ر.س"
+    if custody_row:
+        success_msg += f" (خصماً من عهدة: {custody_row['employee_name']})، وتم ترحيله لمصاريف المشروع ولن يخصم من كاش فلو البنك."
+    else:
+        success_msg += f" (القائم بالصرف: {paid_by})، وتم ترحيله فوراً إلى المصاريف المعتمدة."
+
     return jsonify({
         'success': True,
-        'message': f"تم صرف الطلب {row['request_number']} بنجاح بمبلغ {disbursed_amount:,.2f} ر.س (القائم بالصرف: {paid_by})، وتم ترحيله فوراً إلى المصاريف المعتمدة وخصمه من الكاش فلو.",
+        'message': success_msg,
         'expense_id': new_expense_id
     })
 

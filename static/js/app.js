@@ -13683,20 +13683,27 @@ async function submitCustodyRequest(e) {
             method: method,
             body: formData
         });
-        const data = await res.json();
 
-        if (res.ok && (data.success || !data.error)) {
+        let data = null;
+        try {
+            data = await res.json();
+        } catch (jsonErr) {
+            console.error('Failed to parse JSON response:', jsonErr);
+        }
+
+        if (res.ok && data && (data.success || !data.error)) {
             showToast(data.message || (editId ? 'تم تحديث بيانات العهدة بنجاح' : 'تم رفع طلب العهدة بنجاح، بانتظار اعتماد المدير المالي'), 'success');
             closeModal('custody-request-modal');
             const editIdEl = document.getElementById('custody-req-edit-id');
             if (editIdEl) editIdEl.value = '';
             await loadCustody();
         } else {
-            showToast(data.error || 'فشل في حفظ طلب العهدة', 'error');
+            const errMsg = data?.error || (res.status >= 500 ? 'خطأ في معالجة طلب العهدة على الخادم' : 'فشل في حفظ طلب العهدة');
+            showToast(errMsg, 'error');
         }
     } catch (err) {
         console.error('Error submitting custody request:', err);
-        showToast('حدث خطأ أثناء إرسال طلب العهدة', 'error');
+        showToast(err.message || 'حدث خطأ أثناء إرسال طلب العهدة', 'error');
     } finally {
         if (btn) btn.disabled = false;
     }
@@ -17295,9 +17302,169 @@ async function rejectExpenseRequest(id) {
     }
 }
 
+let currentDisburseActiveCustodies = [];
+let currentDisburseTargetRequest = null;
+
+async function loadDisburseCustodiesDropdown(selectedCustodyId = null, preferredEmpName = null, reqAmount = 0) {
+    const select = document.getElementById('disburse-custody-id');
+    if (!select) return;
+
+    select.innerHTML = '<option value="">-- جارِ فحص وتحميل العهد المتاحة... --</option>';
+
+    try {
+        const res = await fetch('/api/custody/active');
+        const custodies = await res.json();
+        currentDisburseActiveCustodies = Array.isArray(custodies) ? custodies : [];
+
+        if (currentDisburseActiveCustodies.length === 0) {
+            select.innerHTML = '<option value="">⚠️ لا توجد عهد نشطة حالياً للموظفين (يجب اعتماد وصرف عهدة أولاً)</option>';
+            const badge = document.getElementById('disburse-custody-balance-badge');
+            if (badge) badge.classList.add('hidden');
+            return;
+        }
+
+        let opts = '<option value="">-- اختر عهدة الموظف المراد الخصم المباشر منها --</option>';
+        let autoSelectedId = null;
+
+        currentDisburseActiveCustodies.forEach(c => {
+            const remBal = (c.remaining_balance != null) ? c.remaining_balance : ((c.disbursed_amount || c.amount || 0) - (c.spent_amount || 0));
+            const cEmp = c.employee_name || '';
+            const isMatch = (selectedCustodyId && String(c.id) === String(selectedCustodyId)) ||
+                            (!selectedCustodyId && preferredEmpName && (cEmp.includes(preferredEmpName) || preferredEmpName.includes(cEmp)));
+            
+            if (isMatch && !autoSelectedId) {
+                autoSelectedId = c.id;
+            }
+
+            opts += `<option value="${c.id}" data-emp="${escapeHtml(cEmp)}" data-bal="${remBal}" ${isMatch ? 'selected' : ''}>
+                👤 ${escapeHtml(cEmp)} | ${c.request_number || 'عهدة #' + c.id} | المتبقي: ${formatCurrency(remBal)} | ${escapeHtml(c.project_name || 'عام')}
+            </option>`;
+        });
+
+        select.innerHTML = opts;
+
+        if (autoSelectedId) {
+            select.value = autoSelectedId;
+        }
+
+        onDisburseCustodySelectChange();
+    } catch (err) {
+        console.error('Error loading active custodies for disbursement:', err);
+        select.innerHTML = '<option value="">خطأ في تحميل قائمة العهد</option>';
+    }
+}
+
+function onDisbursePaymentMethodChange() {
+    const method = document.getElementById('disburse-payment-method')?.value || 'تحويل بنكي';
+    const custodyContainer = document.getElementById('disburse-custody-container');
+    const bankLabel = document.getElementById('disburse-bank-label');
+    const bankInput = document.getElementById('disburse-bank-name');
+    const transferRefLabel = document.getElementById('disburse-transfer-ref-label');
+    const transferRefInput = document.getElementById('disburse-transfer-ref');
+    const receiptLabel = document.getElementById('disburse-receipt-file-label');
+    const alertBox = document.getElementById('disburse-info-alert');
+    const alertText = document.getElementById('disburse-info-alert-text');
+
+    const req = currentDisburseTargetRequest;
+    const preferredEmp = req ? (req.assigned_disburser_name || req.requester_name || '') : '';
+    const reqAmount = req ? parseFloat(req.amount || 0) : 0;
+
+    if (method === 'عهدة') {
+        if (custodyContainer) custodyContainer.classList.remove('hidden');
+        if (bankLabel) bankLabel.innerText = 'حساب / بيان العهدة:';
+        if (bankInput) bankInput.placeholder = 'مثال: عهدة المهندس جهاد';
+        if (transferRefLabel) transferRefLabel.innerText = 'رقم سند الصرف / الفاتورة من العهدة:';
+        if (transferRefInput) transferRefInput.placeholder = 'رقم الفاتورة أو سند الصرف المسلم من العهدة';
+        if (receiptLabel) receiptLabel.innerText = 'إرفاق فاتورة / سند الصرف من العهدة:';
+
+        if (alertBox && alertText) {
+            alertBox.className = 'p-3 rounded-xl bg-amber-500/15 border border-amber-500/30 text-[11px] text-amber-300 flex items-center gap-2';
+            alertText.innerHTML = '💼 <strong>سيتم خصم هذا المبلغ فوراً من رصيد عهدة الموظف المحددة</strong>، ولن يمس رصيد البنك في التدفق النقدي (الكاش فلو).';
+        }
+
+        loadDisburseCustodiesDropdown(req?.custody_id, preferredEmp, reqAmount);
+    } else if (method === 'نقدي') {
+        if (custodyContainer) custodyContainer.classList.add('hidden');
+        if (bankLabel) bankLabel.innerText = 'الخزينة النقدية:';
+        if (bankInput) {
+            bankInput.value = 'خزينة الشركة (صندوق الكاش)';
+            bankInput.placeholder = 'خزينة الشركة';
+        }
+        if (transferRefLabel) transferRefLabel.innerText = 'رقم سند الصرف النقدي / الإيصال:';
+        if (transferRefInput) transferRefInput.placeholder = 'رقم الإيصال أو السند';
+        if (receiptLabel) receiptLabel.innerText = 'إرفاق سند الصرف أو الإيصال:';
+
+        if (alertBox && alertText) {
+            alertBox.className = 'p-3 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-[11px] text-emerald-300 flex items-center gap-2';
+            alertText.innerHTML = '💵 <strong>سيتم صرف المبلغ نقداً من الخزينة</strong> ولن يخصم من رصيد البنك في التدفق النقدي.';
+        }
+    } else {
+        // تحويل بنكي أو شيك
+        if (custodyContainer) custodyContainer.classList.add('hidden');
+        if (bankLabel) bankLabel.innerText = 'الحساب المحول منه / الخزينة:';
+        if (bankInput) {
+            if (!bankInput.value || bankInput.value.includes('عهدة') || bankInput.value.includes('خزينة')) {
+                bankInput.value = 'البنك الأهلي السعودي (حساب الشركة)';
+            }
+            bankInput.placeholder = 'مثال: البنك الأهلي السعودي، الراجحي';
+        }
+        if (transferRefLabel) transferRefLabel.innerText = 'رقم المرجع / الحوالة / الشيك:';
+        if (transferRefInput) transferRefInput.placeholder = 'رقم العملية البنكية أو الحوالة';
+        if (receiptLabel) receiptLabel.innerText = 'إشعار التحويل البنكي أو الشيك:';
+
+        if (alertBox && alertText) {
+            alertBox.className = 'p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-[11px] text-emerald-300 flex items-center gap-2';
+            alertText.innerHTML = '🏦 سيتم ترحيل هذا المبلغ فوراً كمصروف معتمد رسمي <strong>يخصم من كاش فلو البنك</strong> وميزانية المشروع.';
+        }
+    }
+}
+
+function onDisburseCustodySelectChange() {
+    const select = document.getElementById('disburse-custody-id');
+    const badge = document.getElementById('disburse-custody-balance-badge');
+    const balVal = document.getElementById('disburse-custody-balance-val');
+    const warning = document.getElementById('disburse-custody-warning');
+    const paidByInput = document.getElementById('disburse-paid-by');
+    const bankInput = document.getElementById('disburse-bank-name');
+
+    if (!select || !select.value) {
+        if (badge) badge.classList.add('hidden');
+        if (warning) warning.classList.add('hidden');
+        return;
+    }
+
+    const opt = select.selectedOptions[0];
+    if (!opt) return;
+
+    const emp = opt.getAttribute('data-emp') || '';
+    const bal = parseFloat(opt.getAttribute('data-bal') || 0);
+    const reqAmount = parseFloat(document.getElementById('disburse-actual-amount')?.value || 0);
+
+    if (badge && balVal) {
+        badge.classList.remove('hidden');
+        balVal.innerText = formatCurrency(bal);
+    }
+
+    if (emp) {
+        if (paidByInput) paidByInput.value = emp;
+        if (bankInput) bankInput.value = `عهدة: ${emp}`;
+    }
+
+    if (warning) {
+        if (reqAmount > bal) {
+            warning.classList.remove('hidden');
+            warning.innerText = `⚠️ تنبيه: المبلغ المطلوب (${formatCurrency(reqAmount)}) أكبر من الرصيد المتبقي في العهدة (${formatCurrency(bal)})!`;
+        } else {
+            warning.classList.add('hidden');
+        }
+    }
+}
+
 function openDisburseExpenseRequestModal(id) {
     const req = currentExpenseRequests.find(r => r.id === id);
     if (!req) return;
+
+    currentDisburseTargetRequest = req;
 
     const isFinManager = isFinancialManagerUser();
     const u = currentUser || JSON.parse(localStorage.getItem('segieny_auth_user') || '{}');
@@ -17337,10 +17504,24 @@ function openDisburseExpenseRequestModal(id) {
 
     document.getElementById('disburse-actual-amount').value = req.amount;
     document.getElementById('disburse-actual-date').value = new Date().toISOString().split('T')[0];
-    document.getElementById('disburse-payment-method').value = (req.disbursement_source && req.disbursement_source.includes('نقدي')) ? 'نقدي' : 'تحويل بنكي';
+
+    // Determine initial payment method: Custody vs Cash vs Bank
+    const source = (req.disbursement_source || '').toLowerCase();
+    const methodSelect = document.getElementById('disburse-payment-method');
+    if (source.includes('عهدة')) {
+        methodSelect.value = 'عهدة';
+    } else if (source.includes('نقدي') || source.includes('كاش')) {
+        methodSelect.value = 'نقدي';
+    } else {
+        methodSelect.value = 'تحويل بنكي';
+    }
+
     document.getElementById('disburse-bank-name').value = 'البنك الأهلي السعودي (حساب الشركة)';
     document.getElementById('disburse-transfer-ref').value = '';
     document.getElementById('disburse-notes').value = req.assignment_notes || '';
+
+    // Trigger update of UI elements based on selected method
+    onDisbursePaymentMethodChange();
 
     openModal('expense-request-disburse-modal');
     initLucide();
@@ -17353,18 +17534,34 @@ async function submitExpenseRequestDisbursement(event) {
 
     const id = document.getElementById('disburse-req-id').value;
     const u = currentUser || JSON.parse(localStorage.getItem('segieny_auth_user') || '{}');
-    const formData = new FormData();
+    const paymentMethod = document.getElementById('disburse-payment-method')?.value || 'تحويل بنكي';
 
+    // If custody is selected, validate that a custody was actually selected
+    let custodyId = null;
+    if (paymentMethod === 'عهدة') {
+        custodyId = document.getElementById('disburse-custody-id')?.value;
+        if (!custodyId) {
+            showToast('يرجى اختيار عهدة الموظف المراد الخصم المباشر منها', 'error');
+            if (btn) btn.disabled = false;
+            return;
+        }
+    }
+
+    const formData = new FormData();
     formData.append('user_id', u.id || '');
     formData.append('user_role', u.role || '');
     formData.append('user_name', u.name || '');
     formData.append('paid_by', document.getElementById('disburse-paid-by')?.value || '');
     formData.append('disbursed_amount', document.getElementById('disburse-actual-amount')?.value || 0);
     formData.append('disbursed_date', document.getElementById('disburse-actual-date')?.value || '');
-    formData.append('payment_method', document.getElementById('disburse-payment-method')?.value || 'تحويل بنكي');
+    formData.append('payment_method', paymentMethod);
     formData.append('bank_name', document.getElementById('disburse-bank-name')?.value || '');
     formData.append('transfer_reference', document.getElementById('disburse-transfer-ref')?.value || '');
     formData.append('disbursement_notes', document.getElementById('disburse-notes')?.value || '');
+    
+    if (custodyId) {
+        formData.append('custody_id', custodyId);
+    }
 
     const fileInput = document.getElementById('disburse-receipt-file');
     if (fileInput && fileInput.files && fileInput.files[0]) {
@@ -17379,10 +17576,11 @@ async function submitExpenseRequestDisbursement(event) {
         const data = await res.json();
 
         if (res.ok && data.success) {
-            showToast(data.message || 'تم صرف المبلغ وترحيله للمصروفات والكاش فلو بنجاح!', 'success');
+            showToast(data.message || 'تم صرف المبلغ وترحيله بنجاح!', 'success');
             closeModal('expense-request-disburse-modal');
             loadExpenseRequests();
             if (typeof loadExpenses === 'function') loadExpenses();
+            if (typeof loadCustodyRequests === 'function') loadCustodyRequests();
             if (typeof loadCashFlow === 'function') loadCashFlow();
             if (typeof loadDashboard === 'function') loadDashboard();
         } else {
@@ -17550,6 +17748,17 @@ async function viewExpenseRequestDetails(id) {
                     <div class="text-xs text-slate-300">
                         صُرف بواسطة: <strong class="text-white">${escapeHtml(req.disbursed_by || 'المدير المالي')}</strong>
                     </div>
+                    ${(req.custody_employee_name || (req.payment_method && req.payment_method.includes('عهدة'))) ? `
+                        <div class="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-300 flex items-center gap-2">
+                            <i data-lucide="briefcase" class="w-4 h-4 text-amber-400 shrink-0"></i>
+                            <div>
+                                <span class="font-bold">خصم من عهدة:</span> 
+                                <span class="text-white font-bold">${escapeHtml(req.custody_employee_name || req.payment_method)}</span>
+                                ${req.custody_request_number ? `<span class="text-slate-400 text-[10px] font-mono mr-1">(${escapeHtml(req.custody_request_number)})</span>` : ''}
+                                <span class="block text-[10px] text-amber-400/80">تم الخصم المباشر من رصيد عهدة الموظف، ولم يخصم من رصيد البنك في التدفق النقدي.</span>
+                            </div>
+                        </div>
+                    ` : ''}
                     ${req.disbursement_notes ? `<div class="text-[11px] text-slate-400">ملاحظات الصرف: <span class="text-slate-200">${escapeHtml(req.disbursement_notes)}</span></div>` : ''}
                     
                     ${req.disbursement_receipt_path ? `

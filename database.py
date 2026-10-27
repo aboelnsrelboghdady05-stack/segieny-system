@@ -609,6 +609,34 @@ def init_db():
     )
     ''')
 
+    cursor.execute('PRAGMA table_info(custody_requests)')
+    cust_cols = [r[1] for r in cursor.fetchall()]
+    cust_needed_cols = [
+        ('employee_id', 'INTEGER'),
+        ('approved_by', 'TEXT'),
+        ('approved_at', 'TIMESTAMP'),
+        ('approval_notes', 'TEXT'),
+        ('disbursed_amount', 'REAL DEFAULT 0'),
+        ('disbursed_date', 'TEXT'),
+        ('payment_method', "TEXT DEFAULT 'تحويل بنكي'"),
+        ('disbursed_by', 'TEXT'),
+        ('disbursement_notes', 'TEXT'),
+        ('receipt_voucher_no', 'TEXT'),
+        ('receipt_file_path', 'TEXT'),
+        ('receipt_file_name', 'TEXT'),
+        ('spent_amount', 'REAL DEFAULT 0'),
+        ('returned_amount', 'REAL DEFAULT 0'),
+        ('settlement_date', 'TEXT'),
+        ('settlement_notes', 'TEXT'),
+        ('settled_by', 'TEXT')
+    ]
+    for col, ctype in cust_needed_cols:
+        if col not in cust_cols:
+            try:
+                cursor.execute(f'ALTER TABLE custody_requests ADD COLUMN {col} {ctype}')
+            except Exception:
+                pass
+
     cursor.execute('PRAGMA table_info(expenses)')
     exp_cols = [r[1] for r in cursor.fetchall()]
     if 'custody_id' not in exp_cols:
@@ -648,10 +676,12 @@ def init_db():
         disbursement_receipt_name TEXT,
         disbursement_notes TEXT,
         generated_expense_id INTEGER,
+        custody_id INTEGER,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL,
         FOREIGN KEY (requester_id) REFERENCES team_members(id) ON DELETE SET NULL,
-        FOREIGN KEY (generated_expense_id) REFERENCES expenses(id) ON DELETE SET NULL
+        FOREIGN KEY (generated_expense_id) REFERENCES expenses(id) ON DELETE SET NULL,
+        FOREIGN KEY (custody_id) REFERENCES custody_requests(id) ON DELETE SET NULL
     )
     ''')
 
@@ -674,7 +704,8 @@ def init_db():
         ('assigned_disburser_name', 'TEXT'),
         ('disbursement_source', 'TEXT'),
         ('assignment_notes', 'TEXT'),
-        ('assigned_at', 'TIMESTAMP')
+        ('assigned_at', 'TIMESTAMP'),
+        ('custody_id', 'INTEGER')
     ]
     for col, ctype in new_er_cols:
         if col not in er_cols:

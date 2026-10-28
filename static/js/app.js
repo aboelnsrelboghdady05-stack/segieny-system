@@ -13411,27 +13411,27 @@ function renderCustodyTable() {
             }
         } else if (item.status === 'disbursed') {
             actionsHtml += `
-                <button onclick="viewCustodyExpenses(${item.id})" class="px-2 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500 text-amber-300 hover:text-white font-bold text-[11px] flex items-center gap-1 transition shadow-sm" title="عرض الفواتير المسددة من هذه العهدة">
-                    <i data-lucide="receipt" class="w-3.5 h-3.5"></i>
-                    <span>الفواتير (${formatCurrency(item.spent_amount || 0)})</span>
+                <button onclick="viewCustodyExpenses(${item.id})" class="px-2.5 py-1 rounded-lg bg-indigo-500/20 hover:bg-indigo-600 text-indigo-300 hover:text-white font-bold text-[11px] flex items-center gap-1.5 transition shadow-sm border border-indigo-500/30" title="عرض كشف حساب العهدة والفواتير المسجلة">
+                    <i data-lucide="file-text" class="w-3.5 h-3.5 text-indigo-400"></i>
+                    <span>كشف حساب (${formatCurrency(item.spent_amount || 0)})</span>
                 </button>
                 <button onclick="openCustodySettleModal(${item.id})" class="px-2 py-1 rounded-lg bg-purple-600/20 hover:bg-purple-600 text-purple-300 hover:text-white font-bold text-[11px] flex items-center gap-1 transition" title="تصفية وتسوية العهدة">
                     <i data-lucide="calculator" class="w-3.5 h-3.5"></i>
                     <span>تصفية</span>
                 </button>
-                <button onclick="printCustodyVoucher(${item.id})" class="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition" title="طباعة سند صرف العهدة">
+                <button onclick="printCustodyStatement(${item.id})" class="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition" title="طباعة كشف حساب العهدة">
                     <i data-lucide="printer" class="w-3.5 h-3.5"></i>
                 </button>
             `;
         } else if (item.status === 'settled') {
             actionsHtml += `
-                <button onclick="viewCustodyExpenses(${item.id})" class="px-2 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500 text-amber-300 hover:text-white font-bold text-[11px] flex items-center gap-1 transition shadow-sm" title="عرض الفواتير المسددة من هذه العهدة">
-                    <i data-lucide="receipt" class="w-3.5 h-3.5"></i>
-                    <span>الفواتير (${formatCurrency(item.spent_amount || 0)})</span>
+                <button onclick="viewCustodyExpenses(${item.id})" class="px-2.5 py-1 rounded-lg bg-indigo-500/20 hover:bg-indigo-600 text-indigo-300 hover:text-white font-bold text-[11px] flex items-center gap-1.5 transition shadow-sm border border-indigo-500/30" title="عرض كشف حساب العهدة والفواتير المسجلة">
+                    <i data-lucide="file-text" class="w-3.5 h-3.5 text-indigo-400"></i>
+                    <span>كشف حساب (${formatCurrency(item.spent_amount || 0)})</span>
                 </button>
-                <button onclick="printCustodyVoucher(${item.id})" class="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white font-bold text-[11px] flex items-center gap-1 transition" title="طباعة سند التصفية">
+                <button onclick="printCustodyStatement(${item.id})" class="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white font-bold text-[11px] flex items-center gap-1 transition" title="طباعة كشف حساب العهدة">
                     <i data-lucide="printer" class="w-3.5 h-3.5"></i>
-                    <span>سند التصفية</span>
+                    <span>طباعة الكشف</span>
                 </button>
             `;
         } else if (item.status === 'rejected') {
@@ -14343,39 +14343,72 @@ function validateExpenseAmountAgainstCustody() {
     }
 }
 
+let currentCustodyStatementData = null;
+
 async function viewCustodyExpenses(custodyId) {
     currentViewedCustodyId = custodyId;
     const tbody = document.getElementById('custody-expenses-table-body');
     const emptyState = document.getElementById('custody-expenses-empty');
+    const tfoot = document.getElementById('custody-expenses-table-foot');
     if (!tbody) return;
 
-    tbody.innerHTML = '<tr><td colspan="7" class="p-4 text-center text-slate-500">جارِ تحميل الفواتير...</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" class="p-4 text-center text-slate-500">جارِ تحميل كشف حساب العهدة...</td></tr>';
     if (emptyState) emptyState.classList.add('hidden');
+    if (tfoot) tfoot.classList.add('hidden');
     openModal('custody-expenses-modal');
 
     try {
         const res = await fetch(`/api/custody/${custodyId}/expenses`);
         const data = await res.json();
         if (!res.ok || !data.custody) {
-            showToast('تعذر تحميل فواتير العهدة', 'error');
+            showToast('تعذر تحميل كشف حساب العهدة', 'error');
             closeModal('custody-expenses-modal');
             return;
         }
 
+        currentCustodyStatementData = data;
         const c = data.custody;
         const expenses = data.expenses || [];
-        const disbursed = c.disbursed_amount || c.amount || 0;
-        const totalSpent = data.total_spent || 0;
-        const pendingSpent = data.pending_spent || 0;
+        const disbursed = parseFloat(c.disbursed_amount || c.amount || 0);
+        const totalSpent = parseFloat(data.total_spent || 0);
+        const pendingSpent = parseFloat(data.pending_spent || 0);
         const remaining = Math.max(0, disbursed - totalSpent);
 
-        // Update stats
+        // Update titles & subtitles
         const titleEl = document.getElementById('custody-expenses-modal-title');
-        if (titleEl) titleEl.innerText = `فواتير العهدة ${c.request_number} — ${c.employee_name}`;
+        if (titleEl) titleEl.innerText = `كشف حساب العهدة ${c.request_number || ''} — ${c.employee_name || ''}`;
         
         const subTitleEl = document.getElementById('custody-expenses-modal-subtitle');
-        if (subTitleEl) subTitleEl.innerText = `الغرض: ${c.purpose} | المشروع: ${c.project_name || 'عام'}`;
+        if (subTitleEl) subTitleEl.innerText = `الغرض: ${c.purpose || '-'} | المشروع: ${c.project_name || 'عام / غير مقيد'}`;
 
+        const badgeEl = document.getElementById('custody-statement-badge');
+        if (badgeEl) {
+            if (c.status === 'settled') {
+                badgeEl.innerText = 'تمت التصفية والتسوية';
+                badgeEl.className = 'px-2 py-0.5 rounded text-[11px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30';
+            } else if (c.status === 'disbursed') {
+                badgeEl.innerText = 'عهدة منصرفة نشطة';
+                badgeEl.className = 'px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
+            } else {
+                badgeEl.innerText = c.status || 'معتمدة';
+                badgeEl.className = 'px-2 py-0.5 rounded text-[11px] font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30';
+            }
+        }
+
+        // Update Metadata Fields
+        const metaEmp = document.getElementById('cust-meta-emp');
+        if (metaEmp) metaEmp.innerText = c.employee_name || '-';
+
+        const metaProj = document.getElementById('cust-meta-proj');
+        if (metaProj) metaProj.innerText = c.project_name || 'عام / غير مقيد';
+
+        const metaPurpose = document.getElementById('cust-meta-purpose');
+        if (metaPurpose) metaPurpose.innerText = c.purpose || '-';
+
+        const metaDisburse = document.getElementById('cust-meta-disburse');
+        if (metaDisburse) metaDisburse.innerText = `${c.disbursed_date || c.request_date || '-'} (${c.payment_method || 'تحويل بنكي'})`;
+
+        // Update Stats KPIs
         const disbEl = document.getElementById('cust-exp-disbursed');
         if (disbEl) disbEl.innerText = `${formatCurrency(disbursed)} ر.س`;
 
@@ -14394,12 +14427,19 @@ async function viewCustodyExpenses(custodyId) {
         if (expenses.length === 0) {
             tbody.innerHTML = '';
             if (emptyState) emptyState.classList.remove('hidden');
+            if (tfoot) tfoot.classList.add('hidden');
             return;
+        }
+
+        if (tfoot) {
+            tfoot.classList.remove('hidden');
+            const footTotal = document.getElementById('cust-foot-total');
+            if (footTotal) footTotal.innerText = `${formatCurrency(totalSpent)} ر.س`;
         }
 
         const isFinManager = isFinancialManagerUser();
         let html = '';
-        expenses.forEach(exp => {
+        expenses.forEach((exp, idx) => {
             const isApproved = (exp.approval_status || 'approved') === 'approved';
             const isPending = exp.approval_status === 'pending';
             const isRejected = exp.approval_status === 'rejected';
@@ -14435,7 +14475,8 @@ async function viewCustodyExpenses(custodyId) {
 
             html += `
                 <tr class="hover:bg-slate-800/40 transition ${isPending ? 'bg-amber-500/5' : ''}">
-                    <td class="p-2.5 font-mono text-slate-400 whitespace-nowrap text-xs">${escapeHtml(exp.expense_date)}</td>
+                    <td class="p-2.5 font-mono text-slate-400 text-center text-xs">${idx + 1}</td>
+                    <td class="p-2.5 font-mono text-slate-300 whitespace-nowrap text-xs">${escapeHtml(exp.expense_date || '-')}</td>
                     <td class="p-2.5 font-bold text-white text-xs">${escapeHtml(exp.title)}</td>
                     <td class="p-2.5 text-slate-300 text-xs">${escapeHtml(exp.project_name || 'مصروف عام')}</td>
                     <td class="p-2.5 text-xs text-slate-400">
@@ -14448,18 +14489,12 @@ async function viewCustodyExpenses(custodyId) {
                     <td class="p-2.5 text-center whitespace-nowrap">
                         <div class="flex items-center justify-center gap-1">
                             ${appActions}
-                            ${(isApproved && !isFinManager) ? `
-                                <span class="p-1 text-slate-600 cursor-not-allowed inline-flex items-center" title="المصروف معتمد مالياً ولا يمكن تعديله أو حذفه إلا من قبل المدير المالي (أ. ابوالنصر البغدادي)">
-                                    <i data-lucide="lock" class="w-3.5 h-3.5 text-slate-500"></i>
-                                </span>
-                            ` : `
-                                <button onclick="editCustodyExpense(${exp.id})" class="p-1 text-slate-400 hover:text-amber-400 rounded hover:bg-slate-750 transition" title="تعديل بيانات الفاتورة">
-                                    <i data-lucide="edit-3" class="w-3.5 h-3.5"></i>
-                                </button>
-                                <button onclick="deleteCustodyExpense(${exp.id}, ${custodyId}, '${escapeHtml(exp.title || 'فاتورة')}', ${exp.amount})" class="p-1 text-slate-400 hover:text-rose-400 rounded hover:bg-slate-750 transition" title="حذف الفاتورة واسترجاع المبلغ للعهدة">
-                                    <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
-                                </button>
-                            `}
+                            <button onclick="editCustodyExpense(${exp.id})" class="p-1 text-slate-400 hover:text-amber-400 rounded hover:bg-slate-750 transition" title="تعديل بيانات الفاتورة">
+                                <i data-lucide="edit-3" class="w-3.5 h-3.5"></i>
+                            </button>
+                            <button onclick="deleteCustodyExpense(${exp.id}, ${custodyId}, '${escapeHtml(exp.title || 'فاتورة')}', ${exp.amount})" class="p-1 text-slate-400 hover:text-rose-400 rounded hover:bg-slate-750 transition" title="حذف الفاتورة واسترجاع المبلغ للعهدة">
+                                <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                            </button>
                         </div>
                     </td>
                 </tr>
@@ -14469,8 +14504,243 @@ async function viewCustodyExpenses(custodyId) {
         if (typeof initLucide === 'function') initLucide();
     } catch (err) {
         console.error('Error fetching custody expenses:', err);
-        showToast('حدث خطأ أثناء تحميل فواتير العهدة', 'error');
+        showToast('حدث خطأ أثناء تحميل كشف حساب العهدة', 'error');
     }
+}
+
+async function printCustodyStatement(custodyId = null) {
+    let data = currentCustodyStatementData;
+    const targetId = custodyId || (data && data.custody && data.custody.id) || currentViewedCustodyId;
+    if (!targetId) {
+        showToast('يرجى تحديد العهدة أولاً لطباعة كشف الحساب', 'warning');
+        return;
+    }
+
+    if (!data || !data.custody || data.custody.id !== targetId) {
+        try {
+            const res = await fetch(`/api/custody/${targetId}/expenses`);
+            data = await res.json();
+            currentCustodyStatementData = data;
+        } catch (err) {
+            showToast('تعذر تحميل بيانات كشف حساب العهدة للطباعة', 'error');
+            return;
+        }
+    }
+
+    const c = data.custody || {};
+    const expenses = data.expenses || [];
+    const disbursed = parseFloat(c.disbursed_amount || c.amount || 0);
+    const totalSpent = parseFloat(data.total_spent || 0);
+    const pendingSpent = parseFloat(data.pending_spent || 0);
+    const remaining = Math.max(0, disbursed - totalSpent);
+    const printDate = new Date().toLocaleString('ar-SA', { year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+    let statusText = 'عهدة منصرفة نشطة';
+    if (c.status === 'settled') statusText = 'تمت التصفية والتسوية';
+    else if (c.status === 'approved') statusText = 'معتمدة - بانتظار الصرف';
+    else if (c.status === 'pending') statusText = 'قيد المراجعة والاعتماد';
+
+    let rowsHtml = '';
+    if (expenses.length === 0) {
+        rowsHtml = `<tr><td colspan="7" style="text-align:center; padding:18px; color:#64748b; font-weight:bold;">لا توجد فواتير أو مسددات مسجلة على هذه العهدة حتى تاريخه</td></tr>`;
+    } else {
+        expenses.forEach((exp, idx) => {
+            const isApproved = (exp.approval_status || 'approved') === 'approved';
+            const statusLabel = isApproved ? '<span style="color:#059669; font-weight:bold;">معمدة ✓</span>' : '<span style="color:#d97706; font-weight:bold;">معلقة</span>';
+            rowsHtml += `
+                <tr>
+                    <td style="text-align:center; font-family:monospace; font-weight:bold;">${idx + 1}</td>
+                    <td style="text-align:center; font-family:monospace;">${escapeHtml(exp.expense_date || '-')}</td>
+                    <td style="font-weight:700;">${escapeHtml(exp.title || '-')}</td>
+                    <td>${escapeHtml(exp.project_name || c.project_name || 'عام')}</td>
+                    <td>${escapeHtml(exp.category || '-')} ${exp.supplier_name ? `• ${escapeHtml(exp.supplier_name)}` : ''}</td>
+                    <td style="text-align:left; font-family:monospace; font-weight:800; color:#be123c;">${formatCurrency(exp.amount || 0)} ر.س</td>
+                    <td style="text-align:center;">${statusLabel}</td>
+                </tr>
+            `;
+        });
+    }
+
+    const printWin = window.open('', '_blank');
+    if (!printWin) {
+        showToast('يرجى السماح بالنوافذ المنبثقة لطباعة كشف الحساب', 'warning');
+        return;
+    }
+
+    const htmlContent = `
+    <!DOCTYPE html>
+    <html dir="rtl" lang="ar">
+    <head>
+        <meta charset="UTF-8">
+        <title>كشف حساب عهدة - ${escapeHtml(c.request_number || '')} - ${escapeHtml(c.employee_name || '')}</title>
+        <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+        <style>
+            @page { size: A4 portrait; margin: 12mm 14mm; }
+            * { box-sizing: border-box; }
+            body { font-family: 'Cairo', system-ui, -apple-system, sans-serif; background: #fff; color: #0f172a; margin: 0; padding: 12px; font-size: 11px; line-height: 1.5; }
+            .header-wrap { display: flex; justify-content: space-between; align-items: center; border-bottom: 2.5px solid #0f172a; padding-bottom: 12px; margin-bottom: 14px; }
+            .company-info h1 { margin: 0; font-size: 19px; font-weight: 900; color: #0f172a; }
+            .company-info p { margin: 2px 0 0; font-size: 10.5px; color: #475569; font-weight: 600; }
+            .report-title-box { text-align: left; }
+            .report-title-box h2 { margin: 0; font-size: 17px; font-weight: 900; color: #1e3a8a; }
+            .report-title-box p { margin: 2px 0 0; font-size: 10px; color: #64748b; font-weight: 600; }
+            .custody-badge { display: inline-block; background: #1e293b; color: #fff; font-size: 11px; font-weight: 800; padding: 2px 10px; border-radius: 4px; margin-top: 4px; font-family: monospace; }
+            
+            .info-grid { width: 100%; border-collapse: collapse; margin-bottom: 14px; }
+            .info-grid td { border: 1px solid #cbd5e1; padding: 5px 8px; font-size: 11px; }
+            .info-label { background: #f8fafc; color: #475569; font-weight: 700; width: 16%; }
+            .info-val { font-weight: 800; color: #0f172a; width: 34%; }
+
+            .kpi-row { display: flex; gap: 10px; margin-bottom: 16px; }
+            .kpi-card { flex: 1; border-radius: 8px; padding: 10px 12px; text-align: center; border: 1.5px solid; }
+            .kpi-disb { background: #eff6ff; border-color: #3b82f6; }
+            .kpi-spent { background: #fff1f2; border-color: #f43f5e; }
+            .kpi-rem { background: #ecfdf5; border-color: #10b981; }
+            .kpi-lbl { font-size: 10px; font-weight: 700; color: #475569; margin-bottom: 4px; }
+            .kpi-val { font-size: 17px; font-weight: 900; font-family: monospace; }
+            .kpi-disb .kpi-val { color: #1d4ed8; }
+            .kpi-spent .kpi-val { color: #be123c; }
+            .kpi-rem .kpi-val { color: #047857; }
+
+            .table-wrap { width: 100%; border-collapse: collapse; margin-bottom: 14px; }
+            .table-wrap th { background: #0f172a; color: #fff; font-size: 10.5px; font-weight: 800; padding: 6px 8px; border: 1px solid #0f172a; text-align: right; }
+            .table-wrap td { border: 1px solid #cbd5e1; padding: 6px 8px; font-size: 10.5px; vertical-align: middle; }
+            .table-wrap tr:nth-child(even) { background: #f8fafc; }
+            .table-wrap tfoot td { background: #f1f5f9; font-weight: 900; }
+
+            .summary-box { background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px; padding: 8px 12px; margin-bottom: 25px; font-size: 11px; }
+
+            .sigs-container { display: flex; justify-content: space-between; margin-top: 30px; page-break-inside: avoid; }
+            .sig-item { width: 23%; text-align: center; }
+            .sig-role { font-size: 11px; font-weight: 800; color: #1e293b; margin-bottom: 45px; }
+            .sig-line { border-top: 1px dashed #64748b; font-size: 10px; color: #64748b; padding-top: 5px; }
+
+            @media print {
+                body { padding: 0; }
+                .no-print { display: none !important; }
+            }
+        </style>
+    </head>
+    <body>
+        <div class="no-print" style="margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center; background: #f1f5f9; padding: 10px 14px; border-radius: 8px; border: 1px solid #cbd5e1;">
+            <span style="font-weight: 700; color: #1e293b;">معاينة طباعة كشف حساب العهدة</span>
+            <div>
+                <button onclick="window.print()" style="background: #2563eb; color: #fff; border: none; padding: 6px 16px; border-radius: 6px; font-weight: 800; cursor: pointer; font-family: inherit;">🖨️ طباعة الآن (Print / PDF)</button>
+                <button onclick="window.close()" style="background: #64748b; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-weight: 700; cursor: pointer; font-family: inherit; margin-right: 6px;">إغلاق</button>
+            </div>
+        </div>
+
+        <div class="header-wrap">
+            <div class="company-info">
+                <h1>شركة مقاولات السجيني</h1>
+                <p>الإدارة المالية والحسابات العامة — نظام إدارة العهد والمصاريف</p>
+            </div>
+            <div class="report-title-box">
+                <h2>كشف حساب عهدة موظف</h2>
+                <p>تاريخ الاستخراج: ${printDate}</p>
+                <span class="custody-badge">${escapeHtml(c.request_number || 'CUST')}</span>
+            </div>
+        </div>
+
+        <table class="info-grid">
+            <tr>
+                <td class="info-label">اسم الموظف / المستلم:</td>
+                <td class="info-val">${escapeHtml(c.employee_name || '-')}</td>
+                <td class="info-label">المشروع التابع له:</td>
+                <td class="info-val">${escapeHtml(c.project_name || 'عام / غير مقيد')}</td>
+            </tr>
+            <tr>
+                <td class="info-label">الغرض من العهدة:</td>
+                <td class="info-val">${escapeHtml(c.purpose || '-')}</td>
+                <td class="info-label">تاريخ وطريقة الصرف:</td>
+                <td class="info-val">${escapeHtml(c.disbursed_date || c.request_date || '-')} (${escapeHtml(c.payment_method || 'تحويل بنكي')})</td>
+            </tr>
+            <tr>
+                <td class="info-label">القائم بالصرف:</td>
+                <td class="info-val">${escapeHtml(c.disbursed_by || 'الإدارة المالية')}</td>
+                <td class="info-label">حالة العهدة الحالية:</td>
+                <td class="info-val">${statusText}</td>
+            </tr>
+        </table>
+
+        <div class="kpi-row">
+            <div class="kpi-card kpi-disb">
+                <div class="kpi-lbl">مبلغ العهدة المسلم</div>
+                <div class="kpi-val">${formatCurrency(disbursed)} ر.س</div>
+            </div>
+            <div class="kpi-card kpi-spent">
+                <div class="kpi-lbl">إجمالي الفواتير المسددة</div>
+                <div class="kpi-val">${formatCurrency(totalSpent)} ر.س</div>
+            </div>
+            <div class="kpi-card kpi-rem">
+                <div class="kpi-lbl">الرصيد المتبقي طرف الموظف</div>
+                <div class="kpi-val">${formatCurrency(remaining)} ر.س</div>
+            </div>
+        </div>
+
+        <h3 style="font-size: 13px; font-weight: 900; margin: 0 0 8px; color: #0f172a; border-right: 4px solid #1e3a8a; padding-right: 8px;">
+            بيان الفواتير والمصروفات المسجلة خصماً من العهدة (${expenses.length} فاتورة)
+        </h3>
+
+        <table class="table-wrap">
+            <thead>
+                <tr>
+                    <th style="width: 4%;">#</th>
+                    <th style="width: 12%;">التاريخ</th>
+                    <th style="width: 28%;">بيان الفاتورة / المصروف</th>
+                    <th style="width: 20%;">المشروع</th>
+                    <th style="width: 18%;">البند / المورد</th>
+                    <th style="width: 12%; text-align: left;">المبلغ</th>
+                    <th style="width: 6%; text-align: center;">الحالة</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${rowsHtml}
+            </tbody>
+            <tfoot>
+                <tr>
+                    <td colspan="5" style="text-align: left; font-weight: 800;">إجمالي الفواتير المعتمدة المسددة:</td>
+                    <td style="text-align: left; font-family: monospace; font-weight: 900; color: #be123c;">${formatCurrency(totalSpent)} ر.س</td>
+                    <td></td>
+                </tr>
+                <tr>
+                    <td colspan="5" style="text-align: left; font-weight: 800;">الرصيد المتبقي بالعهدة واجب التسوية:</td>
+                    <td style="text-align: left; font-family: monospace; font-weight: 900; color: #047857;">${formatCurrency(remaining)} ر.س</td>
+                    <td></td>
+                </tr>
+            </tfoot>
+        </table>
+
+        <div class="summary-box">
+            <strong>ملاحظة تسوية:</strong> 
+            تم صرف عهدة بمبلغ <strong>(${formatCurrency(disbursed)} ر.س)</strong>، وقام الموظف بتقديم فواتير ومستندات بمبلغ <strong>(${formatCurrency(totalSpent)} ر.س)</strong>، والرصيد المتبقي بذمة الموظف للتصفية والتسوية هو <strong>(${formatCurrency(remaining)} ر.س)</strong>.
+        </div>
+
+        <div class="sigs-container">
+            <div class="sig-item">
+                <div class="sig-role">الموظف صاحب العهدة</div>
+                <div class="sig-line">${escapeHtml(c.employee_name || 'التوقيع')}</div>
+            </div>
+            <div class="sig-item">
+                <div class="sig-role">المحاسب المسؤول</div>
+                <div class="sig-line">التوقيع والتاريخ</div>
+            </div>
+            <div class="sig-item">
+                <div class="sig-role">المدير المالي</div>
+                <div class="sig-line">أ. ابوالنصر البغدادي</div>
+            </div>
+            <div class="sig-item">
+                <div class="sig-role">المدير العام</div>
+                <div class="sig-line">م. نواف سجيني</div>
+            </div>
+        </div>
+    </body>
+    </html>
+    `;
+
+    printWin.document.open();
+    printWin.document.write(htmlContent);
+    printWin.document.close();
 }
 
 function editCustodyExpense(expenseId) {

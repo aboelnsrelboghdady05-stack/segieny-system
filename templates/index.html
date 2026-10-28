@@ -6119,32 +6119,61 @@
         </div>
     </div>
 
-    <!-- CUSTODY MODAL 5: VIEW CUSTODY EXPENSES & INVOICES -->
+    <!-- CUSTODY MODAL 5: VIEW CUSTODY EXPENSES & INVOICES (ACCOUNT STATEMENT) -->
     <div id="custody-expenses-modal" class="modal-overlay hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-        <div class="bg-slate-900 rounded-2xl border border-slate-750 w-full max-w-4xl shadow-2xl overflow-hidden animate-scaleUp flex flex-col max-h-[90vh]">
+        <div class="bg-slate-900 rounded-2xl border border-slate-750 w-full max-w-5xl shadow-2xl overflow-hidden animate-scaleUp flex flex-col max-h-[92vh]">
             <div class="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-850">
                 <div class="flex items-center gap-3">
-                    <div class="p-2.5 rounded-xl bg-amber-500/20 text-amber-400">
-                        <i data-lucide="receipt" class="w-5 h-5"></i>
+                    <div class="p-2.5 rounded-xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
+                        <i data-lucide="file-text" class="w-5 h-5"></i>
                     </div>
                     <div>
-                        <h3 id="custody-expenses-modal-title" class="text-base font-black text-white">الفواتير والمصروفات المسددة من العهدة</h3>
-                        <p id="custody-expenses-modal-subtitle" class="text-xs text-slate-400">كشف الفواتير المسجلة خصماً من رصيد هذه العهدة</p>
+                        <div class="flex items-center gap-2">
+                            <h3 id="custody-expenses-modal-title" class="text-base font-black text-white">كشف حساب العهدة</h3>
+                            <span id="custody-statement-badge" class="px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">نشطة</span>
+                        </div>
+                        <p id="custody-expenses-modal-subtitle" class="text-xs text-slate-400">بيان تفصيلي بجميع الفواتير والمصروفات المسجلة على هذه العهدة وموقف التسوية</p>
                     </div>
                 </div>
-                <button onclick="closeModal('custody-expenses-modal')" class="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition">
-                    <i data-lucide="x" class="w-5 h-5"></i>
-                </button>
+                <div class="flex items-center gap-2">
+                    <button type="button" onclick="printCustodyStatement()" class="px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs flex items-center gap-1.5 transition shadow">
+                        <i data-lucide="printer" class="w-4 h-4"></i>
+                        <span>طباعة كشف الحساب (PDF)</span>
+                    </button>
+                    <button onclick="closeModal('custody-expenses-modal')" class="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition">
+                        <i data-lucide="x" class="w-5 h-5"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Custody Statement Metadata Cards -->
+            <div class="px-6 py-3 bg-slate-850/80 border-b border-slate-800 grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                <div class="p-2 bg-slate-900/60 rounded-xl border border-slate-800">
+                    <span class="text-slate-400 text-[11px] block">الموظف المسؤول:</span>
+                    <span id="cust-meta-emp" class="font-bold text-white text-xs truncate block">-</span>
+                </div>
+                <div class="p-2 bg-slate-900/60 rounded-xl border border-slate-800">
+                    <span class="text-slate-400 text-[11px] block">المشروع التابع له:</span>
+                    <span id="cust-meta-proj" class="font-bold text-slate-200 text-xs truncate block">-</span>
+                </div>
+                <div class="p-2 bg-slate-900/60 rounded-xl border border-slate-800">
+                    <span class="text-slate-400 text-[11px] block">الغرض من العهدة:</span>
+                    <span id="cust-meta-purpose" class="font-bold text-amber-300 text-xs truncate block">-</span>
+                </div>
+                <div class="p-2 bg-slate-900/60 rounded-xl border border-slate-800">
+                    <span class="text-slate-400 text-[11px] block">تاريخ وصيغة الصرف:</span>
+                    <span id="cust-meta-disburse" class="font-bold text-slate-200 text-xs truncate block">-</span>
+                </div>
             </div>
 
             <!-- Summary KPI Strip -->
-            <div class="p-4 bg-slate-850/60 border-b border-slate-800 grid grid-cols-2 sm:grid-cols-5 gap-3 text-xs">
+            <div class="p-4 bg-slate-850/40 border-b border-slate-800 grid grid-cols-2 sm:grid-cols-5 gap-3 text-xs">
                 <div class="bg-slate-900 p-2.5 rounded-xl border border-slate-800">
-                    <span class="text-slate-400 block text-[10px]">المبلغ المنصرف للعهدة</span>
+                    <span class="text-slate-400 block text-[10px]">المبلغ المستلم للعهدة</span>
                     <span id="cust-exp-disbursed" class="text-sm font-black text-white font-mono">0.00 ر.س</span>
                 </div>
                 <div class="bg-slate-900 p-2.5 rounded-xl border border-slate-800">
-                    <span class="text-slate-400 block text-[10px]">المنصرف الفعلي (معمد)</span>
+                    <span class="text-slate-400 block text-[10px]">إجمالي الفواتير المسددة</span>
                     <span id="cust-exp-spent" class="text-sm font-black text-rose-400 font-mono">0.00 ر.س</span>
                 </div>
                 <div class="bg-slate-900 p-2.5 rounded-xl border border-slate-800">
@@ -6152,11 +6181,11 @@
                     <span id="cust-exp-pending" class="text-sm font-black text-amber-400 font-mono">0.00 ر.س</span>
                 </div>
                 <div class="bg-slate-900 p-2.5 rounded-xl border border-slate-800">
-                    <span class="text-emerald-400 font-bold block text-[10px]">الرصيد المتاح بالعهدة</span>
+                    <span class="text-emerald-400 font-bold block text-[10px]">المتبقي الفعلي بالعهدة</span>
                     <span id="cust-exp-remaining" class="text-sm font-black text-emerald-400 font-mono">0.00 ر.س</span>
                 </div>
                 <div class="bg-slate-900 p-2.5 rounded-xl border border-slate-800">
-                    <span class="text-slate-400 block text-[10px]">عدد الفواتير</span>
+                    <span class="text-slate-400 block text-[10px]">عدد الفواتير المسجلة</span>
                     <span id="cust-exp-count" class="text-sm font-black text-blue-400 font-mono">0</span>
                 </div>
             </div>
@@ -6165,10 +6194,11 @@
             <div class="p-4 overflow-y-auto flex-1">
                 <div class="overflow-x-auto">
                     <table class="w-full text-right text-xs">
-                        <thead class="bg-slate-800/80 text-slate-300">
+                        <thead class="bg-slate-800/90 text-slate-300">
                             <tr>
+                                <th class="p-2.5">#</th>
                                 <th class="p-2.5">التاريخ</th>
-                                <th class="p-2.5">بيان الفاتورة</th>
+                                <th class="p-2.5">بيان الفاتورة / المصروف</th>
                                 <th class="p-2.5">المشروع</th>
                                 <th class="p-2.5">البند / المورد</th>
                                 <th class="p-2.5 text-left font-mono">المبلغ</th>
@@ -6180,18 +6210,32 @@
                         <tbody id="custody-expenses-table-body" class="divide-y divide-slate-800">
                             <!-- Populated by JS -->
                         </tbody>
+                        <tfoot id="custody-expenses-table-foot" class="bg-slate-800/60 font-bold text-white border-t-2 border-slate-750 hidden">
+                            <tr>
+                                <td colspan="5" class="p-2.5 text-left text-slate-300">إجمالي الفواتير المسددة:</td>
+                                <td id="cust-foot-total" class="p-2.5 text-left font-mono text-rose-400">0.00 ر.س</td>
+                                <td colspan="3"></td>
+                            </tr>
+                        </tfoot>
                     </table>
                 </div>
-                <div id="custody-expenses-empty" class="hidden text-center py-8 text-slate-500 text-xs">
-                    لا توجد فواتير تم صرفها من هذه العهدة حتى الآن.
+                <div id="custody-expenses-empty" class="hidden text-center py-10 text-slate-500 text-xs">
+                    <i data-lucide="receipt" class="w-8 h-8 mx-auto text-slate-600 mb-2"></i>
+                    <span>لا توجد فواتير تم صرفها من هذه العهدة حتى الآن.</span>
                 </div>
             </div>
 
             <div class="p-4 border-t border-slate-800 bg-slate-850 flex items-center justify-between">
-                <button type="button" onclick="openExpenseForCustody()" class="px-3 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs flex items-center gap-1.5 transition">
-                    <i data-lucide="plus" class="w-4 h-4"></i>
-                    <span>تسجيل فاتورة جديدة خصماً من هذه العهدة</span>
-                </button>
+                <div class="flex items-center gap-2">
+                    <button type="button" onclick="openExpenseForCustody()" class="px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs flex items-center gap-1.5 transition shadow">
+                        <i data-lucide="plus" class="w-4 h-4"></i>
+                        <span>تسجيل فاتورة جديدة في هذه العهدة</span>
+                    </button>
+                    <button type="button" onclick="printCustodyStatement()" class="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs flex items-center gap-1.5 transition shadow">
+                        <i data-lucide="printer" class="w-4 h-4"></i>
+                        <span>طباعة كشف الحساب</span>
+                    </button>
+                </div>
                 <button type="button" onclick="closeModal('custody-expenses-modal')" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white font-bold text-xs transition">
                     إغلاق
                 </button>
@@ -7263,7 +7307,7 @@
 
     <!-- Scripts -->
     <script src="/static/js/i18n.js?v=20261020_v1"></script>
-    <script src="/static/js/app.js?v=20261027_v3"></script>
+    <script src="/static/js/app.js?v=20261028_v1"></script>
     <script>
     (function() {
         try {

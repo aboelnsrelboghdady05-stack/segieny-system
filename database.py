@@ -780,6 +780,15 @@ def init_db():
     if 'approval_notes' not in hr_payroll_cols:
         try: cursor.execute('ALTER TABLE hr_payrolls ADD COLUMN approval_notes TEXT')
         except: pass
+    if 'payment_method' not in hr_payroll_cols:
+        try: cursor.execute('ALTER TABLE hr_payrolls ADD COLUMN payment_method TEXT')
+        except: pass
+    if 'custody_id' not in hr_payroll_cols:
+        try: cursor.execute('ALTER TABLE hr_payrolls ADD COLUMN custody_id INTEGER')
+        except: pass
+    if 'custody_name' not in hr_payroll_cols:
+        try: cursor.execute('ALTER TABLE hr_payrolls ADD COLUMN custody_name TEXT')
+        except: pass
 
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS hr_payroll_items (
@@ -798,10 +807,30 @@ def init_db():
         iban TEXT,
         status TEXT DEFAULT 'pending',
         notes TEXT,
+        payment_method TEXT DEFAULT 'تحويل بنكي',
+        custody_id INTEGER,
+        custody_name TEXT,
+        payment_date TEXT,
+        paid_by TEXT,
+        disbursed_at TEXT,
         FOREIGN KEY (payroll_id) REFERENCES hr_payrolls(id) ON DELETE CASCADE,
         FOREIGN KEY (employee_id) REFERENCES hr_employees(id) ON DELETE CASCADE
     )
     ''')
+
+    cursor.execute('PRAGMA table_info(hr_payroll_items)')
+    hr_item_cols = [r[1] for r in cursor.fetchall()]
+    for col, col_type in [
+        ('payment_method', 'TEXT DEFAULT "تحويل بنكي"'),
+        ('custody_id', 'INTEGER'),
+        ('custody_name', 'TEXT'),
+        ('payment_date', 'TEXT'),
+        ('paid_by', 'TEXT'),
+        ('disbursed_at', 'TEXT')
+    ]:
+        if col not in hr_item_cols:
+            try: cursor.execute(f'ALTER TABLE hr_payroll_items ADD COLUMN {col} {col_type}')
+            except: pass
 
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS hr_leaves (

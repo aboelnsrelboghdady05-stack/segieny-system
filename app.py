@@ -5976,6 +5976,210 @@ def update_hr_payroll_status(id):
     resp_msg = f'تم تعميد مسير رواتب شهر {payroll["month_year"]} بنجاح بواسطة المدير المالي ({approved_by})' if new_status == 'approved' else 'تم تأكيد صرف الرواتب وخصم السلف لجميع الموظفين بنجاح'
     return jsonify({'success': True, 'message': resp_msg})
 
+@app.route('/api/hr/payrolls/<int:id>/disburse', methods=['POST'])
+def disburse_hr_payroll_items(id):
+    try:
+        data = request.json or {}
+        item_ids = data.get('item_ids')  # list of ints or empty / 'all'
+        payment_method = data.get('payment_method') or 'تحويل بنكي'  # 'تحويل بنكي', 'عهدة', 'نقدي'
+        custody_id = data.get('custody_id')
+        payment_date = data.get('payment_date') or datetime.now().strftime('%Y-%m-%d')
+        receipt_voucher_no = data.get('receipt_voucher_no') or data.get('voucher_no') or ''
+        notes = data.get('notes') or ''
+        user_id = data.get('user_id')
+        user_role = data.get('user_role') or ''
+        user_name = data.get('user_name') or ''
+
+        conn = database.get_db_connection()
+        cursor = conn.cursor()
+
+        cursor.execute('SELECT * FROM hr_payrolls WHERE id = ?', (id,))
+        payroll = cursor.fetchone()
+        if not payroll:
+            conn.close()
+            return jsonify({'error': 'مسير الرواتب غير موجود'}), 404
+
+        # Verification of Financial Manager
+        is_financial_manager = False
+        manager_title = 'ابوالنصر البغدادي (المدير المالي)'
+
+        if user_id:
+            cursor.execute('SELECT id, name, role, username FROM team_members WHERE id = ?', (user_id,))
+            u = cursor.fetchone()
+            if u:
+                r = (u['role'] or '').lower()
+                un = (u['username'] or '').lower()
+                nm = u['name'] or ''
+                if 'مدير مالي' in r or 'المدير المالي' in r or un == 'baghdadi' or 'ابوالنصر' in nm:
+                    is_financial_manager = True
+                    manager_title = f"{nm} (المدير المالي)"
+                elif 'مدير عام' in r or 'المدير العام' in r or un == 'nawaf' or 'نواف' in nm or u['id'] == 1:
+                    is_financial_manager = True
+                    manager_title = f"{nm} (المدير العام)"
+
+        if not is_financial_manager:
+            r_str = (user_role or '').lower()
+            n_str = (user_name or '').lower()
+            if 'مدير مالي' in r_str or 'المدير المالي' in r_str or 'ابوالنصر' in n_str or 'baghdadi' in n_str:
+                is_financial_manager = True
+                manager_title = f"{user_name or 'ابوالنصر البغدادي'} (المدير المالي)"
+            elif 'مدير عام' in r_str or 'المدير العام' in r_str or 'نواف' in n_str or 'admin' in r_str:
+                is_financial_manager = True
+                manager_title = f"{user_name or 'الإدارة العامة'} (المدير العام)"
+
+        if not is_financial_manager:
+            conn.close()
+            return jsonify({
+                'error': 'عفواً، صرف رواتب الموظفين صلاحية حصرية للمدير المالي (أ. ابوالنصر البغدادي).'
+            }), 403
+
+        # Determine target items
+        if item_ids and item_ids != 'all' and isinstance(item_ids, list) and len(item_ids) > 0:
+            placeholders = ','.join(['?'] * len(item_ids))
+            cursor.execute(f'''
+                SELECT * FROM hr_payroll_items
+                WHERE payroll_id = ? AND id IN ({placeholders}) AND (status != 'paid' OR status IS NULL)
+            ''', (id, *item_ids))
+        else:
+            cursor.execute('''
+                SELECT * FROM hr_payroll_items
+                WHERE payroll_id = ? AND (status != 'paid' OR status IS NULL)
+            ''', (id,))
+        
+        target_items = [dict(r) for r in cursor.fetchall()]
+        if not target_items:
+            conn.close()
+            return jsonify({'error': 'لا توجد بنود رواتب غير مصروفة بين الموظفين المحددين'}), 400
+
+        total_net_disburse = sum(float(it.get('net_salary') or 0.0) for it in target_items)
+        now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+        # Handle Custody Deduction
+        custody_name = None
+        if payment_method == 'عهدة':
+            if not custody_id:
+                conn.close()
+                return jsonify({'error': 'يرجى اختيار العهدة المراد خصم الرواتب منها'}), 400
+            
+            cursor.execute('''
+                SELECT id, employee_name, request_number, amount, disbursed_amount, spent_amount
+                FROM custody_requests WHERE id = ?
+            ''', (custody_id,))
+            cust = cursor.fetchone()
+            if not cust:
+                conn.close()
+                return jsonify({'error': 'العهدة المحددة غير موجودة'}), 404
+            
+            cust_emp = cust['employee_name']
+            cust_no = cust['request_number']
+            custody_name = f"{cust_emp} ({cust_no})"
+            
+            # Deduct from custody spent_amount
+            cursor.execute('''
+                UPDATE custody_requests
+                SET spent_amount = COALESCE(spent_amount, 0) + ?
+                WHERE id = ?
+            ''', (total_net_disburse, custody_id))
+
+            # Record custody transaction notification
+            try:
+                cursor.execute('''
+                    INSERT INTO notifications (project_id, type, title, message)
+                    VALUES (NULL, 'custody', 'خصم رواتب من العهدة', ?)
+                ''', (f"تم خصم رواتب شهر {payroll['month_year']} بقيمة {total_net_disburse:,.2f} ر.س من عهدة {cust_emp} ({cust_no}).",))
+            except:
+                pass
+
+        # Disburse each item
+        for it in target_items:
+            item_id = it['id']
+            emp_id = it['employee_id']
+            adv_ded = float(it.get('advances_deducted') or 0.0)
+
+            # Extra note with voucher if present
+            item_notes = it.get('notes') or ''
+            disburse_note = f"صرف بتاريخ {payment_date} بـ {payment_method}"
+            if custody_name:
+                disburse_note += f" ({custody_name})"
+            if receipt_voucher_no:
+                disburse_note += f" [سند/حوالة: {receipt_voucher_no}]"
+            if notes:
+                disburse_note += f" - {notes}"
+            
+            full_notes = f"{item_notes} | {disburse_note}".strip(' |') if item_notes else disburse_note
+
+            cursor.execute('''
+                UPDATE hr_payroll_items
+                SET status = 'paid',
+                    payment_method = ?,
+                    custody_id = ?,
+                    custody_name = ?,
+                    payment_date = ?,
+                    paid_by = ?,
+                    disbursed_at = ?,
+                    notes = ?
+                WHERE id = ?
+            ''', (payment_method, custody_id, custody_name, payment_date, manager_title, now_str, full_notes, item_id))
+
+            # Deduct advance if present
+            if adv_ded > 0:
+                cursor.execute('''
+                    UPDATE hr_advances
+                    SET paid_amount = paid_amount + ?,
+                        remaining_amount = MAX(0, remaining_amount - ?),
+                        status = CASE WHEN remaining_amount - ? <= 0 THEN 'settled' ELSE 'active' END
+                    WHERE employee_id = ? AND status = 'active'
+                ''', (adv_ded, adv_ded, adv_ded, emp_id))
+
+        # Check remaining pending items in this payroll
+        cursor.execute('''
+            SELECT COUNT(*) FROM hr_payroll_items
+            WHERE payroll_id = ? AND (status != 'paid' OR status IS NULL)
+        ''', (id,))
+        remaining_count = cursor.fetchone()[0]
+
+        payroll_new_status = 'paid' if remaining_count == 0 else 'partially_paid'
+
+        cursor.execute('''
+            UPDATE hr_payrolls
+            SET status = ?,
+                payment_date = ?,
+                payment_method = COALESCE(payment_method || ' / ', '') || ?
+            WHERE id = ?
+        ''', (payroll_new_status, payment_date, payment_method, id))
+
+        # Record notification
+        try:
+            emp_names_preview = '، '.join([it['employee_name'] for it in target_items[:3]])
+            if len(target_items) > 3:
+                emp_names_preview += f' وآخرين ({len(target_items)} موظف)'
+            
+            cursor.execute('''
+                INSERT INTO notifications (project_id, type, title, message)
+                VALUES (NULL, 'payroll', 'صرف رواتب موظفين', ?)
+            ''', (f"تم صرف رواتب ({emp_names_preview}) لشهر {payroll['month_year']} بمبلغ {total_net_disburse:,.2f} ر.س عن طريق {payment_method}{' (' + custody_name + ')' if custody_name else ''} بواسطة {manager_title}.",))
+        except:
+            pass
+
+        conn.commit()
+        conn.close()
+
+        status_label = "واكتمل صرف المسير بالكامل ✓" if payroll_new_status == 'paid' else f"ومتبقي {remaining_count} موظف قيد الصرف"
+        method_desc = f"خصماً من عهدة {custody_name}" if payment_method == 'عهدة' else f"عبر {payment_method}"
+        
+        return jsonify({
+            'success': True,
+            'message': f"تم بنجاح صرف رواتب {len(target_items)} موظف بإجمالي {total_net_disburse:,.2f} ر.س {method_desc} {status_label}",
+            'disbursed_count': len(target_items),
+            'disbursed_total': total_net_disburse,
+            'payroll_status': payroll_new_status,
+            'remaining_count': remaining_count
+        })
+
+    except Exception as e:
+        print(f"Error disbursing payroll: {e}")
+        return jsonify({'error': f'حدث خطأ أثناء صرف الرواتب: {str(e)}'}), 500
+
 @app.route('/api/hr/payrolls/<int:id>', methods=['DELETE'])
 def delete_hr_payroll(id):
     conn = database.get_db_connection()

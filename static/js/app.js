@@ -16060,15 +16060,21 @@ async function viewHrPayrollDetails(id) {
 
         // Status badge
         const statusEl = document.getElementById('hr-payroll-view-status');
+        const paidItemsCount = items.filter(it => it.status === 'paid').length;
+        const totalItemsCount = items.length;
+
         if (payroll.status === 'draft') {
             statusEl.className = 'px-3 py-1 rounded-full text-[11px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30 inline-flex items-center gap-1.5';
             statusEl.innerHTML = '<i data-lucide="clock" class="w-3.5 h-3.5"></i><span>بانتظار تعميد المدير المالي</span>';
         } else if (payroll.status === 'approved') {
             statusEl.className = 'px-3 py-1 rounded-full text-[11px] font-bold bg-blue-500/15 text-blue-400 border border-blue-500/30 inline-flex items-center gap-1.5';
-            statusEl.innerHTML = `<i data-lucide="shield-check" class="w-3.5 h-3.5"></i><span>معمد من المدير المالي (${payroll.approved_by || 'أ. ابوالنصر البغدادي'})</span>`;
+            statusEl.innerHTML = `<i data-lucide="shield-check" class="w-3.5 h-3.5"></i><span>معمد من المدير المالي (${payroll.approved_by || 'أ. ابوالنصر البغدادي'}) - جاهز للصرف</span>`;
+        } else if (payroll.status === 'partially_paid') {
+            statusEl.className = 'px-3 py-1 rounded-full text-[11px] font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30 inline-flex items-center gap-1.5';
+            statusEl.innerHTML = `<i data-lucide="pie-chart" class="w-3.5 h-3.5"></i><span>صرف جزئي (تم صرف ${paidItemsCount} من ${totalItemsCount} موظف)</span>`;
         } else {
             statusEl.className = 'px-3 py-1 rounded-full text-[11px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 inline-flex items-center gap-1.5';
-            statusEl.innerHTML = '<i data-lucide="check-circle-2" class="w-3.5 h-3.5"></i><span>تم الصرف والتحويل البنكي</span>';
+            statusEl.innerHTML = '<i data-lucide="check-circle-2" class="w-3.5 h-3.5"></i><span>تم الصرف والتحويل بالكامل لجميع الموظفين ✓</span>';
         }
 
         // Totals
@@ -16077,10 +16083,16 @@ async function viewHrPayrollDetails(id) {
         document.getElementById('payroll-sum-advances').innerText = formatCurrency(payroll.total_advances || payroll.total_deductions || 0);
         document.getElementById('payroll-sum-net').innerText = formatCurrency(payroll.total_net || 0);
 
+        // Reset selection bar & select-all
+        const selBar = document.getElementById('payroll-selection-bar');
+        if (selBar) selBar.classList.add('hidden');
+        const selAll = document.getElementById('payroll-select-all-items');
+        if (selAll) selAll.checked = false;
+
         // Render table items
         const tbody = document.getElementById('hr-payroll-items-body');
         if (items.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="11" class="p-6 text-center text-slate-400">لا توجد بنود مسجلة في هذا المسير</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="12" class="p-6 text-center text-slate-400">لا توجد بنود مسجلة في هذا المسير</td></tr>';
         } else {
             tbody.innerHTML = items.map((it, idx) => {
                 const totalExtraAllow = (parseFloat(it.housing_allowance) || 0) + (parseFloat(it.transport_allowance) || 0) + (parseFloat(it.other_allowances) || 0);
@@ -16088,10 +16100,17 @@ async function viewHrPayrollDetails(id) {
                 const itBonus = (parseFloat(it.bonus_amount || 0) + parseFloat(it.overtime_amount || 0));
                 const itDeductions = parseFloat(it.deductions || 0);
                 const itAdvances = parseFloat(it.advances_deducted !== undefined && it.advances_deducted !== null ? it.advances_deducted : (it.advances_deduction || 0)) || 0;
-                const itIban = it.iban || it.bank_iban || 'غير مسجل';
+                const isPaid = (it.status === 'paid');
 
                 return `
-                    <tr class="hover:bg-slate-800/50 transition">
+                    <tr class="hover:bg-slate-800/50 transition ${isPaid ? 'bg-emerald-950/10' : ''}">
+                        <td class="p-3 text-center">
+                            ${isPaid ? `
+                                <input type="checkbox" disabled checked class="rounded bg-slate-900 border-slate-750 text-emerald-500 opacity-40 cursor-not-allowed" title="تم صرف راتب هذا الموظف بالفعل">
+                            ` : `
+                                <input type="checkbox" class="payroll-item-check rounded bg-slate-900 border-slate-700 text-emerald-500 focus:ring-0 cursor-pointer" data-id="${it.id}" data-name="${it.employee_name}" data-net="${it.net_salary}" onchange="updatePayrollSelectionSummary()" title="تحديد لصرف الراتب">
+                            `}
+                        </td>
                         <td class="p-3 text-slate-400 font-mono">${idx + 1}</td>
                         <td class="p-3 font-bold text-white font-sans">
                             <div>${it.employee_name}</div>
@@ -16104,18 +16123,45 @@ async function viewHrPayrollDetails(id) {
                         <td class="p-3 font-mono">${itDeductions > 0 ? `<span class="text-rose-400 font-bold">-${formatCurrency(itDeductions)}</span>` : '<span class="text-slate-500">-</span>'}</td>
                         <td class="p-3 font-mono">${itAdvances > 0 ? `<span class="text-amber-400 font-bold">-${formatCurrency(itAdvances)}</span>` : '<span class="text-slate-500">-</span>'}</td>
                         <td class="p-3 font-black text-emerald-400 text-xs font-mono">${formatCurrency(it.net_salary)}</td>
-                        <td class="p-3 text-slate-400 text-[10px] font-mono">${itIban}</td>
                         <td class="p-3 text-center">
-                            ${payroll.status !== 'paid' ? `
-                                <button type="button" onclick="openEditPayrollItemModal(${it.id})" class="px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-400 border border-amber-500/30 font-bold text-[11px] flex items-center gap-1 mx-auto transition" title="تعديل الراتب والبدلات والخصومات لهذا الموظف">
-                                    <i data-lucide="edit-3" class="w-3 h-3"></i>
-                                    <span>تعديل</span>
-                                </button>
+                            ${isPaid ? `
+                                <div class="flex flex-col items-center gap-0.5">
+                                    <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 inline-flex items-center gap-1">
+                                        <i data-lucide="check" class="w-3 h-3"></i>
+                                        <span>تم الصرف</span>
+                                    </span>
+                                    <span class="text-[9px] text-slate-300 font-sans">
+                                        ${it.payment_method || 'تحويل بنكي'}${it.custody_name ? ` (${it.custody_name})` : ''}
+                                    </span>
+                                    ${it.payment_date ? `<span class="text-[9px] text-slate-500 font-mono">${it.payment_date}</span>` : ''}
+                                </div>
                             ` : `
-                                <span class="px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500/10 text-emerald-400">
-                                    تم الصرف
+                                <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30 inline-flex items-center gap-1">
+                                    <i data-lucide="clock" class="w-3 h-3"></i>
+                                    <span>بانتظار الصرف</span>
                                 </span>
                             `}
+                        </td>
+                        <td class="p-3 text-center">
+                            <div class="flex items-center justify-center gap-1.5">
+                                ${!isPaid && payroll.status !== 'draft' && canApprove ? `
+                                    <button type="button" onclick="openDisbursePayrollModal([${it.id}])" class="px-2.5 py-1 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/40 text-emerald-300 border border-emerald-500/30 font-bold text-[10px] flex items-center gap-1 transition shadow-sm" title="صرف راتب هذا الموظف الآن">
+                                        <i data-lucide="banknote" class="w-3 h-3"></i>
+                                        <span>صرف</span>
+                                    </button>
+                                ` : ''}
+                                ${!isPaid ? `
+                                    <button type="button" onclick="openEditPayrollItemModal(${it.id})" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-750 text-slate-300 border border-slate-700 font-bold text-[10px] flex items-center gap-1 transition" title="تعديل الراتب والبدلات لهذا الموظف">
+                                        <i data-lucide="edit-3" class="w-3 h-3"></i>
+                                        <span>تعديل</span>
+                                    </button>
+                                ` : `
+                                    <span class="px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500/10 text-emerald-400 inline-flex items-center gap-1">
+                                        <i data-lucide="check-circle-2" class="w-3 h-3"></i>
+                                        <span>مكتمل</span>
+                                    </span>
+                                `}
+                            </div>
                         </td>
                     </tr>
                 `;
@@ -16124,6 +16170,8 @@ async function viewHrPayrollDetails(id) {
 
         // Actions Container
         const actContainer = document.getElementById('payroll-action-container');
+        const remainingPending = items.filter(it => it.status !== 'paid').length;
+
         if (payroll.status === 'draft') {
             if (canApprove) {
                 actContainer.innerHTML = `
@@ -16140,19 +16188,23 @@ async function viewHrPayrollDetails(id) {
                     </div>
                 `;
             }
-        } else if (payroll.status === 'approved') {
+        } else if (remainingPending > 0) {
             if (canApprove) {
                 actContainer.innerHTML = `
-                    <button type="button" onclick="updateHrPayrollStatus(${payroll.id}, 'paid')" class="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black flex items-center gap-2 shadow-lg shadow-emerald-950/40 transition">
+                    <button type="button" onclick="openDisbursePayrollModal('all')" class="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black flex items-center gap-2 shadow-lg shadow-emerald-950/40 transition">
                         <i data-lucide="banknote" class="w-4 h-4"></i>
-                        <span>تأكيد صرف الرواتب وخصم السلف</span>
+                        <span>صرف الرواتب لجميع الموظفين المتبقين (${remainingPending})</span>
+                    </button>
+                    <button type="button" onclick="openDisbursePayrollModal('selected')" class="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-200 border border-slate-700 font-bold flex items-center gap-2 transition">
+                        <i data-lucide="check-square" class="w-4 h-4 text-emerald-400"></i>
+                        <span>صرف للموظفين المحددين</span>
                     </button>
                 `;
             } else {
                 actContainer.innerHTML = `
                     <span class="text-xs font-bold text-blue-300 flex items-center gap-1.5">
                         <i data-lucide="shield-check" class="w-4 h-4 text-blue-400"></i>
-                        <span>المسير معمد رسمياً من المدير المالي وهو قيد الصرف والتحويل البنكي</span>
+                        <span>المسير معمد رسمياً من المدير المالي وهو قيد الصرف والتحويل</span>
                     </span>
                 `;
             }
@@ -16160,7 +16212,7 @@ async function viewHrPayrollDetails(id) {
             actContainer.innerHTML = `
                 <span class="text-xs font-bold text-emerald-400 flex items-center gap-1.5">
                     <i data-lucide="check-circle" class="w-4 h-4"></i>
-                    <span>تم صرف وتحويل هذا المسير لجميع الموظفين بنجاح</span>
+                    <span>تم صرف وتحويل هذا المسير لجميع الموظفين بنجاح ✓</span>
                 </span>
             `;
         }
@@ -16228,6 +16280,246 @@ async function deleteHrPayroll(id) {
     } catch (err) {
         console.error('Error deleting payroll:', err);
         showToast('حدث خطأ في الاتصال بالخادم', 'error');
+    }
+}
+
+// ==============================================================
+// PAYROLL SELECTIVE DISBURSEMENT (صرف الرواتب انتقائياً وتحديد طريقة الصرف)
+// ==============================================================
+
+function toggleSelectAllPayrollItems(checked) {
+    const checks = document.querySelectorAll('.payroll-item-check');
+    checks.forEach(c => {
+        c.checked = checked;
+    });
+    updatePayrollSelectionSummary();
+}
+
+function updatePayrollSelectionSummary() {
+    const checked = Array.from(document.querySelectorAll('.payroll-item-check:checked'));
+    const bar = document.getElementById('payroll-selection-bar');
+    const countEl = document.getElementById('payroll-selected-count');
+    const totalEl = document.getElementById('payroll-selected-total');
+    const allBox = document.getElementById('payroll-select-all-items');
+
+    const allChecks = document.querySelectorAll('.payroll-item-check');
+    if (allBox && allChecks.length > 0) {
+        allBox.checked = (checked.length === allChecks.length);
+    }
+
+    if (checked.length > 0) {
+        let total = 0;
+        checked.forEach(c => {
+            total += parseFloat(c.getAttribute('data-net') || 0);
+        });
+        if (countEl) countEl.innerText = checked.length;
+        if (totalEl) totalEl.innerText = formatCurrency(total);
+        if (bar) bar.classList.remove('hidden');
+    } else {
+        if (bar) bar.classList.add('hidden');
+    }
+}
+
+async function openDisbursePayrollModal(target) {
+    if (!currentHrPayrollDetail) return;
+    const payroll = currentHrPayrollDetail.payroll || currentHrPayrollDetail;
+    const items = currentHrPayrollDetail.items || payroll.items || [];
+    
+    let targetItems = [];
+    if (target === 'all') {
+        targetItems = items.filter(it => it.status !== 'paid');
+    } else if (target === 'selected') {
+        const checked = Array.from(document.querySelectorAll('.payroll-item-check:checked'));
+        if (checked.length === 0) {
+            showToast('يرجى تحديد موظف واحد على الأقل عبر المربعات المجاورة للأسماء', 'warning');
+            return;
+        }
+        const ids = checked.map(c => String(c.getAttribute('data-id')));
+        targetItems = items.filter(it => ids.includes(String(it.id)) && it.status !== 'paid');
+    } else if (Array.isArray(target)) {
+        const targetIds = target.map(String);
+        targetItems = items.filter(it => targetIds.includes(String(it.id)) && it.status !== 'paid');
+    }
+
+    if (targetItems.length === 0) {
+        showToast('لا توجد رواتب بانتظار الصرف للموظفين المحددين', 'info');
+        return;
+    }
+
+    const totalAmount = targetItems.reduce((acc, it) => acc + (parseFloat(it.net_salary) || 0), 0);
+    const itemIds = targetItems.map(it => it.id);
+
+    // Populate modal fields
+    document.getElementById('disburse-payroll-id').value = payroll.id;
+    document.getElementById('disburse-item-ids').value = JSON.stringify(itemIds);
+    document.getElementById('disburse-modal-subtitle').innerText = `مسير رواتب شهر ${payroll.month_year || ''}`;
+    document.getElementById('disburse-emp-count').innerText = `${targetItems.length} موظف`;
+    
+    // Set total amount and attribute
+    const totalEl = document.getElementById('disburse-total-amount');
+    totalEl.innerText = formatCurrency(totalAmount);
+    totalEl.setAttribute('data-amount', totalAmount);
+
+    // Names preview
+    const previewContainer = document.getElementById('disburse-emp-list-preview');
+    previewContainer.innerHTML = targetItems.map(it => `
+        <span class="inline-flex items-center gap-1 bg-slate-900 border border-slate-750 px-2 py-1 rounded-md text-[10px] text-white m-0.5">
+            <span class="font-bold text-slate-200">${it.employee_name}:</span>
+            <span class="font-mono text-emerald-400">${formatCurrency(it.net_salary)}</span>
+        </span>
+    `).join('');
+
+    // Default Date
+    const today = new Date().toISOString().split('T')[0];
+    const dateEl = document.getElementById('disburse-payment-date');
+    if (dateEl) dateEl.value = today;
+
+    // Default Method: تحويل بنكي
+    const defaultRadio = document.querySelector('input[name="disburse-payment-method"][value="تحويل بنكي"]');
+    if (defaultRadio) defaultRadio.checked = true;
+    const custodyContainer = document.getElementById('disburse-custody-container');
+    if (custodyContainer) custodyContainer.classList.add('hidden');
+
+    // Reset notes and voucher
+    const voucherEl = document.getElementById('disburse-voucher-no');
+    if (voucherEl) voucherEl.value = '';
+    const notesEl = document.getElementById('disburse-notes');
+    if (notesEl) notesEl.value = '';
+
+    openModal('hr-disburse-payroll-modal');
+    initLucide();
+}
+
+function onDisburseMethodChange(method) {
+    const container = document.getElementById('disburse-custody-container');
+    if (!container) return;
+    if (method === 'عهدة') {
+        container.classList.remove('hidden');
+        loadActiveCustodiesForDisburse();
+    } else {
+        container.classList.add('hidden');
+    }
+}
+
+async function loadActiveCustodiesForDisburse(selectedId = null) {
+    const select = document.getElementById('disburse-custody-id');
+    const badge = document.getElementById('disburse-custody-balance-badge');
+    if (!select) return;
+
+    select.innerHTML = '<option value="">-- جارِ تحميل العهد المتاحة... --</option>';
+    if (badge) badge.innerText = '';
+
+    try {
+        const res = await fetch('/api/custody/active');
+        const custodies = await res.json();
+        const list = Array.isArray(custodies) ? custodies : [];
+
+        if (list.length === 0) {
+            select.innerHTML = '<option value="">⚠️ لا توجد عهد نشطة حالياً (يرجى صرف عهدة أولاً)</option>';
+            return;
+        }
+
+        let opts = '<option value="">-- اختر العهدة المراد الخصم منها --</option>';
+        list.forEach(c => {
+            const reqNo = c.request_number || `CUST-#${c.id}`;
+            const emp = c.employee_name;
+            const bal = parseFloat(c.remaining_balance != null ? c.remaining_balance : ((c.disbursed_amount || c.amount || 0) - (c.spent_amount || 0))) || 0;
+            const isSel = (selectedId && String(c.id) === String(selectedId)) ? 'selected' : '';
+            opts += `<option value="${c.id}" ${isSel} data-balance="${bal}">${emp} - ${reqNo} (المتبقي: ${formatCurrency(bal)})</option>`;
+        });
+        select.innerHTML = opts;
+
+        if (selectedId) {
+            onDisburseCustodySelected();
+        }
+    } catch (err) {
+        console.error('Error loading active custodies for payroll disbursement:', err);
+        select.innerHTML = '<option value="">تعذر تحميل قائمة العهد</option>';
+    }
+}
+
+function onDisburseCustodySelected() {
+    const sel = document.getElementById('disburse-custody-id');
+    const badge = document.getElementById('disburse-custody-balance-badge');
+    if (!sel || !badge) return;
+
+    const opt = sel.selectedOptions[0];
+    if (!opt || !opt.value) {
+        badge.innerText = '';
+        return;
+    }
+
+    const bal = parseFloat(opt.getAttribute('data-balance') || 0);
+    const totalAmount = parseFloat(document.getElementById('disburse-total-amount')?.getAttribute('data-amount') || 0);
+
+    if (bal >= totalAmount) {
+        badge.className = 'text-[10px] font-mono font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/20';
+        badge.innerText = `الرصيد كافٍ: ${formatCurrency(bal)}`;
+    } else {
+        badge.className = 'text-[10px] font-mono font-bold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-md border border-amber-500/20';
+        badge.innerText = `رصيد العهدة: ${formatCurrency(bal)} (أقل من المطلوب)`;
+    }
+}
+
+async function submitHrPayrollDisbursement(e) {
+    e.preventDefault();
+    const btn = document.getElementById('btn-submit-payroll-disburse');
+    const payrollId = document.getElementById('disburse-payroll-id').value;
+    const itemIdsStr = document.getElementById('disburse-item-ids').value;
+    const itemIds = itemIdsStr ? JSON.parse(itemIdsStr) : [];
+    const method = document.querySelector('input[name="disburse-payment-method"]:checked')?.value || 'تحويل بنكي';
+    const custodyId = document.getElementById('disburse-custody-id')?.value;
+    const paymentDate = document.getElementById('disburse-payment-date').value;
+    const voucherNo = document.getElementById('disburse-voucher-no').value.trim();
+    const notes = document.getElementById('disburse-notes').value.trim();
+
+    if (method === 'عهدة' && !custodyId) {
+        showToast('يرجى اختيار العهدة المراد خصم الرواتب منها', 'warning');
+        return;
+    }
+
+    const u = currentUser || JSON.parse(localStorage.getItem('segieny_auth_user') || '{}');
+    const originalText = btn.innerHTML;
+
+    try {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="inline-block animate-spin mr-1">⌛</span> جاري تنفيذ الصرف...';
+
+        const res = await fetch(`/api/hr/payrolls/${payrollId}/disburse`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                item_ids: itemIds,
+                payment_method: method,
+                custody_id: custodyId ? parseInt(custodyId) : null,
+                payment_date: paymentDate,
+                voucher_no: voucherNo,
+                notes: notes,
+                user_id: u.id,
+                user_role: u.role,
+                user_name: u.name
+            })
+        });
+
+        const data = await res.json();
+        if (res.ok && data.success) {
+            showToast(data.message || 'تم صرف الرواتب بنجاح', 'success');
+            closeModal('hr-disburse-payroll-modal');
+            await loadHrData();
+            if (typeof loadCustody === 'function') loadCustody();
+            if (typeof loadDashboard === 'function') loadDashboard();
+            if (document.getElementById('hr-payroll-detail-modal')?.classList.contains('hidden') === false) {
+                await viewHrPayrollDetails(payrollId);
+            }
+        } else {
+            showToast(data.error || 'تعذر إتمام عملية الصرف', 'error');
+        }
+    } catch (err) {
+        console.error('Error submitting payroll disbursement:', err);
+        showToast('حدث خطأ في الاتصال بالخادم', 'error');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
     }
 }
 

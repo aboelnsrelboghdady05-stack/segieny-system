@@ -15946,24 +15946,36 @@ function renderHrPayrolls() {
                     </div>
                 </div>
 
-                <div class="flex flex-wrap items-center gap-4 sm:gap-6">
+                <div class="flex flex-wrap items-center gap-3 sm:gap-5">
                     <div>
                         <span class="text-[10px] text-slate-400 block font-medium">عدد الموظفين</span>
-                        <span class="font-black text-sm text-white font-mono">${p.employees_count ?? p.total_employees ?? 0} موظف</span>
+                        <span class="font-black text-xs sm:text-sm text-white font-mono">${p.employees_count ?? p.total_employees ?? 0} موظف</span>
                     </div>
                     <div>
                         <span class="text-[10px] text-slate-400 block font-medium">صافي المسير</span>
-                        <span class="font-black text-base text-emerald-400 font-mono">${formatCurrency(p.total_net)}</span>
+                        <span class="font-black text-sm sm:text-base text-cyan-400 font-mono">${formatCurrency(p.total_net)}</span>
                     </div>
-                    <div class="flex items-center gap-2">
-                        <button type="button" onclick="viewHrPayrollDetails(${p.id})" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-750 text-white font-bold text-xs flex items-center gap-1.5 border border-slate-700 transition">
+                    <div class="bg-emerald-950/20 border border-emerald-900/30 px-2.5 py-1 rounded-xl">
+                        <span class="text-[10px] text-emerald-400 block font-bold">المصروف</span>
+                        <span class="font-black text-xs sm:text-sm text-emerald-400 font-mono">${formatCurrency(p.total_paid || 0)}</span>
+                    </div>
+                    <div class="bg-amber-950/20 border border-amber-900/30 px-2.5 py-1 rounded-xl">
+                        <span class="text-[10px] text-amber-400 block font-bold">المتبقي</span>
+                        <span class="font-black text-xs sm:text-sm text-amber-400 font-mono">${formatCurrency(p.total_remaining !== undefined ? p.total_remaining : Math.max(0, (p.total_net || 0) - (p.total_paid || 0)))}</span>
+                    </div>
+                    <div class="flex items-center gap-1.5">
+                        <button type="button" onclick="viewHrPayrollDetails(${p.id})" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-750 text-white font-bold text-xs flex items-center gap-1.5 border border-slate-700 transition" title="عرض تفاصيل المسير">
                             <i data-lucide="eye" class="w-4 h-4 text-emerald-400"></i>
-                            <span>عرض المسير</span>
+                            <span>عرض</span>
+                        </button>
+                        <button type="button" onclick="printHrPayroll(${p.id})" class="px-2.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-200 font-bold text-xs flex items-center gap-1 border border-slate-700 transition" title="طباعة كشف المسير الرسمي">
+                            <i data-lucide="printer" class="w-4 h-4 text-emerald-400"></i>
+                            <span>طباعة</span>
                         </button>
                         ${p.status === 'draft' ? (canApprove ? `
                             <button type="button" onclick="updateHrPayrollStatus(${p.id}, 'approved')" class="px-3.5 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-black text-xs flex items-center gap-1.5 shadow-md shadow-blue-950/40 transition" title="تعميد مسير الرواتب بصفة المدير المالي">
                                 <i data-lucide="shield-check" class="w-4 h-4"></i>
-                                <span>تعميد المسير (المدير المالي)</span>
+                                <span>تعميد المسير</span>
                             </button>
                         ` : `
                             <span class="px-2.5 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 font-bold text-[11px] flex items-center gap-1" title="تعميد المسير صلاحية حصرية للمدير المالي (أ. ابوالنصر البغدادي)">
@@ -15971,7 +15983,7 @@ function renderHrPayrolls() {
                                 <span>بانتظار تعميد المالي</span>
                             </span>
                         `) : ''}
-                        ${p.status === 'approved' ? (canApprove ? `
+                        ${p.status === 'approved' || p.status === 'partially_paid' ? (canApprove ? `
                             <button type="button" onclick="startDisburseFromList(${p.id})" class="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 shadow transition" title="صرف رواتب المسير المعتمد">
                                 <i data-lucide="banknote" class="w-4 h-4"></i>
                                 <span>صرف الرواتب</span>
@@ -16102,11 +16114,17 @@ async function viewHrPayrollDetails(id) {
             return acc + ded + adv;
         }, 0);
         const liveNet = items.reduce((acc, it) => acc + (parseFloat(it.net_salary) || 0), 0);
+        const livePaid = items.filter(it => it.status === 'paid').reduce((acc, it) => acc + (parseFloat(it.net_salary) || 0), 0);
+        const liveRemaining = Math.max(0, liveNet - livePaid);
 
         document.getElementById('payroll-sum-basic').innerText = formatCurrency(liveBasic || payroll.total_basic || 0);
         document.getElementById('payroll-sum-allowances').innerText = formatCurrency(liveAllowances || payroll.total_allowances || 0);
         document.getElementById('payroll-sum-advances').innerText = formatCurrency(liveAdvances || payroll.total_advances || payroll.total_deductions || 0);
         document.getElementById('payroll-sum-net').innerText = formatCurrency(liveNet || payroll.total_net || 0);
+        const paidEl = document.getElementById('payroll-sum-paid');
+        if (paidEl) paidEl.innerText = formatCurrency(livePaid);
+        const remEl = document.getElementById('payroll-sum-remaining');
+        if (remEl) remEl.innerText = formatCurrency(liveRemaining);
 
         // Reset selection bar & select-all
         const selBar = document.getElementById('payroll-selection-bar');
@@ -16775,6 +16793,404 @@ async function syncHrPayrollWithEmployees(payrollId) {
         showToast('حدث خطأ في الاتصال بالخادم', 'error');
     }
 }
+
+// ----------------- PRINT PAYROLL (STANDALONE OFFICIAL REPORT) -----------------
+async function printHrPayroll(payrollId = null) {
+    let payroll = null;
+    let items = [];
+
+    if (!payrollId && currentHrPayrollDetail) {
+        payroll = currentHrPayrollDetail.payroll || currentHrPayrollDetail;
+        items = currentHrPayrollDetail.items || payroll.items || [];
+    } else if (payrollId) {
+        try {
+            showToast('جاري تجهيز مسير الرواتب للطباعة...', 'info');
+            const res = await fetch(`/api/hr/payrolls/${payrollId}`);
+            const data = await res.json();
+            if (res.ok && !data.error) {
+                payroll = data.payroll || data;
+                items = data.items || payroll.items || [];
+            }
+        } catch (e) {
+            console.error('Error fetching payroll for print:', e);
+        }
+    }
+
+    if (!payroll) {
+        showToast('تعذر العثور على بيانات المسير للطباعة', 'error');
+        return;
+    }
+
+    // Calculations
+    const sumBasic = items.reduce((acc, it) => acc + (parseFloat(it.basic_salary) || 0), 0);
+    const sumAllowances = items.reduce((acc, it) => {
+        const extra = (parseFloat(it.housing_allowance) || 0) + (parseFloat(it.transport_allowance) || 0) + (parseFloat(it.other_allowances) || 0);
+        return acc + (parseFloat(it.allowances !== undefined && it.allowances !== null ? it.allowances : extra) || 0);
+    }, 0);
+    const sumBonus = items.reduce((acc, it) => acc + (parseFloat(it.bonus_amount || 0) + parseFloat(it.overtime_amount || 0)), 0);
+    const sumDeductions = items.reduce((acc, it) => acc + (parseFloat(it.deductions) || 0), 0);
+    const sumAdvances = items.reduce((acc, it) => acc + (parseFloat(it.advances_deducted !== undefined && it.advances_deducted !== null ? it.advances_deducted : (it.advances_deduction || 0)) || 0), 0);
+    const sumNet = items.reduce((acc, it) => acc + (parseFloat(it.net_salary) || 0), 0);
+    const sumPaid = items.filter(it => it.status === 'paid').reduce((acc, it) => acc + (parseFloat(it.net_salary) || 0), 0);
+    const sumRemaining = Math.max(0, sumNet - sumPaid);
+
+    const paidCount = items.filter(it => it.status === 'paid').length;
+    const totalCount = items.length;
+
+    let statusText = 'مسودة (بانتظار التعميد)';
+    let statusColor = '#d97706';
+    if (payroll.status === 'approved') {
+        statusText = `معمد وجاهز للصرف - معتمد بواسطة: ${payroll.approved_by || 'أ. ابوالنصر البغدادي (المدير المالي)'}`;
+        statusColor = '#2563eb';
+    } else if (payroll.status === 'partially_paid') {
+        statusText = `صرف جزئي (تم صرف ${paidCount} من ${totalCount} موظف)`;
+        statusColor = '#d97706';
+    } else if (payroll.status === 'paid') {
+        statusText = 'تم الصرف والتحويل بالكامل لجميع الموظفين ✓';
+        statusColor = '#059669';
+    }
+
+    const printDate = new Date().toLocaleDateString('ar-EG', { year: 'numeric', month: 'long', day: 'numeric' });
+    const printTime = new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' });
+
+    const rowsHtml = items.map((it, idx) => {
+        const extra = (parseFloat(it.housing_allowance) || 0) + (parseFloat(it.transport_allowance) || 0) + (parseFloat(it.other_allowances) || 0);
+        const allw = parseFloat(it.allowances !== undefined && it.allowances !== null ? it.allowances : extra) || 0;
+        const bon = (parseFloat(it.bonus_amount || 0) + parseFloat(it.overtime_amount || 0));
+        const ded = parseFloat(it.deductions || 0);
+        const adv = parseFloat(it.advances_deducted !== undefined && it.advances_deducted !== null ? it.advances_deducted : (it.advances_deduction || 0)) || 0;
+        const net = parseFloat(it.net_salary) || 0;
+        const isPaid = (it.status === 'paid');
+        const payMethod = isPaid ? (it.custody_name ? `عهدة: ${escapeHtml(it.custody_name)}` : escapeHtml(it.payment_method || 'تحويل بنكي')) : '-';
+
+        return `
+            <tr style="border-bottom: 1px solid #cbd5e1; ${isPaid ? 'background-color: #f0fdf4;' : (idx % 2 === 1 ? 'background-color: #f8fafc;' : '')}">
+                <td style="padding: 6px 4px; text-align: center; font-weight: bold; font-family: monospace;">${idx + 1}</td>
+                <td style="padding: 6px 8px; text-align: right; font-weight: bold; color: #0f172a;">${escapeHtml(it.employee_name)}</td>
+                <td style="padding: 6px 6px; text-align: right; color: #475569; font-size: 10px;">${escapeHtml(it.job_title || 'موظف')}</td>
+                <td style="padding: 6px 6px; text-align: center; font-family: monospace;">${formatCurrency(it.basic_salary)}</td>
+                <td style="padding: 6px 6px; text-align: center; font-family: monospace;">${formatCurrency(allw)}</td>
+                <td style="padding: 6px 6px; text-align: center; font-family: monospace;">${bon > 0 ? formatCurrency(bon) : '-'}</td>
+                <td style="padding: 6px 6px; text-align: center; font-family: monospace; color: #dc2626;">${ded > 0 ? formatCurrency(ded) : '-'}</td>
+                <td style="padding: 6px 6px; text-align: center; font-family: monospace; color: #dc2626;">${adv > 0 ? formatCurrency(adv) : '-'}</td>
+                <td style="padding: 6px 6px; text-align: center; font-family: monospace; font-weight: 900; color: #047857; font-size: 11px; background-color: #ecfdf5;">${formatCurrency(net)}</td>
+                <td style="padding: 6px 6px; text-align: center; font-size: 10px; font-weight: bold; color: ${isPaid ? '#047857' : '#d97706'};">
+                    ${isPaid ? 'تم الصرف ✓' : 'بانتظار الصرف'}
+                </td>
+                <td style="padding: 6px 6px; text-align: center; font-size: 9px; color: #334155;">
+                    ${payMethod}
+                </td>
+                <td style="padding: 6px 6px; text-align: center; font-size: 9px; color: #64748b;">
+                    ${escapeHtml(it.notes || '')}
+                </td>
+            </tr>
+        `;
+    }).join('');
+
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+        showToast('يرجى السماح بالنوافذ المنبثقة (Popups) لطباعة المسير', 'warning');
+        return;
+    }
+
+    const printHtml = `
+    <!DOCTYPE html>
+    <html dir="rtl" lang="ar">
+    <head>
+        <meta charset="UTF-8">
+        <title>كشف مسير رواتب شهر ${escapeHtml(payroll.month_year || '')} - مؤسسة نواف سجيني</title>
+        <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+        <style>
+            @page {
+                size: A4 landscape;
+                margin: 8mm 6mm;
+            }
+            * { box-sizing: border-box; }
+            body {
+                font-family: 'Cairo', system-ui, -apple-system, sans-serif;
+                background: #ffffff;
+                color: #0f172a;
+                margin: 0;
+                padding: 10px 15px;
+                font-size: 10.5px;
+                direction: rtl;
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+            }
+            .header-container {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                border-bottom: 2.5px solid #0f172a;
+                padding-bottom: 10px;
+                margin-bottom: 10px;
+            }
+            .company-name {
+                font-size: 18px;
+                font-weight: 900;
+                color: #0f172a;
+                line-height: 1.2;
+            }
+            .company-sub {
+                font-size: 10px;
+                color: #059669;
+                font-weight: 800;
+                margin-top: 2px;
+            }
+            .doc-title {
+                text-align: center;
+                background: #0f172a;
+                color: #ffffff;
+                padding: 4px 20px;
+                border-radius: 6px;
+                font-size: 14px;
+                font-weight: 900;
+                display: inline-block;
+                letter-spacing: 0.5px;
+            }
+            .meta-box {
+                text-align: left;
+                font-size: 10px;
+                color: #334155;
+                line-height: 1.5;
+            }
+            .kpi-grid {
+                display: grid;
+                grid-template-columns: repeat(6, 1fr);
+                gap: 6px;
+                margin-bottom: 10px;
+            }
+            .kpi-card {
+                border: 1px solid #cbd5e1;
+                border-radius: 6px;
+                padding: 5px 8px;
+                background: #f8fafc;
+                text-align: center;
+            }
+            .kpi-title {
+                font-size: 9px;
+                color: #64748b;
+                font-weight: 700;
+                display: block;
+            }
+            .kpi-val {
+                font-size: 12px;
+                font-weight: 900;
+                font-family: monospace;
+                margin-top: 2px;
+                color: #0f172a;
+            }
+            .table-container {
+                width: 100%;
+                border: 1.5px solid #0f172a;
+                border-radius: 6px;
+                overflow: hidden;
+                margin-bottom: 12px;
+            }
+            table {
+                width: 100%;
+                border-collapse: collapse;
+                font-size: 10px;
+            }
+            th {
+                background: #0f172a;
+                color: #ffffff;
+                padding: 6px 4px;
+                font-weight: 800;
+                text-align: center;
+                border: 1px solid #1e293b;
+                font-size: 9.5px;
+            }
+            td {
+                border: 1px solid #e2e8f0;
+            }
+            tfoot td {
+                background: #f1f5f9;
+                font-weight: 900;
+                font-family: monospace;
+                padding: 7px 4px;
+                border-top: 2px solid #0f172a;
+                font-size: 10.5px;
+            }
+            .signatures-box {
+                display: flex;
+                justify-content: space-between;
+                margin-top: 15px;
+                padding: 0 20px;
+                page-break-inside: avoid;
+            }
+            .sig-col {
+                text-align: center;
+                width: 28%;
+            }
+            .sig-title {
+                font-weight: 800;
+                font-size: 11px;
+                color: #0f172a;
+            }
+            .sig-name {
+                font-size: 10px;
+                color: #475569;
+                margin-top: 3px;
+                font-weight: 700;
+            }
+            .sig-line {
+                margin-top: 35px;
+                border-top: 1.5px dashed #94a3b8;
+                padding-top: 3px;
+                font-size: 9px;
+                color: #64748b;
+            }
+            .no-print {
+                text-align: center;
+                padding: 10px;
+                background: #f8fafc;
+                border-bottom: 1px solid #e2e8f0;
+                margin-bottom: 10px;
+            }
+            .btn-print {
+                background: #059669;
+                color: white;
+                border: none;
+                padding: 8px 24px;
+                font-family: inherit;
+                font-size: 13px;
+                font-weight: 800;
+                border-radius: 6px;
+                cursor: pointer;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            }
+            @media print {
+                .no-print { display: none !important; }
+                body { padding: 0 !important; }
+            }
+        </style>
+    </head>
+    <body>
+        <div class="no-print">
+            <button class="btn-print" onclick="window.print()">🖨️ اضغط لطباعة كشف المسير الآن (A4 أفقي)</button>
+        </div>
+
+        <div class="header-container">
+            <div>
+                <div class="company-name">مؤسسة نواف سجيني للمقاولات العامة</div>
+                <div class="company-sub">إدارة الموارد البشرية والشؤون المالية والمحاسبية</div>
+                <div style="margin-top: 4px; font-size: 10px; color: #475569;">
+                    <span>حالة الاعتماد: <strong style="color: ${statusColor};">${statusText}</strong></span>
+                </div>
+            </div>
+            <div style="text-align: center;">
+                <div class="doc-title">كشف مسير رواتب الموظفين</div>
+                <div style="font-weight: 900; font-size: 13px; color: #047857; margin-top: 4px;">
+                    شهر: ${escapeHtml(payroll.month_year || '')}
+                </div>
+            </div>
+            <div class="meta-box">
+                <div>تاريخ الطباعة: <strong>${printDate}</strong></div>
+                <div>وقت الإصدار: <strong>${printTime}</strong></div>
+                <div>عدد الموظفين: <strong>${totalCount} موظف</strong></div>
+            </div>
+        </div>
+
+        <div class="kpi-grid">
+            <div class="kpi-card">
+                <span class="kpi-title">إجمالي الأساسي</span>
+                <span class="kpi-val">${formatCurrency(sumBasic)}</span>
+            </div>
+            <div class="kpi-card">
+                <span class="kpi-title">إجمالي البدلات</span>
+                <span class="kpi-val">${formatCurrency(sumAllowances)}</span>
+            </div>
+            <div class="kpi-card">
+                <span class="kpi-title">الخصومات والسلف</span>
+                <span class="kpi-val" style="color: #dc2626;">${formatCurrency(sumDeductions + sumAdvances)}</span>
+            </div>
+            <div class="kpi-card" style="background: #eff6ff; border-color: #93c5fd;">
+                <span class="kpi-title" style="color: #1e40af;">صافي المسير المستحق</span>
+                <span class="kpi-val" style="color: #1e3a8a;">${formatCurrency(sumNet)}</span>
+            </div>
+            <div class="kpi-card" style="background: #f0fdf4; border-color: #86efac;">
+                <span class="kpi-title" style="color: #15803d;">المبلغ المصروف</span>
+                <span class="kpi-val" style="color: #14532d;">${formatCurrency(sumPaid)}</span>
+            </div>
+            <div class="kpi-card" style="background: #fffbeb; border-color: #fde68a;">
+                <span class="kpi-title" style="color: #b45309;">المبلغ المتبقي</span>
+                <span class="kpi-val" style="color: #78350f;">${formatCurrency(sumRemaining)}</span>
+            </div>
+        </div>
+
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width: 25px;">م</th>
+                        <th>اسم الموظف</th>
+                        <th>المسمى الوظيفي</th>
+                        <th>الأساسي</th>
+                        <th>البدلات</th>
+                        <th>إضافي/مكافأة</th>
+                        <th>خصومات</th>
+                        <th>سلف مخصومة</th>
+                        <th style="background: #047857;">صافي الراتب</th>
+                        <th>حالة الصرف</th>
+                        <th>طريقة الصرف</th>
+                        <th>توقيع الموظف / ملاحظات</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${rowsHtml}
+                </tbody>
+                <tfoot>
+                    <tr>
+                        <td colspan="3" style="text-align: center; font-weight: 900;">الإجمالي العام</td>
+                        <td style="text-align: center;">${formatCurrency(sumBasic)}</td>
+                        <td style="text-align: center;">${formatCurrency(sumAllowances)}</td>
+                        <td style="text-align: center;">${formatCurrency(sumBonus)}</td>
+                        <td style="text-align: center; color: #dc2626;">${formatCurrency(sumDeductions)}</td>
+                        <td style="text-align: center; color: #dc2626;">${formatCurrency(sumAdvances)}</td>
+                        <td style="text-align: center; font-size: 11.5px; color: #047857; background-color: #d1fae5;">${formatCurrency(sumNet)}</td>
+                        <td colspan="3" style="text-align: center; font-size: 9.5px; font-family: sans-serif;">
+                            المصروف: <strong>${formatCurrency(sumPaid)}</strong> | المتبقي: <strong>${formatCurrency(sumRemaining)}</strong>
+                        </td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+
+        <div class="signatures-box">
+            <div class="sig-col">
+                <div class="sig-title">إعداد ومتابعة الموارد البشرية</div>
+                <div class="sig-name">${escapeHtml(payroll.created_by || 'مسؤول الموارد البشرية')}</div>
+                <div class="sig-line">التوقيع والتاريخ</div>
+            </div>
+            <div class="sig-col">
+                <div class="sig-title">تدقيق واعتماد المدير المالي</div>
+                <div class="sig-name">أ. ابوالنصر البغدادي</div>
+                <div class="sig-line">التوقيع والختم المالي</div>
+            </div>
+            <div class="sig-col">
+                <div class="sig-title">اعتماد المدير العام</div>
+                <div class="sig-name">أ. نواف سجيني</div>
+                <div class="sig-line">التوقيع والختم الإداري</div>
+            </div>
+        </div>
+
+        <script>
+            window.onload = function() {
+                setTimeout(function() {
+                    window.print();
+                }, 400);
+            };
+        <\/script>
+    </body>
+    </html>
+    `;
+
+    printWindow.document.open();
+    printWindow.document.write(printHtml);
+    printWindow.document.close();
+}
+window.printHrPayroll = printHrPayroll;
 
 // ----------------- LEAVES & TIME OFF -----------------
 async function loadHrLeaves() {

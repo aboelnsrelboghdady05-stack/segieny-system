@@ -5763,7 +5763,9 @@ def get_hr_payrolls():
         SELECT 
             p.*,
             COALESCE((SELECT SUM(net_salary) FROM hr_payroll_items WHERE payroll_id = p.id), p.total_net) AS computed_total_net,
-            COALESCE((SELECT COUNT(id) FROM hr_payroll_items WHERE payroll_id = p.id), p.employees_count) AS computed_emp_count
+            COALESCE((SELECT SUM(net_salary) FROM hr_payroll_items WHERE payroll_id = p.id AND status = 'paid'), 0) AS computed_total_paid,
+            COALESCE((SELECT COUNT(id) FROM hr_payroll_items WHERE payroll_id = p.id), p.employees_count) AS computed_emp_count,
+            COALESCE((SELECT COUNT(id) FROM hr_payroll_items WHERE payroll_id = p.id AND status = 'paid'), 0) AS computed_paid_count
         FROM hr_payrolls p 
         ORDER BY p.month_year DESC, p.id DESC
     ''')
@@ -5771,10 +5773,14 @@ def get_hr_payrolls():
     payrolls = []
     for r in rows:
         d = dict(r)
-        if d.get('computed_total_net') is not None:
-            d['total_net'] = round(float(d['computed_total_net']), 2)
-        if d.get('computed_emp_count') is not None:
-            d['employees_count'] = int(d['computed_emp_count'])
+        tot_net = round(float(d.get('computed_total_net') or 0), 2)
+        tot_paid = round(float(d.get('computed_total_paid') or 0), 2)
+        tot_rem = max(0.0, round(tot_net - tot_paid, 2))
+        d['total_net'] = tot_net
+        d['total_paid'] = tot_paid
+        d['total_remaining'] = tot_rem
+        d['employees_count'] = int(d.get('computed_emp_count') or 0)
+        d['paid_count'] = int(d.get('computed_paid_count') or 0)
         payrolls.append(d)
     conn.close()
     return jsonify(payrolls)
@@ -5891,12 +5897,18 @@ def get_hr_payroll_details(id):
         tot_advances = round(sum(float(it.get('advances_deducted') or 0) for it in items), 2)
         tot_net = round(sum(float(it.get('net_salary') or 0) for it in items), 2)
 
+        tot_paid = round(sum(float(it.get('net_salary') or 0) for it in items if it.get('status') == 'paid'), 2)
+        tot_remaining = max(0.0, round(tot_net - tot_paid, 2))
+
         payroll['total_basic'] = tot_basic
         payroll['total_allowances'] = tot_allowances
         payroll['total_deductions'] = tot_deductions
         payroll['total_advances'] = tot_advances
         payroll['total_net'] = tot_net
+        payroll['total_paid'] = tot_paid
+        payroll['total_remaining'] = tot_remaining
         payroll['employees_count'] = len(items)
+        payroll['paid_count'] = len([it for it in items if it.get('status') == 'paid'])
 
         # Sync back to hr_payrolls table if different
         if round(float(row.get('total_net') or 0), 2) != tot_net or round(float(row.get('total_basic') or 0), 2) != tot_basic:

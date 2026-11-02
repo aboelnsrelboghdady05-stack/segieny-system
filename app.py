@@ -6056,13 +6056,16 @@ def disburse_hr_payroll_items(id):
 
         # Handle Custody Deduction
         custody_name = None
+        cust = None
+        cust_emp = None
+        cust_no = None
         if payment_method == 'عهدة':
             if not custody_id:
                 conn.close()
                 return jsonify({'error': 'يرجى اختيار العهدة المراد خصم الرواتب منها'}), 400
             
             cursor.execute('''
-                SELECT id, employee_name, request_number, amount, disbursed_amount, spent_amount
+                SELECT id, employee_name, request_number, amount, disbursed_amount, spent_amount, project_id
                 FROM custody_requests WHERE id = ?
             ''', (custody_id,))
             cust = cursor.fetchone()
@@ -6148,12 +6151,58 @@ def disburse_hr_payroll_items(id):
             WHERE id = ?
         ''', (payroll_new_status, payment_date, payment_method, id))
 
+        # Record expense in expenses table so it links with Custody Statement and Expenses log
+        emp_names_all = '، '.join([it['employee_name'] for it in target_items])
+        expense_title = f"رواتب شهر {payroll['month_year']} ({len(target_items)} موظف): {emp_names_all}"
+        if len(expense_title) > 200:
+            expense_title = f"رواتب شهر {payroll['month_year']} ({len(target_items)} موظف)"
+
+        emp_names_preview = '، '.join([it['employee_name'] for it in target_items[:3]])
+        if len(target_items) > 3:
+            emp_names_preview += f' وآخرين ({len(target_items)} موظف)'
+
+        exp_project_id = None
+        if cust and cust.get('project_id'):
+            exp_project_id = cust['project_id']
+        else:
+            cursor.execute('SELECT id FROM projects ORDER BY id ASC LIMIT 1')
+            first_proj = cursor.fetchone()
+            exp_project_id = first_proj[0] if first_proj else 7
+
+        exp_paid_by = cust_emp if (payment_method == 'عهدة' and cust_emp) else manager_title
+        exp_paid_to = emp_names_preview
+        exp_custody_id = custody_id if payment_method == 'عهدة' else None
+
+        cursor.execute('''
+            INSERT INTO expenses (
+                project_id, title, category, amount, payment_method,
+                paid_by, paid_to, expense_date, notes, approval_status,
+                approved_by, approved_at, payment_status, payment_date,
+                paid_amount, custody_id, created_by
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'approved', ?, ?, 'paid', ?, ?, ?, ?)
+        ''', (
+            exp_project_id,
+            expense_title,
+            'رواتب وأجور',
+            total_net_disburse,
+            payment_method,
+            exp_paid_by,
+            exp_paid_to,
+            payment_date,
+            f"مسير رواتب شهر {payroll['month_year']}{' - ' + notes if notes else ''}",
+            manager_title,
+            now_str,
+            payment_date,
+            total_net_disburse,
+            exp_custody_id,
+            manager_title
+        ))
+
+        # Invalidate bank balance cache
+        _company_bank_balance_cache['balance'] = None
+
         # Record notification
         try:
-            emp_names_preview = '، '.join([it['employee_name'] for it in target_items[:3]])
-            if len(target_items) > 3:
-                emp_names_preview += f' وآخرين ({len(target_items)} موظف)'
-            
             cursor.execute('''
                 INSERT INTO notifications (project_id, type, title, message)
                 VALUES (NULL, 'payroll', 'صرف رواتب موظفين', ?)
@@ -7738,7 +7787,7 @@ def get_active_custodies():
                (COALESCE(c.disbursed_amount, c.amount) - COALESCE(c.spent_amount, 0)) as remaining_balance
         FROM custody_requests c
         LEFT JOIN projects p ON c.project_id = p.id
-        WHERE c.status IN ('disbursed', 'approved')
+        WHERE LOWER(COALESCE(c.status, '')) IN ('disbursed', 'approved') OR c.status IN ('مصروفة', 'معتمدة', 'صرفت')
         ORDER BY c.id DESC
     ''')
     rows = [dict(r) for r in cursor.fetchall()]

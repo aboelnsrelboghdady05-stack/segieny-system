@@ -6922,37 +6922,40 @@
                 <input type="hidden" id="disburse-item-ids">
 
                 <!-- Payment Method Selection -->
-                <div>
-                    <label class="block text-slate-300 font-bold mb-1.5">طريقة الصرف *</label>
-                    <div class="grid grid-cols-3 gap-2">
-                        <label class="cursor-pointer border border-slate-750 rounded-xl p-2.5 flex flex-col items-center gap-1.5 hover:border-emerald-500/50 transition bg-slate-900 has-[:checked]:border-emerald-500 has-[:checked]:bg-emerald-500/10">
-                            <input type="radio" name="disburse-payment-method" value="تحويل بنكي" checked onchange="onDisburseMethodChange(this.value)" class="hidden">
-                            <i data-lucide="landmark" class="w-4 h-4 text-emerald-400"></i>
-                            <span class="font-bold text-slate-200 text-[11px]">تحويل بنكي</span>
-                        </label>
-                        <label class="cursor-pointer border border-slate-750 rounded-xl p-2.5 flex flex-col items-center gap-1.5 hover:border-amber-500/50 transition bg-slate-900 has-[:checked]:border-amber-500 has-[:checked]:bg-amber-500/10">
-                            <input type="radio" name="disburse-payment-method" value="عهدة" onchange="onDisburseMethodChange(this.value)" class="hidden">
-                            <i data-lucide="wallet" class="w-4 h-4 text-amber-400"></i>
-                            <span class="font-bold text-slate-200 text-[11px]">خصم من عهدة</span>
-                        </label>
-                        <label class="cursor-pointer border border-slate-750 rounded-xl p-2.5 flex flex-col items-center gap-1.5 hover:border-blue-500/50 transition bg-slate-900 has-[:checked]:border-blue-500 has-[:checked]:bg-blue-500/10">
-                            <input type="radio" name="disburse-payment-method" value="نقدي" onchange="onDisburseMethodChange(this.value)" class="hidden">
-                            <i data-lucide="banknote" class="w-4 h-4 text-blue-400"></i>
-                            <span class="font-bold text-slate-200 text-[11px]">نقدي</span>
-                        </label>
-                    </div>
+                <div id="disburse-payment-method-container">
+                    <label class="block text-slate-300 font-bold mb-1.5 flex items-center gap-1.5">
+                        <i data-lucide="credit-card" class="w-4 h-4 text-emerald-400"></i>
+                        <span>طريقة الصرف *</span>
+                    </label>
+                    <select id="disburse-payment-method" onchange="onDisburseMethodChange(this.value)" class="w-full bg-slate-900 border border-slate-700 focus:border-emerald-500 rounded-xl px-3 py-2.5 text-white text-xs font-bold transition">
+                        <option value="تحويل بنكي">تحويل بنكي / سريع (خصم من الحساب البنكي مباشرة)</option>
+                        <option value="عهدة">عهدة (خصم من عهدة مستلمة لموظف - لا تؤثر على رصيد البنك)</option>
+                        <option value="نقدي">نقدي (كاش الخزينة)</option>
+                        <option value="شيك">شيك مصرفي</option>
+                    </select>
                 </div>
 
-                <!-- Custody Selection Container (visible when 'عهدة' is chosen) -->
-                <div id="disburse-custody-container" class="hidden p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 space-y-2">
+                <!-- Custody Selection Container (يظهر عند اختيار طريقة الصرف: عهدة) -->
+                <div id="disburse-custody-container" class="hidden p-3.5 bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-slate-900 border border-amber-500/30 rounded-xl space-y-2.5">
                     <div class="flex items-center justify-between">
-                        <label class="block text-amber-300 font-bold text-xs">اختر العهدة للخصم منها *</label>
-                        <span id="disburse-custody-balance-badge" class="text-[10px] font-mono font-bold"></span>
+                        <label class="block font-bold text-amber-300 text-xs flex items-center gap-1.5">
+                            <i data-lucide="wallet" class="w-4 h-4 text-amber-400"></i>
+                            <span>اختر العهدة المطلوب الخصم المباشر منها *</span>
+                        </label>
+                        <span id="disburse-custody-balance-badge" class="px-2 py-0.5 rounded text-[11px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 hidden font-mono"></span>
                     </div>
-                    <select id="disburse-custody-id" onchange="onDisburseCustodySelected()" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white text-xs focus:border-amber-500">
-                        <option value="">-- اختر العهدة --</option>
+                    <select id="disburse-custody-id" onchange="onDisburseCustodySelected()" class="w-full bg-slate-900 border border-amber-500/40 focus:border-amber-400 rounded-xl px-3 py-2 text-white text-xs">
+                        <option value="">-- جارِ تحميل العهد المتاحة للخصم... --</option>
                     </select>
-                    <p class="text-[10px] text-amber-400/80">سيتم خصم قيمة الرواتب من رصيد هذه العهدة تلقائياً وتحديث كشف حسابها.</p>
+                    <div id="disburse-custody-info" class="text-[11px] text-slate-400 flex items-center justify-between hidden">
+                        <span id="disburse-custody-emp-text"></span>
+                        <span id="disburse-custody-proj-text" class="text-amber-400 font-medium"></span>
+                    </div>
+                    <div id="disburse-custody-warning" class="text-[11px] text-rose-400 font-bold hidden flex items-center gap-1.5 bg-rose-500/10 p-2 rounded-lg border border-rose-500/20">
+                        <i data-lucide="alert-triangle" class="w-4 h-4 shrink-0"></i>
+                        <span>تنبيه: إجمالي رواتب الموظفين يتجاوز الرصيد المتبقي في هذه العهدة!</span>
+                    </div>
+                    <p class="text-[10px] text-amber-400/80">سيتم تسجيل العملية كمصروف عهدة وكشف حساب العهدة تلقائياً ولن تخصم مجدداً من التدفق النقدي البنكي للشركة.</p>
                 </div>
 
                 <!-- Date & Reference -->
@@ -7424,7 +7427,7 @@
 
     <!-- Scripts -->
     <script src="/static/js/i18n.js?v=20261020_v1"></script>
-    <script src="/static/js/app.js?v=20261102_v2"></script>
+    <script src="/static/js/app.js?v=20261102_v3"></script>
     <script>
     (function() {
         try {

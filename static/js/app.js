@@ -16350,18 +16350,18 @@ async function openDisbursePayrollModal(target) {
     const itemIds = targetItems.map(it => it.id);
 
     // Populate modal fields
-    document.getElementById('disburse-payroll-id').value = payroll.id;
-    document.getElementById('disburse-item-ids').value = JSON.stringify(itemIds);
-    document.getElementById('disburse-modal-subtitle').innerText = `مسير رواتب شهر ${payroll.month_year || ''}`;
-    document.getElementById('disburse-emp-count').innerText = `${targetItems.length} موظف`;
+    document.getElementById('hr-disburse-payroll-id').value = payroll.id;
+    document.getElementById('hr-disburse-item-ids').value = JSON.stringify(itemIds);
+    document.getElementById('hr-disburse-modal-subtitle').innerText = `مسير رواتب شهر ${payroll.month_year || ''}`;
+    document.getElementById('hr-disburse-emp-count').innerText = `${targetItems.length} موظف`;
     
     // Set total amount and attribute
-    const totalEl = document.getElementById('disburse-total-amount');
+    const totalEl = document.getElementById('hr-disburse-total-amount');
     totalEl.innerText = formatCurrency(totalAmount);
     totalEl.setAttribute('data-amount', totalAmount);
 
     // Names preview
-    const previewContainer = document.getElementById('disburse-emp-list-preview');
+    const previewContainer = document.getElementById('hr-disburse-emp-list-preview');
     previewContainer.innerHTML = targetItems.map(it => `
         <span class="inline-flex items-center gap-1 bg-slate-900 border border-slate-750 px-2 py-1 rounded-md text-[10px] text-white m-0.5">
             <span class="font-bold text-slate-200">${it.employee_name}:</span>
@@ -16371,44 +16371,47 @@ async function openDisbursePayrollModal(target) {
 
     // Default Date
     const today = new Date().toISOString().split('T')[0];
-    const dateEl = document.getElementById('disburse-payment-date');
+    const dateEl = document.getElementById('hr-disburse-payment-date');
     if (dateEl) dateEl.value = today;
 
     // Default Method: تحويل بنكي
-    const methodSelect = document.getElementById('disburse-payment-method');
+    const methodSelect = document.getElementById('hr-disburse-payment-method');
     if (methodSelect) methodSelect.value = 'تحويل بنكي';
-    const custodyContainer = document.getElementById('disburse-custody-container');
+    const custodyContainer = document.getElementById('hr-disburse-custody-container');
     if (custodyContainer) custodyContainer.classList.add('hidden');
 
     // Preload active custodies so they are immediately available
-    loadActiveCustodiesForDisburse();
+    loadActiveCustodiesForHrPayroll();
 
     // Reset notes and voucher
-    const voucherEl = document.getElementById('disburse-voucher-no');
+    const voucherEl = document.getElementById('hr-disburse-voucher-no');
     if (voucherEl) voucherEl.value = '';
-    const notesEl = document.getElementById('disburse-notes');
+    const notesEl = document.getElementById('hr-disburse-notes');
     if (notesEl) notesEl.value = '';
 
     openModal('hr-disburse-payroll-modal');
     initLucide();
 }
 
-function onDisburseMethodChange(method) {
-    const container = document.getElementById('disburse-custody-container');
+function onHrPayrollDisburseMethodChange(method) {
+    const container = document.getElementById('hr-disburse-custody-container');
     if (!container) return;
     if (method === 'عهدة') {
         container.classList.remove('hidden');
-        loadActiveCustodiesForDisburse();
+        loadActiveCustodiesForHrPayroll();
     } else {
         container.classList.add('hidden');
     }
 }
 
-async function loadActiveCustodiesForDisburse(selectedId = null) {
-    const select = document.getElementById('disburse-custody-id');
-    const badge = document.getElementById('disburse-custody-balance-badge');
-    const info = document.getElementById('disburse-custody-info');
-    const warning = document.getElementById('disburse-custody-warning');
+// Keep backward compatibility alias
+window.onDisburseMethodChange = onHrPayrollDisburseMethodChange;
+
+async function loadActiveCustodiesForHrPayroll(selectedId = null) {
+    const select = document.getElementById('hr-disburse-custody-id');
+    const badge = document.getElementById('hr-disburse-custody-balance-badge');
+    const info = document.getElementById('hr-disburse-custody-info');
+    const warning = document.getElementById('hr-disburse-custody-warning');
     if (!select) return;
 
     select.innerHTML = '<option value="">-- جارِ تحميل العهد المتاحة للخصم... --</option>';
@@ -16439,10 +16442,10 @@ async function loadActiveCustodiesForDisburse(selectedId = null) {
 
         if (selectedId) {
             select.value = selectedId;
-            onDisburseCustodySelected();
+            onHrPayrollDisburseCustodySelected();
         } else if (list.length === 1) {
             select.selectedIndex = 1;
-            onDisburseCustodySelected();
+            onHrPayrollDisburseCustodySelected();
         }
     } catch (err) {
         console.error('Error loading active custodies for payroll disbursement:', err);
@@ -16450,13 +16453,16 @@ async function loadActiveCustodiesForDisburse(selectedId = null) {
     }
 }
 
-function onDisburseCustodySelected() {
-    const sel = document.getElementById('disburse-custody-id');
-    const badge = document.getElementById('disburse-custody-balance-badge');
-    const info = document.getElementById('disburse-custody-info');
-    const empText = document.getElementById('disburse-custody-emp-text');
-    const projText = document.getElementById('disburse-custody-proj-text');
-    const warning = document.getElementById('disburse-custody-warning');
+// Keep backward compatibility alias
+window.loadActiveCustodiesForDisburse = loadActiveCustodiesForHrPayroll;
+
+function onHrPayrollDisburseCustodySelected() {
+    const sel = document.getElementById('hr-disburse-custody-id');
+    const badge = document.getElementById('hr-disburse-custody-balance-badge');
+    const info = document.getElementById('hr-disburse-custody-info');
+    const empText = document.getElementById('hr-disburse-custody-emp-text');
+    const projText = document.getElementById('hr-disburse-custody-proj-text');
+    const warning = document.getElementById('hr-disburse-custody-warning');
     if (!sel) return;
 
     const opt = sel.selectedOptions[0];
@@ -16470,7 +16476,7 @@ function onDisburseCustodySelected() {
     const bal = parseFloat(opt.getAttribute('data-balance') || 0);
     const emp = opt.getAttribute('data-employee') || '';
     const prj = opt.getAttribute('data-project') || '';
-    const totalAmount = parseFloat(document.getElementById('disburse-total-amount')?.getAttribute('data-amount') || 0);
+    const totalAmount = parseFloat(document.getElementById('hr-disburse-total-amount')?.getAttribute('data-amount') || 0);
 
     if (badge) {
         badge.classList.remove('hidden');
@@ -16498,17 +16504,20 @@ function onDisburseCustodySelected() {
     }
 }
 
+// Keep backward compatibility alias
+window.onDisburseCustodySelected = onHrPayrollDisburseCustodySelected;
+
 async function submitHrPayrollDisbursement(e) {
     e.preventDefault();
     const btn = document.getElementById('btn-submit-payroll-disburse');
-    const payrollId = document.getElementById('disburse-payroll-id').value;
-    const itemIdsStr = document.getElementById('disburse-item-ids').value;
+    const payrollId = document.getElementById('hr-disburse-payroll-id').value;
+    const itemIdsStr = document.getElementById('hr-disburse-item-ids').value;
     const itemIds = itemIdsStr ? JSON.parse(itemIdsStr) : [];
-    const method = document.getElementById('disburse-payment-method')?.value || 'تحويل بنكي';
-    const custodyId = document.getElementById('disburse-custody-id')?.value;
-    const paymentDate = document.getElementById('disburse-payment-date').value;
-    const voucherNo = document.getElementById('disburse-voucher-no').value.trim();
-    const notes = document.getElementById('disburse-notes').value.trim();
+    const method = document.getElementById('hr-disburse-payment-method')?.value || 'تحويل بنكي';
+    const custodyId = document.getElementById('hr-disburse-custody-id')?.value;
+    const paymentDate = document.getElementById('hr-disburse-payment-date').value;
+    const voucherNo = document.getElementById('hr-disburse-voucher-no').value.trim();
+    const notes = document.getElementById('hr-disburse-notes').value.trim();
 
     if (method === 'عهدة' && !custodyId) {
         showToast('يرجى اختيار العهدة المراد خصم الرواتب منها', 'warning');

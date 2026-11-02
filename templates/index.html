@@ -6894,7 +6894,7 @@
                     </div>
                     <div>
                         <h3 class="font-black text-base text-white">صرف رواتب الموظفين</h3>
-                        <p id="disburse-modal-subtitle" class="text-slate-400 text-[11px]">تحديد طريقة الصرف وخصم المستحقات</p>
+                        <p id="hr-disburse-modal-subtitle" class="text-slate-400 text-[11px]">تحديد طريقة الصرف وخصم المستحقات</p>
                     </div>
                 </div>
                 <button type="button" onclick="closeModal('hr-disburse-payroll-modal')" class="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800">
@@ -6906,28 +6906,28 @@
             <div class="p-3.5 rounded-xl bg-slate-900 border border-slate-750 space-y-2">
                 <div class="flex items-center justify-between">
                     <span class="text-slate-400 font-bold">الموظفون المشمولون بالصرف:</span>
-                    <span id="disburse-emp-count" class="font-bold text-white bg-slate-800 px-2.5 py-0.5 rounded-full text-[11px]">0 موظف</span>
+                    <span id="hr-disburse-emp-count" class="font-bold text-white bg-slate-800 px-2.5 py-0.5 rounded-full text-[11px]">0 موظف</span>
                 </div>
-                <div id="disburse-emp-list-preview" class="text-[11px] text-slate-300 max-h-20 overflow-y-auto font-sans leading-relaxed bg-slate-950/60 p-2 rounded-lg border border-slate-800/80">
+                <div id="hr-disburse-emp-list-preview" class="text-[11px] text-slate-300 max-h-20 overflow-y-auto font-sans leading-relaxed bg-slate-950/60 p-2 rounded-lg border border-slate-800/80">
                     <!-- Names list -->
                 </div>
                 <div class="pt-2 border-t border-slate-800 flex items-center justify-between">
                     <span class="font-bold text-slate-200">إجمالي المبلغ المراد صرفه:</span>
-                    <span id="disburse-total-amount" class="font-mono font-black text-base text-emerald-400">0.00 ر.س</span>
+                    <span id="hr-disburse-total-amount" class="font-mono font-black text-base text-emerald-400">0.00 ر.س</span>
                 </div>
             </div>
 
             <form id="hr-disburse-payroll-form" onsubmit="submitHrPayrollDisbursement(event)" class="space-y-4">
-                <input type="hidden" id="disburse-payroll-id">
-                <input type="hidden" id="disburse-item-ids">
+                <input type="hidden" id="hr-disburse-payroll-id">
+                <input type="hidden" id="hr-disburse-item-ids">
 
                 <!-- Payment Method Selection -->
-                <div id="disburse-payment-method-container">
+                <div id="hr-disburse-payment-method-container">
                     <label class="block text-slate-300 font-bold mb-1.5 flex items-center gap-1.5">
                         <i data-lucide="credit-card" class="w-4 h-4 text-emerald-400"></i>
                         <span>طريقة الصرف *</span>
                     </label>
-                    <select id="disburse-payment-method" onchange="onDisburseMethodChange(this.value)" class="w-full bg-slate-900 border border-slate-700 focus:border-emerald-500 rounded-xl px-3 py-2.5 text-white text-xs font-bold transition">
+                    <select id="hr-disburse-payment-method" onchange="onHrPayrollDisburseMethodChange(this.value)" class="w-full bg-slate-900 border border-slate-700 focus:border-emerald-500 rounded-xl px-3 py-2.5 text-white text-xs font-bold transition">
                         <option value="تحويل بنكي">تحويل بنكي / سريع (خصم من الحساب البنكي مباشرة)</option>
                         <option value="عهدة">عهدة (خصم من عهدة مستلمة لموظف - لا تؤثر على رصيد البنك)</option>
                         <option value="نقدي">نقدي (كاش الخزينة)</option>
@@ -6936,22 +6936,22 @@
                 </div>
 
                 <!-- Custody Selection Container (يظهر عند اختيار طريقة الصرف: عهدة) -->
-                <div id="disburse-custody-container" class="hidden p-3.5 bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-slate-900 border border-amber-500/30 rounded-xl space-y-2.5">
+                <div id="hr-disburse-custody-container" class="hidden p-3.5 bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-slate-900 border border-amber-500/30 rounded-xl space-y-2.5">
                     <div class="flex items-center justify-between">
                         <label class="block font-bold text-amber-300 text-xs flex items-center gap-1.5">
                             <i data-lucide="wallet" class="w-4 h-4 text-amber-400"></i>
                             <span>اختر العهدة المطلوب الخصم المباشر منها *</span>
                         </label>
-                        <span id="disburse-custody-balance-badge" class="px-2 py-0.5 rounded text-[11px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 hidden font-mono"></span>
+                        <span id="hr-disburse-custody-balance-badge" class="px-2 py-0.5 rounded text-[11px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 hidden font-mono"></span>
                     </div>
-                    <select id="disburse-custody-id" onchange="onDisburseCustodySelected()" class="w-full bg-slate-900 border border-amber-500/40 focus:border-amber-400 rounded-xl px-3 py-2 text-white text-xs">
+                    <select id="hr-disburse-custody-id" onchange="onHrPayrollDisburseCustodySelected()" class="w-full bg-slate-900 border border-amber-500/40 focus:border-amber-400 rounded-xl px-3 py-2 text-white text-xs">
                         <option value="">-- جارِ تحميل العهد المتاحة للخصم... --</option>
                     </select>
-                    <div id="disburse-custody-info" class="text-[11px] text-slate-400 flex items-center justify-between hidden">
-                        <span id="disburse-custody-emp-text"></span>
-                        <span id="disburse-custody-proj-text" class="text-amber-400 font-medium"></span>
+                    <div id="hr-disburse-custody-info" class="text-[11px] text-slate-400 flex items-center justify-between hidden">
+                        <span id="hr-disburse-custody-emp-text"></span>
+                        <span id="hr-disburse-custody-proj-text" class="text-amber-400 font-medium"></span>
                     </div>
-                    <div id="disburse-custody-warning" class="text-[11px] text-rose-400 font-bold hidden flex items-center gap-1.5 bg-rose-500/10 p-2 rounded-lg border border-rose-500/20">
+                    <div id="hr-disburse-custody-warning" class="text-[11px] text-rose-400 font-bold hidden flex items-center gap-1.5 bg-rose-500/10 p-2 rounded-lg border border-rose-500/20">
                         <i data-lucide="alert-triangle" class="w-4 h-4 shrink-0"></i>
                         <span>تنبيه: إجمالي رواتب الموظفين يتجاوز الرصيد المتبقي في هذه العهدة!</span>
                     </div>
@@ -6962,18 +6962,18 @@
                 <div class="grid grid-cols-2 gap-3">
                     <div>
                         <label class="block text-slate-400 font-bold mb-1">تاريخ الصرف *</label>
-                        <input type="date" id="disburse-payment-date" required class="w-full bg-slate-900 border border-slate-750 rounded-xl px-3 py-2 text-white font-mono focus:border-emerald-500">
+                        <input type="date" id="hr-disburse-payment-date" required class="w-full bg-slate-900 border border-slate-750 rounded-xl px-3 py-2 text-white font-mono focus:border-emerald-500">
                     </div>
                     <div>
                         <label class="block text-slate-400 font-bold mb-1">رقم الحوالة / السند / الشيك</label>
-                        <input type="text" id="disburse-voucher-no" placeholder="اختياري (مثل: TRX-001)" class="w-full bg-slate-900 border border-slate-750 rounded-xl px-3 py-2 text-white font-mono focus:border-emerald-500">
+                        <input type="text" id="hr-disburse-voucher-no" placeholder="اختياري (مثل: TRX-001)" class="w-full bg-slate-900 border border-slate-750 rounded-xl px-3 py-2 text-white font-mono focus:border-emerald-500">
                     </div>
                 </div>
 
                 <!-- Notes -->
                 <div>
                     <label class="block text-slate-400 font-bold mb-1">ملاحظات الصرف</label>
-                    <input type="text" id="disburse-notes" placeholder="أي ملاحظات تخص هذه الدفعة..." class="w-full bg-slate-900 border border-slate-750 rounded-xl px-3 py-2 text-white focus:border-emerald-500">
+                    <input type="text" id="hr-disburse-notes" placeholder="أي ملاحظات تخص هذه الدفعة..." class="w-full bg-slate-900 border border-slate-750 rounded-xl px-3 py-2 text-white focus:border-emerald-500">
                 </div>
 
                 <div class="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-750">
@@ -7427,7 +7427,7 @@
 
     <!-- Scripts -->
     <script src="/static/js/i18n.js?v=20261020_v1"></script>
-    <script src="/static/js/app.js?v=20261102_v3"></script>
+    <script src="/static/js/app.js?v=20261102_v4"></script>
     <script>
     (function() {
         try {

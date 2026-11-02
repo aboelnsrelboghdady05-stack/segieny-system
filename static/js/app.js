@@ -17,6 +17,26 @@ let currentUser = {
     phone: '0501234567'
 };
 
+// Global fallbacks / aliases to prevent ReferenceErrors across modal refreshes
+window.openProjectDetailModal = function(pid) {
+    if (typeof openProjectDetails === 'function') {
+        openProjectDetails(pid);
+    }
+};
+window.loadDashboardStats = function() {
+    if (typeof loadDashboard === 'function') {
+        loadDashboard();
+    }
+};
+window.loadCustodyRequests = function() {
+    if (typeof loadCustody === 'function') {
+        loadCustody();
+    }
+};
+window.loadTeamMembersForSwitcher = function() {
+    // safe no-op or fallback
+};
+
 // ----------------- THEME MANAGEMENT (وضع داكن / وضع فاتح) -----------------
 function initTheme() {
     const savedTheme = localStorage.getItem('segieny_theme') || 'dark';
@@ -107,7 +127,9 @@ document.addEventListener('DOMContentLoaded', () => {
         loadDashboard();
         loadProjectsDropdowns();
         loadTeamDropdowns();
-        loadTeamMembersForSwitcher();
+        if (typeof loadTeamMembersForSwitcher === 'function') {
+            loadTeamMembersForSwitcher();
+        }
         if (typeof syncCustomExpenseCategoryOptions === 'function') {
             syncCustomExpenseCategoryOptions();
         }
@@ -6440,7 +6462,7 @@ async function submitClientPaymentForm(e) {
             showToast(data.message, 'success');
             closeModal('client-payment-modal');
             if (currentProjectDetailData) {
-                openProjectDetailModal(projectId);
+                openProjectDetails(projectId);
             }
             if (currentTab === 'cashflow') {
                 loadCashFlow();
@@ -6448,7 +6470,9 @@ async function submitClientPaymentForm(e) {
             if (currentTab === 'reports') {
                 loadDetailedReports();
             }
-            loadDashboardStats();
+            if (typeof loadDashboard === 'function') {
+                loadDashboard();
+            }
         } else {
             showToast(data.error || 'حدث خطأ في حفظ الدفعة', 'error');
         }
@@ -6579,7 +6603,7 @@ async function submitReceivePaymentForm(e) {
             showToast(data.message, 'success');
             closeModal('receive-payment-modal');
             if (currentProjectDetailData) {
-                openProjectDetailModal(currentProjectDetailData.id);
+                openProjectDetails(currentProjectDetailData.id);
             }
             if (currentTab === 'cashflow') {
                 loadCashFlow();
@@ -6587,7 +6611,9 @@ async function submitReceivePaymentForm(e) {
             if (currentTab === 'reports') {
                 loadDetailedReports();
             }
-            loadDashboardStats();
+            if (typeof loadDashboard === 'function') {
+                loadDashboard();
+            }
         } else {
             showToast(data.error || 'حدث خطأ في تسجيل التحصيل', 'error');
         }
@@ -6605,7 +6631,7 @@ async function deleteClientPayment(paymentId, projectId) {
         if (data.success) {
             showToast(data.message, 'success');
             if (projectId && currentProjectDetailData && currentProjectDetailData.id == projectId) {
-                openProjectDetailModal(projectId);
+                openProjectDetails(projectId);
             }
             if (currentTab === 'reports') {
                 loadDetailedReports();
@@ -6613,7 +6639,9 @@ async function deleteClientPayment(paymentId, projectId) {
             if (currentTab === 'cashflow') {
                 loadCashFlow();
             }
-            loadDashboardStats();
+            if (typeof loadDashboard === 'function') {
+                loadDashboard();
+            }
         } else {
             showToast(data.error || 'فشل حذف الدفعة', 'error');
         }
@@ -6631,7 +6659,7 @@ async function resetClientPaymentReceipt(paymentId, projectId) {
         if (data.success) {
             showToast(data.message, 'success');
             if (projectId && currentProjectDetailData && currentProjectDetailData.id == projectId) {
-                openProjectDetailModal(projectId);
+                openProjectDetails(projectId);
             }
             if (currentTab === 'reports') {
                 loadDetailedReports();
@@ -6639,7 +6667,9 @@ async function resetClientPaymentReceipt(paymentId, projectId) {
             if (currentTab === 'cashflow') {
                 loadCashFlow();
             }
-            loadDashboardStats();
+            if (typeof loadDashboard === 'function') {
+                loadDashboard();
+            }
         } else {
             showToast(data.error || 'فشل إلغاء التحصيل', 'error');
         }
@@ -6884,12 +6914,14 @@ async function submitAutoAllocatePaymentForm(e) {
             closeModal('auto-allocate-payment-modal');
 
             if (currentProjectDetailData && currentProjectDetailData.id == projectId) {
-                openProjectDetailModal(projectId);
+                openProjectDetails(projectId);
             }
             if (currentTab === 'cashflow') {
                 loadCashFlow();
             }
-            loadDashboardStats();
+            if (typeof loadDashboard === 'function') {
+                loadDashboard();
+            }
         } else {
             showToast(data.error || 'حدث خطأ أثناء تسوية الدفعات', 'error');
         }
@@ -10913,9 +10945,11 @@ async function resetClientPayment(paymentId) {
                 loadCashFlow();
             }
             if (currentProjectDetailData) {
-                openProjectDetailModal(currentProjectDetailData.id);
+                openProjectDetails(currentProjectDetailData.id);
             }
-            loadDashboardStats();
+            if (typeof loadDashboard === 'function') {
+                loadDashboard();
+            }
         } else {
             showToast(data.error || 'فشل إلغاء التحصيل', 'error');
         }

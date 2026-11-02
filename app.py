@@ -23,6 +23,14 @@ app.config['MAX_CONTENT_LENGTH'] = 32 * 1024 * 1024  # 32 MB max upload
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
+def _safe_float(val, default=0.0):
+    try:
+        if val is None or val == '':
+            return default
+        return float(val)
+    except (ValueError, TypeError):
+        return default
+
 def save_uploaded_file_persistent(file_obj, filename, uploaded_by=None):
     """
     حفظ دائم للمرفقات والفواتير محلياً وفي قاعدة البيانات السحابية Turso.
@@ -4241,275 +4249,296 @@ def get_client_payments():
 
 @app.route('/api/client-payments', methods=['POST'])
 def create_client_payment():
-    data = request.json or {}
-    project_id = data.get('project_id')
-    milestone_name = data.get('milestone_name')
-    if not project_id or not milestone_name:
-        return jsonify({'error': 'معرف المشروع ومسمى مرحلة الدفعة مطلوبان'}), 400
+    try:
+        data = request.json or {}
+        project_id = data.get('project_id')
+        milestone_name = data.get('milestone_name')
+        if not project_id or not milestone_name:
+            return jsonify({'error': 'معرف المشروع ومسمى مرحلة الدفعة مطلوبان'}), 400
+            
+        percentage = _safe_float(data.get('percentage'), 0.0)
+        amount_with_tax = _safe_float(data.get('amount_with_tax'), 0.0)
+        tax_amount = _safe_float(data.get('tax_amount'), 0.0)
+        amount_without_tax = _safe_float(data.get('amount_without_tax'), 0.0)
         
-    percentage = float(data.get('percentage', 0))
-    amount_with_tax = float(data.get('amount_with_tax', 0))
-    tax_amount = float(data.get('tax_amount', 0))
-    amount_without_tax = float(data.get('amount_without_tax', 0))
-    
-    if amount_with_tax > 0 and amount_without_tax == 0:
-        amount_without_tax = round(amount_with_tax / 1.15, 2)
-        tax_amount = round(amount_with_tax - amount_without_tax, 2)
-    elif amount_without_tax > 0 and amount_with_tax == 0:
-        tax_amount = round(amount_without_tax * 0.15, 2)
-        amount_with_tax = round(amount_without_tax + tax_amount, 2)
+        if amount_with_tax > 0 and amount_without_tax == 0:
+            amount_without_tax = round(amount_with_tax / 1.15, 2)
+            tax_amount = round(amount_with_tax - amount_without_tax, 2)
+        elif amount_without_tax > 0 and amount_with_tax == 0:
+            tax_amount = round(amount_without_tax * 0.15, 2)
+            amount_with_tax = round(amount_without_tax + tax_amount, 2)
+            
+        payment_number = data.get('payment_number')
+        due_date = data.get('due_date')
+        received_date = data.get('received_date')
+        received_amount = _safe_float(data.get('received_amount'), 0.0)
+        is_received = 1 if (received_amount >= amount_with_tax and amount_with_tax > 0) or data.get('is_received') else 0
+        status = 'paid' if is_received else ('partially_paid' if received_amount > 0 else 'pending')
+        payment_method = data.get('payment_method', 'تحويل بنكي')
+        receipt_voucher_no = data.get('receipt_voucher_no')
+        notes = data.get('notes')
+        payment_type = data.get('payment_type')
+        if not payment_type:
+            lower_name = (milestone_name or '').lower()
+            if any(kw in lower_name for kw in ['تغير', 'تغيير', 'إضاف', 'اضاف', 'فروق أسعار', 'فرق سعر', 'زيادة', 'خامات']):
+                payment_type = 'extra_work'
+            else:
+                payment_type = 'contract'
         
-    payment_number = data.get('payment_number')
-    due_date = data.get('due_date')
-    received_date = data.get('received_date')
-    received_amount = float(data.get('received_amount', 0))
-    is_received = 1 if (received_amount >= amount_with_tax and amount_with_tax > 0) or data.get('is_received') else 0
-    status = 'paid' if is_received else ('partially_paid' if received_amount > 0 else 'pending')
-    payment_method = data.get('payment_method', 'تحويل بنكي')
-    receipt_voucher_no = data.get('receipt_voucher_no')
-    notes = data.get('notes')
-    payment_type = data.get('payment_type')
-    if not payment_type:
-        lower_name = (milestone_name or '').lower()
-        if any(kw in lower_name for kw in ['تغير', 'تغيير', 'إضاف', 'اضاف', 'فروق أسعار', 'فرق سعر', 'زيادة', 'خامات']):
-            payment_type = 'extra_work'
-        else:
-            payment_type = 'contract'
-    
-    conn = database.get_db_connection()
-    cursor = conn.cursor()
-    
-    if not payment_number:
-        cursor.execute('SELECT COALESCE(MAX(payment_number), 0) + 1 FROM client_payments WHERE project_id = ?', (project_id,))
-        payment_number = cursor.fetchone()[0]
+        conn = database.get_db_connection()
+        cursor = conn.cursor()
         
-    cursor.execute('''
-        INSERT INTO client_payments (
+        if not payment_number:
+            cursor.execute('SELECT COALESCE(MAX(payment_number), 0) + 1 FROM client_payments WHERE project_id = ?', (project_id,))
+            payment_number = cursor.fetchone()[0]
+            
+        cursor.execute('''
+            INSERT INTO client_payments (
+                project_id, payment_number, milestone_name, percentage,
+                amount_with_tax, tax_amount, amount_without_tax, due_date,
+                received_date, received_amount, is_received, status,
+                payment_method, receipt_voucher_no, notes, payment_type
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
             project_id, payment_number, milestone_name, percentage,
             amount_with_tax, tax_amount, amount_without_tax, due_date,
             received_date, received_amount, is_received, status,
             payment_method, receipt_voucher_no, notes, payment_type
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ''', (
-        project_id, payment_number, milestone_name, percentage,
-        amount_with_tax, tax_amount, amount_without_tax, due_date,
-        received_date, received_amount, is_received, status,
-        payment_method, receipt_voucher_no, notes, payment_type
-    ))
-    payment_id = cursor.lastrowid
-    conn.commit()
-    conn.close()
-    return jsonify({'success': True, 'id': payment_id, 'message': 'تمت إضافة دفعة العميل بنجاح'})
+        ))
+        payment_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+        return jsonify({'success': True, 'id': payment_id, 'message': 'تمت إضافة دفعة العميل بنجاح'})
+    except Exception as e:
+        print(f"Error in create_client_payment: {e}")
+        return jsonify({'error': f'حدث خطأ في حفظ الدفعة: {str(e)}'}), 500
 
 @app.route('/api/client-payments/<int:payment_id>', methods=['PUT'])
 def update_client_payment(payment_id):
-    data = request.json or {}
-    conn = database.get_db_connection()
-    cursor = conn.cursor()
-    
-    cursor.execute('SELECT * FROM client_payments WHERE id = ?', (payment_id,))
-    existing = cursor.fetchone()
-    if not existing:
-        conn.close()
-        return jsonify({'error': 'الدفعة غير موجودة'}), 404
+    try:
+        data = request.json or {}
+        conn = database.get_db_connection()
+        cursor = conn.cursor()
         
-    milestone_name = data.get('milestone_name', existing['milestone_name'])
-    payment_number = data.get('payment_number', existing['payment_number'])
-    percentage = float(data['percentage']) if 'percentage' in data and data['percentage'] != '' else existing['percentage']
-    amount_with_tax = float(data['amount_with_tax']) if 'amount_with_tax' in data and data['amount_with_tax'] != '' else existing['amount_with_tax']
-    tax_amount = float(data['tax_amount']) if 'tax_amount' in data and data['tax_amount'] != '' else existing['tax_amount']
-    amount_without_tax = float(data['amount_without_tax']) if 'amount_without_tax' in data and data['amount_without_tax'] != '' else existing['amount_without_tax']
-    due_date = data.get('due_date', existing['due_date'])
-    received_date = data.get('received_date', existing['received_date'])
-    received_amount = float(data['received_amount']) if 'received_amount' in data and data['received_amount'] != '' else existing['received_amount']
-    
-    is_received = 1 if ('is_received' in data and data['is_received']) or (received_amount >= amount_with_tax and amount_with_tax > 0) else 0
-    status = data.get('status')
-    if not status:
-        if is_received or received_amount >= amount_with_tax:
-            status = 'paid'
-        elif received_amount > 0:
-            status = 'partially_paid'
-        else:
-            status = 'pending'
+        cursor.execute('SELECT * FROM client_payments WHERE id = ?', (payment_id,))
+        existing = cursor.fetchone()
+        if not existing:
+            conn.close()
+            return jsonify({'error': 'الدفعة غير موجودة'}), 404
             
-    payment_method = data.get('payment_method', existing['payment_method'])
-    receipt_voucher_no = data.get('receipt_voucher_no', existing['receipt_voucher_no'])
-    notes = data.get('notes', existing['notes'])
-    payment_type = data.get('payment_type', existing.get('payment_type', 'contract'))
-    
-    cursor.execute('''
-        UPDATE client_payments SET
-            milestone_name = ?, payment_number = ?, percentage = ?,
-            amount_with_tax = ?, tax_amount = ?, amount_without_tax = ?,
-            due_date = ?, received_date = ?, received_amount = ?,
-            is_received = ?, status = ?, payment_method = ?,
-            receipt_voucher_no = ?, notes = ?, payment_type = ?
-        WHERE id = ?
-    ''', (
-        milestone_name, payment_number, percentage,
-        amount_with_tax, tax_amount, amount_without_tax,
-        due_date, received_date, received_amount,
-        is_received, status, payment_method,
-        receipt_voucher_no, notes, payment_type, payment_id
-    ))
-    conn.commit()
-    conn.close()
-    return jsonify({'success': True, 'message': 'تم تعديل دفعة العميل بنجاح'})
+        milestone_name = data.get('milestone_name', existing['milestone_name'])
+        payment_number = data.get('payment_number', existing['payment_number'])
+        percentage = _safe_float(data.get('percentage'), existing['percentage'])
+        amount_with_tax = _safe_float(data.get('amount_with_tax'), existing['amount_with_tax'])
+        tax_amount = _safe_float(data.get('tax_amount'), existing['tax_amount'])
+        amount_without_tax = _safe_float(data.get('amount_without_tax'), existing['amount_without_tax'])
+        due_date = data.get('due_date', existing['due_date'])
+        received_date = data.get('received_date', existing['received_date'])
+        received_amount = _safe_float(data.get('received_amount'), existing['received_amount'])
+        
+        is_received = 1 if ('is_received' in data and data['is_received']) or (received_amount >= amount_with_tax and amount_with_tax > 0) else 0
+        status = data.get('status')
+        if not status:
+            if is_received or received_amount >= amount_with_tax:
+                status = 'paid'
+            elif received_amount > 0:
+                status = 'partially_paid'
+            else:
+                status = 'pending'
+                
+        payment_method = data.get('payment_method', existing['payment_method'])
+        receipt_voucher_no = data.get('receipt_voucher_no', existing['receipt_voucher_no'])
+        notes = data.get('notes', existing['notes'])
+        payment_type = data.get('payment_type', existing.get('payment_type', 'contract'))
+        
+        cursor.execute('''
+            UPDATE client_payments SET
+                milestone_name = ?, payment_number = ?, percentage = ?,
+                amount_with_tax = ?, tax_amount = ?, amount_without_tax = ?,
+                due_date = ?, received_date = ?, received_amount = ?,
+                is_received = ?, status = ?, payment_method = ?,
+                receipt_voucher_no = ?, notes = ?, payment_type = ?
+            WHERE id = ?
+        ''', (
+            milestone_name, payment_number, percentage,
+            amount_with_tax, tax_amount, amount_without_tax,
+            due_date, received_date, received_amount,
+            is_received, status, payment_method,
+            receipt_voucher_no, notes, payment_type, payment_id
+        ))
+        conn.commit()
+        conn.close()
+        return jsonify({'success': True, 'message': 'تم تعديل دفعة العميل بنجاح'})
+    except Exception as e:
+        print(f"Error in update_client_payment: {e}")
+        return jsonify({'error': f'حدث خطأ في تعديل الدفعة: {str(e)}'}), 500
 
 @app.route('/api/client-payments/<int:payment_id>/receive', methods=['POST'])
 def receive_client_payment(payment_id):
-    data = request.json or {}
-    conn = database.get_db_connection()
-    cursor = conn.cursor()
+    try:
+        data = request.json or {}
+        conn = database.get_db_connection()
+        cursor = conn.cursor()
     
-    cursor.execute('''
-        SELECT cp.*, p.name AS project_name 
-        FROM client_payments cp 
-        JOIN projects p ON cp.project_id = p.id 
-        WHERE cp.id = ?
-    ''', (payment_id,))
-    row = cursor.fetchone()
-    if not row:
-        conn.close()
-        return jsonify({'error': 'الدفعة غير موجودة'}), 404
-        
-    received_amount = float(data.get('received_amount') or 0.0)
-    if received_amount <= 0:
-        conn.close()
-        return jsonify({'error': 'يرجى إدخال مبلغ تحصيل صحيح أكبر من الصفر'}), 400
-
-    received_date = data.get('received_date') or datetime.now().strftime('%Y-%m-%d')
-    payment_method = data.get('payment_method', 'تحويل بنكي')
-    receipt_voucher_no = data.get('receipt_voucher_no', '').strip()
-    notes = data.get('notes', '').strip()
-
-    project_id = row['project_id']
-    project_name = row['project_name']
-
-    # Fetch this payment and all subsequent pending/partially paid payments for this project
-    cursor.execute('''
-        SELECT * FROM client_payments
-        WHERE project_id = ? AND (payment_number >= ? OR (payment_number = ? AND id >= ?))
-        ORDER BY payment_number ASC, due_date ASC, id ASC
-    ''', (project_id, row['payment_number'], row['payment_number'], payment_id))
-    chain_payments = [dict(r) for r in cursor.fetchall()]
-
-    remaining_cash = round(received_amount, 2)
-    allocations_details = []
-
-    for idx, cp in enumerate(chain_payments):
-        if remaining_cash <= 0:
-            break
-
-        total_due = float(cp.get('amount_with_tax') or 0.0)
-        curr_recv = float(cp.get('received_amount') or 0.0)
-        rem_needed = max(0.0, round(total_due - curr_recv, 2))
-
-        # If already fully paid and not the target payment, move to next
-        if rem_needed <= 0.01:
-            continue
-
-        if remaining_cash >= rem_needed:
-            alloc = rem_needed
-            new_recv = total_due
-            new_status = 'paid'
-            is_recv = 1
-            remaining_cash = round(remaining_cash - alloc, 2)
-        else:
-            alloc = remaining_cash
-            new_recv = round(curr_recv + alloc, 2)
-            new_status = 'partially_paid' if new_recv > 0 else 'pending'
-            is_recv = 0
-            remaining_cash = 0.0
-
-        # Build comprehensive transaction note
-        prev_notes = (cp.get('notes') or '').strip()
-        ref_txt = f" (مرجع: {receipt_voucher_no})" if receipt_voucher_no else ""
-        if cp['id'] == payment_id:
-            txn_note = f"سداد {alloc:,.2f} ر.س بتاريخ {received_date}{ref_txt}"
-            if notes:
-                txn_note += f" - {notes}"
-        else:
-            txn_note = f"فائض مرحل من دفعة ({row['milestone_name']}): {alloc:,.2f} ر.س بتاريخ {received_date}{ref_txt}"
-
-        combined_notes = f"{prev_notes} | {txn_note}".strip(' |') if prev_notes else txn_note
-
-        # Use new voucher no or keep existing
-        new_voucher = receipt_voucher_no if receipt_voucher_no else cp.get('receipt_voucher_no')
-
         cursor.execute('''
-            UPDATE client_payments SET
-                received_amount = ?,
-                received_date = ?,
-                is_received = ?,
-                status = ?,
-                payment_method = ?,
-                receipt_voucher_no = ?,
-                notes = ?
-            WHERE id = ?
-        ''', (new_recv, received_date, is_recv, new_status, payment_method, new_voucher, combined_notes, cp['id']))
+            SELECT cp.*, p.name AS project_name 
+            FROM client_payments cp 
+            JOIN projects p ON cp.project_id = p.id 
+            WHERE cp.id = ?
+        ''', (payment_id,))
+        row = cursor.fetchone()
+        if not row:
+            conn.close()
+            return jsonify({'error': 'الدفعة غير موجودة'}), 404
+        
+        received_amount = float(data.get('received_amount') or 0.0)
+        if received_amount <= 0:
+            conn.close()
+            return jsonify({'error': 'يرجى إدخال مبلغ تحصيل صحيح أكبر من الصفر'}), 400
 
-        allocations_details.append({
-            'milestone_name': cp['milestone_name'],
-            'allocated': alloc,
-            'new_total_received': new_recv,
-            'is_fully_paid': (new_status == 'paid')
-        })
+        received_date = data.get('received_date') or datetime.now().strftime('%Y-%m-%d')
+        payment_method = data.get('payment_method', 'تحويل بنكي')
+        receipt_voucher_no = data.get('receipt_voucher_no', '').strip()
+        notes = data.get('notes', '').strip()
 
-    # If all existing milestones are paid and money still remains
-    surplus_msg = ""
-    if remaining_cash > 0:
-        surplus_msg = f" (متبقي فائض إضافي {remaining_cash:,.2f} ر.س تحت الحساب)"
+        project_id = row['project_id']
+        project_name = row['project_name']
 
-    if len(allocations_details) > 1:
-        details_txt = " + ".join([f"{a['milestone_name']} (+{a['allocated']:,.2f} ر.س)" for a in allocations_details])
-        resp_msg = f"تم تسجيل الحوالة بمبلغ {received_amount:,.2f} ر.س وتوزيعها: {details_txt}{surplus_msg}"
-    elif len(allocations_details) == 1:
-        a = allocations_details[0]
-        state_txt = "واكتمل سدادها بالكامل ✓" if a['is_fully_paid'] else f"وإجمالي المسدد منها أصبح {a['new_total_received']:,.2f} ر.س"
-        resp_msg = f"تم تسجيل سداد {received_amount:,.2f} ر.س لدفعة '{a['milestone_name']}' {state_txt}{surplus_msg}"
-    else:
-        resp_msg = f"تم استلام المبلغ {received_amount:,.2f} ر.س وفائض تحت الحساب بالكامل{surplus_msg}"
+        # Fetch this payment and all subsequent pending/partially paid payments for this project
+        cursor.execute('''
+            SELECT * FROM client_payments
+            WHERE project_id = ? AND (payment_number >= ? OR (payment_number = ? AND id >= ?))
+            ORDER BY payment_number ASC, due_date ASC, id ASC
+        ''', (project_id, row['payment_number'], row['payment_number'], payment_id))
+        chain_payments = [dict(r) for r in cursor.fetchall()]
 
-    # Notify team
-    cursor.execute('''
-        INSERT INTO notifications (project_id, type, title, message)
-        VALUES (?, 'payment', 'تحصيل دفعة من العميل', ?)
-    ''', (project_id, f"تحصيل {received_amount:,.2f} ر.س من العميل لمشروع '{project_name}' - {resp_msg}"))
+        remaining_cash = round(received_amount, 2)
+        allocations_details = []
+
+        for idx, cp in enumerate(chain_payments):
+            if remaining_cash <= 0:
+                break
+
+            total_due = float(cp.get('amount_with_tax') or 0.0)
+            curr_recv = float(cp.get('received_amount') or 0.0)
+            rem_needed = max(0.0, round(total_due - curr_recv, 2))
+
+            # If already fully paid and not the target payment, move to next
+            if rem_needed <= 0.01:
+                continue
+
+            if remaining_cash >= rem_needed:
+                alloc = rem_needed
+                new_recv = total_due
+                new_status = 'paid'
+                is_recv = 1
+                remaining_cash = round(remaining_cash - alloc, 2)
+            else:
+                alloc = remaining_cash
+                new_recv = round(curr_recv + alloc, 2)
+                new_status = 'partially_paid' if new_recv > 0 else 'pending'
+                is_recv = 0
+                remaining_cash = 0.0
+
+            # Build comprehensive transaction note
+            prev_notes = (cp.get('notes') or '').strip()
+            ref_txt = f" (مرجع: {receipt_voucher_no})" if receipt_voucher_no else ""
+            if cp['id'] == payment_id:
+                txn_note = f"سداد {alloc:,.2f} ر.س بتاريخ {received_date}{ref_txt}"
+                if notes:
+                    txn_note += f" - {notes}"
+            else:
+                txn_note = f"فائض مرحل من دفعة ({row['milestone_name']}): {alloc:,.2f} ر.س بتاريخ {received_date}{ref_txt}"
+
+            combined_notes = f"{prev_notes} | {txn_note}".strip(' |') if prev_notes else txn_note
+
+            # Use new voucher no or keep existing
+            new_voucher = receipt_voucher_no if receipt_voucher_no else cp.get('receipt_voucher_no')
+
+            cursor.execute('''
+                UPDATE client_payments SET
+                    received_amount = ?,
+                    received_date = ?,
+                    is_received = ?,
+                    status = ?,
+                    payment_method = ?,
+                    receipt_voucher_no = ?,
+                    notes = ?
+                WHERE id = ?
+            ''', (new_recv, received_date, is_recv, new_status, payment_method, new_voucher, combined_notes, cp['id']))
+
+            allocations_details.append({
+                'milestone_name': cp['milestone_name'],
+                'allocated': alloc,
+                'new_total_received': new_recv,
+                'is_fully_paid': (new_status == 'paid')
+            })
+
+        # If all existing milestones are paid and money still remains
+        surplus_msg = ""
+        if remaining_cash > 0:
+            surplus_msg = f" (متبقي فائض إضافي {remaining_cash:,.2f} ر.س تحت الحساب)"
+
+        if len(allocations_details) > 1:
+            details_txt = " + ".join([f"{a['milestone_name']} (+{a['allocated']:,.2f} ر.س)" for a in allocations_details])
+            resp_msg = f"تم تسجيل الحوالة بمبلغ {received_amount:,.2f} ر.س وتوزيعها: {details_txt}{surplus_msg}"
+        elif len(allocations_details) == 1:
+            a = allocations_details[0]
+            state_txt = "واكتمل سدادها بالكامل ✓" if a['is_fully_paid'] else f"وإجمالي المسدد منها أصبح {a['new_total_received']:,.2f} ر.س"
+            resp_msg = f"تم تسجيل سداد {received_amount:,.2f} ر.س لدفعة '{a['milestone_name']}' {state_txt}{surplus_msg}"
+        else:
+            resp_msg = f"تم استلام المبلغ {received_amount:,.2f} ر.س وفائض تحت الحساب بالكامل{surplus_msg}"
+
+        # Notify team
+        cursor.execute('''
+            INSERT INTO notifications (project_id, type, title, message)
+            VALUES (?, 'payment', 'تحصيل دفعة من العميل', ?)
+        ''', (project_id, f"تحصيل {received_amount:,.2f} ر.س من العميل لمشروع '{project_name}' - {resp_msg}"))
     
-    conn.commit()
-    conn.close()
-    return jsonify({'success': True, 'message': resp_msg})
+        conn.commit()
+        conn.close()
+        return jsonify({'success': True, 'message': resp_msg})
 
 
+
+    except Exception as e:
+        print(f"Error in receive_client_payment: {e}")
+        return jsonify({'error': f'حدث خطأ في تسجيل التحصيل: {str(e)}'}), 500
 
 @app.route('/api/client-payments/<int:payment_id>', methods=['DELETE'])
 def delete_client_payment(payment_id):
-    conn = database.get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute('DELETE FROM client_payments WHERE id = ?', (payment_id,))
-    conn.commit()
-    conn.close()
-    return jsonify({'success': True, 'message': 'تم حذف دفعة العميل بنجاح'})
+    try:
+        conn = database.get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM client_payments WHERE id = ?', (payment_id,))
+        conn.commit()
+        conn.close()
+        return jsonify({'success': True, 'message': 'تم حذف دفعة العميل بنجاح'})
+    except Exception as e:
+        print(f"Error in delete_client_payment: {e}")
+        return jsonify({'error': f'حدث خطأ أثناء حذف الدفعة: {str(e)}'}), 500
 
 @app.route('/api/client-payments/<int:payment_id>/reset', methods=['POST'])
 def reset_client_payment(payment_id):
-    conn = database.get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute('''
-        UPDATE client_payments SET
-            received_amount = 0,
-            received_date = NULL,
-            is_received = 0,
-            status = 'pending',
-            payment_method = 'تحويل بنكي',
-            receipt_voucher_no = NULL
-        WHERE id = ?
-    ''', (payment_id,))
-    conn.commit()
-    conn.close()
-    return jsonify({'success': True, 'message': 'تم إلغاء التحصيل وإعادة الدفعة لحالة الانتظار بنجاح'})
+    try:
+        conn = database.get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+            UPDATE client_payments SET
+                received_amount = 0,
+                received_date = NULL,
+                is_received = 0,
+                status = 'pending',
+                payment_method = 'تحويل بنكي',
+                receipt_voucher_no = NULL
+            WHERE id = ?
+        ''', (payment_id,))
+        conn.commit()
+        conn.close()
+        return jsonify({'success': True, 'message': 'تم إلغاء التحصيل وإعادة الدفعة لحالة الانتظار بنجاح'})
+    except Exception as e:
+        print(f"Error in reset_client_payment: {e}")
+        return jsonify({'error': f'حدث خطأ أثناء إلغاء تحصيل الدفعة: {str(e)}'}), 500
 
 @app.route('/api/client-payments/auto-allocate', methods=['POST'])
 def auto_allocate_client_payment():

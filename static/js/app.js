@@ -15851,14 +15851,25 @@ function isFinancialManagerUser() {
         const r = (u.role || '').toLowerCase();
         const un = (u.username || '').toLowerCase();
         const n = (u.name || '').toLowerCase();
-        // صلاحية حصرية للمدير المالي (أ. ابوالنصر البغدادي)
-        if (r.includes('مدير مالي') || r.includes('المدير المالي') || r.includes('financial')) return true;
-        if (un === 'baghdadi') return true;
+        // صلاحية حصرية للأستاذ ابوالنصر البغدادي (المدير المالي)
+        if (un === 'baghdadi' || String(u.id) === '1') return true;
         if (n.includes('ابوالنصر') || n.includes('البغدادي')) return true;
+        if (r.includes('مدير مالي') || r.includes('المدير المالي') || r.includes('financial')) return true;
         return false;
     } catch(e) {
         return false;
     }
+}
+
+async function startDisburseFromList(payrollId) {
+    if (!isFinancialManagerUser()) {
+        showToast('عفواً، صلاحية صرف رواتب الموظفين حصرية للأستاذ ابوالنصر البغدادي (المدير المالي) فقط.', 'error');
+        return;
+    }
+    await viewHrPayrollDetails(payrollId);
+    setTimeout(() => {
+        openDisbursePayrollModal('all');
+    }, 300);
 }
 
 async function loadHrPayrolls() {
@@ -15961,14 +15972,14 @@ function renderHrPayrolls() {
                             </span>
                         `) : ''}
                         ${p.status === 'approved' ? (canApprove ? `
-                            <button type="button" onclick="updateHrPayrollStatus(${p.id}, 'paid')" class="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 shadow transition">
+                            <button type="button" onclick="startDisburseFromList(${p.id})" class="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 shadow transition" title="صرف رواتب المسير المعتمد">
                                 <i data-lucide="banknote" class="w-4 h-4"></i>
-                                <span>تأكيد الصرف</span>
+                                <span>صرف الرواتب</span>
                             </button>
                         ` : `
-                            <span class="px-2.5 py-1.5 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-300 font-bold text-[11px] flex items-center gap-1">
-                                <i data-lucide="check" class="w-3 h-3"></i>
-                                <span>معمد وجاهز للصرف</span>
+                            <span class="px-2.5 py-1.5 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-300 font-bold text-[11px] flex items-center gap-1" title="صرف الرواتب صلاحية حصرية للمدير المالي (أ. ابوالنصر البغدادي)">
+                                <i data-lucide="lock" class="w-3 h-3"></i>
+                                <span>معمد (صرف المالي)</span>
                             </span>
                         `) : ''}
                         <button type="button" onclick="deleteHrPayroll(${p.id})" class="p-2 rounded-xl bg-slate-800 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 border border-slate-700 transition" title="حذف المسير">
@@ -16150,12 +16161,16 @@ async function viewHrPayrollDetails(id) {
                                         <span>صرف</span>
                                     </button>
                                 ` : ''}
-                                ${!isPaid ? `
+                                ${!isPaid ? ((payroll.status === 'draft' || canApprove) ? `
                                     <button type="button" onclick="openEditPayrollItemModal(${it.id})" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-750 text-slate-300 border border-slate-700 font-bold text-[10px] flex items-center gap-1 transition" title="تعديل الراتب والبدلات لهذا الموظف">
                                         <i data-lucide="edit-3" class="w-3 h-3"></i>
                                         <span>تعديل</span>
                                     </button>
                                 ` : `
+                                    <span class="p-1 text-slate-600 cursor-not-allowed inline-flex items-center" title="المسير معتمد ولا يمكن تعديله إلا من قبل المدير المالي (أ. ابوالنصر البغدادي)">
+                                        <i data-lucide="lock" class="w-3.5 h-3.5 text-slate-500"></i>
+                                    </span>
+                                `) : `
                                     <span class="px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500/10 text-emerald-400 inline-flex items-center gap-1">
                                         <i data-lucide="check-circle-2" class="w-3 h-3"></i>
                                         <span>مكتمل</span>
@@ -16198,6 +16213,10 @@ async function viewHrPayrollDetails(id) {
                     <button type="button" onclick="openDisbursePayrollModal('selected')" class="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-200 border border-slate-700 font-bold flex items-center gap-2 transition">
                         <i data-lucide="check-square" class="w-4 h-4 text-emerald-400"></i>
                         <span>صرف للموظفين المحددين</span>
+                    </button>
+                    <button type="button" onclick="syncHrPayrollWithEmployees(${payroll.id})" class="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-750 text-amber-300 border border-amber-500/30 font-bold flex items-center gap-2 transition" title="مزامنة وتحديث مستحقات المسير وفق أحدث سجلات وبيانات الموظفين">
+                        <i data-lucide="refresh-cw" class="w-4 h-4 text-amber-400"></i>
+                        <span>مزامنة وتحديث من بيانات الموظفين</span>
                     </button>
                 `;
             } else {
@@ -16321,6 +16340,10 @@ function updatePayrollSelectionSummary() {
 }
 
 async function openDisbursePayrollModal(target) {
+    if (!isFinancialManagerUser()) {
+        showToast('عفواً، صلاحية صرف رواتب الموظفين حصرية للأستاذ ابوالنصر البغدادي (المدير المالي) فقط.', 'error');
+        return;
+    }
     if (!currentHrPayrollDetail) return;
     const payroll = currentHrPayrollDetail.payroll || currentHrPayrollDetail;
     const items = currentHrPayrollDetail.items || payroll.items || [];
@@ -16574,6 +16597,13 @@ async function submitHrPayrollDisbursement(e) {
 // ----------------- EDIT PAYROLL ITEM -----------------
 function openEditPayrollItemModal(itemId) {
     if (!currentHrPayrollDetail) return;
+    const payroll = currentHrPayrollDetail.payroll || currentHrPayrollDetail;
+    const isApproved = (payroll.status && payroll.status !== 'draft');
+    if (isApproved && !isFinancialManagerUser()) {
+        showToast('عفواً، لا يمكن تعديل المسير بعد اعتماده إلا من قبل المدير المالي (أ. ابوالنصر البغدادي).', 'error');
+        return;
+    }
+
     const items = currentHrPayrollDetail.items || currentHrPayrollDetail.payroll?.items || [];
     const item = items.find(it => it.id === itemId || String(it.id) === String(itemId));
     if (!item) {
@@ -16646,6 +16676,7 @@ async function submitEditPayrollItem(event) {
         btn.classList.add('opacity-70');
     }
 
+    const u = currentUser || JSON.parse(localStorage.getItem('segieny_auth_user') || '{}');
     const payload = {
         basic_salary: parseFloat(document.getElementById('edit-item-basic')?.value || 0),
         allowances: parseFloat(document.getElementById('edit-item-allowances')?.value || 0),
@@ -16653,7 +16684,10 @@ async function submitEditPayrollItem(event) {
         overtime_amount: 0,
         deductions: parseFloat(document.getElementById('edit-item-deductions')?.value || 0),
         advances_deducted: parseFloat(document.getElementById('edit-item-advances')?.value || 0),
-        notes: document.getElementById('edit-item-notes')?.value?.trim() || ''
+        notes: document.getElementById('edit-item-notes')?.value?.trim() || '',
+        user_id: u.id,
+        user_role: u.role,
+        user_name: u.name
     };
 
     try {
@@ -16687,6 +16721,44 @@ async function submitEditPayrollItem(event) {
             btn.disabled = false;
             btn.classList.remove('opacity-70');
         }
+    }
+}
+
+async function syncHrPayrollWithEmployees(payrollId) {
+    if (!payrollId) return;
+    if (!isFinancialManagerUser()) {
+        showToast('عفواً، صلاحية مزامنة وتحديث المسير من بيانات الموظفين حصرية للمدير المالي (أ. ابوالنصر البغدادي).', 'error');
+        return;
+    }
+    
+    if (!confirm('هل تريد مزامنة بنود هذا المسير مع أحدث رواتب وبيانات الموظفين النشطين في سجل الموظفين؟ سيتم تحديث الرواتب والبدلات لجميع الموظفين الذين لم تُصرف رواتبهم بعد في هذا الشهر.')) {
+        return;
+    }
+
+    const u = currentUser || JSON.parse(localStorage.getItem('segieny_auth_user') || '{}');
+    try {
+        showToast('جاري مزامنة بيانات المسير مع سجل الموظفين...', 'info');
+        const res = await fetch(`/api/hr/payrolls/${payrollId}/sync`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                user_id: u.id,
+                user_role: u.role,
+                user_name: u.name
+            })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+            showToast(data.message || 'تمت مزامنة وتحديث المسير بنجاح', 'success');
+            await viewHrPayrollDetails(payrollId);
+            await loadHrPayrolls();
+            await loadHrStats();
+        } else {
+            showToast(data.error || 'تعذر مزامنة المسير', 'error');
+        }
+    } catch (err) {
+        console.error('Error syncing payroll:', err);
+        showToast('حدث خطأ في الاتصال بالخادم', 'error');
     }
 }
 

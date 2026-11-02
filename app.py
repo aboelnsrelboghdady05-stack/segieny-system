@@ -5870,6 +5870,35 @@ def get_hr_payroll_details(id):
     conn.close()
     return jsonify(payroll)
 
+def is_user_abuelnasr(cursor, user_id=None, user_role='', user_name='', username=''):
+    """
+    Checks strictly if the user is Abu Elnasr (المدير المالي).
+    Only Abu Elnasr is permitted to approve, disburse, or modify approved payrolls.
+    """
+    if user_id:
+        try:
+            cursor.execute('SELECT id, name, role, username FROM team_members WHERE id = ?', (user_id,))
+            u = cursor.fetchone()
+            if u:
+                if str(u['id']) == '1' or (u['username'] or '').lower() == 'baghdadi':
+                    return True, f"{u['name'] or 'ابوالنصر البغدادي'} (المدير المالي)"
+                r = (u['role'] or '').lower()
+                nm = u['name'] or ''
+                un = (u['username'] or '').lower()
+                if 'مدير مالي' in r or 'المدير المالي' in r or 'ابوالنصر' in nm or un == 'baghdadi':
+                    return True, f"{nm} (المدير المالي)"
+        except Exception:
+            pass
+
+    u_name = (user_name or '').lower()
+    u_role = (user_role or '').lower()
+    u_uname = (username or '').lower()
+    if u_uname == 'baghdadi' or 'ابوالنصر' in u_name or 'baghdadi' in u_name:
+        return True, f"{user_name or 'ابوالنصر البغدادي'} (المدير المالي)"
+    if 'مدير مالي' in u_role or 'المدير المالي' in u_role:
+        return True, f"{user_name or 'ابوالنصر البغدادي'} (المدير المالي)"
+    return False, 'مستخدم غير مصرح له'
+
 @app.route('/api/hr/payrolls/<int:id>/status', methods=['PUT'])
 def update_hr_payroll_status(id):
     data = request.json or {}
@@ -5889,39 +5918,12 @@ def update_hr_payroll_status(id):
         conn.close()
         return jsonify({'error': 'مسير الرواتب غير موجود'}), 404
 
-    # Verification: Is the user the Financial Manager (المدير المالي) or General Manager?
-    is_financial_manager = False
-    manager_title = 'ابوالنصر البغدادي (المدير المالي)'
-
-    if user_id:
-        cursor.execute('SELECT id, name, role, username FROM team_members WHERE id = ?', (user_id,))
-        u = cursor.fetchone()
-        if u:
-            r = (u['role'] or '').lower()
-            un = (u['username'] or '').lower()
-            nm = u['name'] or ''
-            if 'مدير مالي' in r or 'المدير المالي' in r or un == 'baghdadi' or 'ابوالنصر' in nm:
-                is_financial_manager = True
-                manager_title = f"{nm} (المدير المالي)"
-            elif 'مدير عام' in r or 'المدير العام' in r or un == 'nawaf' or 'نواف' in nm or u['id'] == 1:
-                is_financial_manager = True
-                manager_title = f"{nm} (المدير العام)"
-
-    if not is_financial_manager:
-        r_str = (user_role or '').lower()
-        n_str = (user_name or '').lower()
-        if 'مدير مالي' in r_str or 'المدير المالي' in r_str or 'ابوالنصر' in n_str or 'baghdadi' in n_str:
-            is_financial_manager = True
-            manager_title = f"{user_name or 'ابوالنصر البغدادي'} (المدير المالي)"
-        elif 'مدير عام' in r_str or 'المدير العام' in r_str or 'نواف' in n_str or 'admin' in r_str:
-            is_financial_manager = True
-            manager_title = f"{user_name or 'الإدارة العامة'} (المدير العام)"
-
-    # Strict authorization: Only Financial Manager can approve or confirm payment
-    if new_status in ('approved', 'paid') and not is_financial_manager:
+    # Strict authorization: Only Abu Elnasr (المدير المالي) can approve or confirm payment
+    is_abuelnasr, manager_title = is_user_abuelnasr(cursor, user_id=user_id, user_role=user_role, user_name=user_name)
+    if new_status in ('approved', 'paid') and not is_abuelnasr:
         conn.close()
         return jsonify({
-            'error': 'عفواً، تعميد مسير الرواتب هو صلاحية حصرية للمدير المالي (أ. ابوالنصر البغدادي). لا يمكن إتمام التعميد إلا بحساب المدير المالي.'
+            'error': 'عفواً، تعميد مسير الرواتب هو صلاحية حصرية للمدير المالي (أ. ابوالنصر البغدادي). لا يمكن إتمام التعميد إلا بحساب ابوالنصر البغدادي.'
         }), 403
 
     approved_by = data.get('approved_by') or manager_title
@@ -5999,38 +6001,12 @@ def disburse_hr_payroll_items(id):
             conn.close()
             return jsonify({'error': 'مسير الرواتب غير موجود'}), 404
 
-        # Verification of Financial Manager
-        is_financial_manager = False
-        manager_title = 'ابوالنصر البغدادي (المدير المالي)'
-
-        if user_id:
-            cursor.execute('SELECT id, name, role, username FROM team_members WHERE id = ?', (user_id,))
-            u = cursor.fetchone()
-            if u:
-                r = (u['role'] or '').lower()
-                un = (u['username'] or '').lower()
-                nm = u['name'] or ''
-                if 'مدير مالي' in r or 'المدير المالي' in r or un == 'baghdadi' or 'ابوالنصر' in nm:
-                    is_financial_manager = True
-                    manager_title = f"{nm} (المدير المالي)"
-                elif 'مدير عام' in r or 'المدير العام' in r or un == 'nawaf' or 'نواف' in nm or u['id'] == 1:
-                    is_financial_manager = True
-                    manager_title = f"{nm} (المدير العام)"
-
-        if not is_financial_manager:
-            r_str = (user_role or '').lower()
-            n_str = (user_name or '').lower()
-            if 'مدير مالي' in r_str or 'المدير المالي' in r_str or 'ابوالنصر' in n_str or 'baghdadi' in n_str:
-                is_financial_manager = True
-                manager_title = f"{user_name or 'ابوالنصر البغدادي'} (المدير المالي)"
-            elif 'مدير عام' in r_str or 'المدير العام' in r_str or 'نواف' in n_str or 'admin' in r_str:
-                is_financial_manager = True
-                manager_title = f"{user_name or 'الإدارة العامة'} (المدير العام)"
-
-        if not is_financial_manager:
+        # Verification: ONLY Abu Elnasr (المدير المالي) can disburse salaries!
+        is_abuelnasr, manager_title = is_user_abuelnasr(cursor, user_id=user_id, user_role=user_role, user_name=user_name)
+        if not is_abuelnasr:
             conn.close()
             return jsonify({
-                'error': 'عفواً، صرف رواتب الموظفين صلاحية حصرية للمدير المالي (أ. ابوالنصر البغدادي).'
+                'error': 'عفواً، صرف رواتب الموظفين صلاحية حصرية للمدير المالي (أ. ابوالنصر البغدادي) فقط.'
             }), 403
 
         # Determine target items
@@ -6251,14 +6227,33 @@ def update_hr_payroll_item(id):
         return jsonify({'error': 'بند الراتب غير موجود'}), 404
 
     payroll_id = item['payroll_id']
+    cursor.execute('SELECT * FROM hr_payrolls WHERE id = ?', (payroll_id,))
+    payroll = cursor.fetchone()
+    if not payroll:
+        conn.close()
+        return jsonify({'error': 'مسير الرواتب غير موجود'}), 404
 
-    # Read updated values or fallback to current
-    basic_salary = float(data.get('basic_salary', item['basic_salary']) or 0)
-    allowances = float(data.get('allowances', item['allowances']) or 0)
-    overtime_amount = float(data.get('overtime_amount', item['overtime_amount']) or 0)
-    bonus_amount = float(data.get('bonus_amount', item['bonus_amount']) or 0)
-    deductions = float(data.get('deductions', item['deductions']) or 0)
-    advances_deducted = float(data.get('advances_deducted', item['advances_deducted']) or 0)
+    # Permission check: If payroll is approved or paid, only Abu Elnasr can edit!
+    user_id = data.get('user_id')
+    user_role = data.get('user_role') or ''
+    user_name = data.get('user_name') or ''
+    is_abuelnasr, _ = is_user_abuelnasr(cursor, user_id=user_id, user_role=user_role, user_name=user_name)
+
+    if payroll['status'] in ('approved', 'paid', 'partially_paid') and not is_abuelnasr:
+        conn.close()
+        return jsonify({'error': 'عفواً، لا يمكن تعديل المسير بعد اعتماده إلا من قبل المدير المالي (أ. ابوالنصر البغدادي).'}), 403
+
+    if item['status'] == 'paid' and not is_abuelnasr:
+        conn.close()
+        return jsonify({'error': 'تم صرف راتب هذا الموظف مسبقاً ولا يمكن تعديله إلا بواسطة المدير المالي.'}), 400
+
+    # Read updated values safely
+    basic_salary = float(data['basic_salary']) if data.get('basic_salary') is not None else float(item['basic_salary'] or 0)
+    allowances = float(data['allowances']) if data.get('allowances') is not None else float(item['allowances'] or 0)
+    overtime_amount = float(data['overtime_amount']) if data.get('overtime_amount') is not None else float(item['overtime_amount'] or 0)
+    bonus_amount = float(data['bonus_amount']) if data.get('bonus_amount') is not None else float(item['bonus_amount'] or 0)
+    deductions = float(data['deductions']) if data.get('deductions') is not None else float(item['deductions'] or 0)
+    advances_deducted = float(data['advances_deducted']) if data.get('advances_deducted') is not None else float(item['advances_deducted'] or 0)
     notes = data.get('notes', item['notes'] or '')
 
     net_salary = round((basic_salary + allowances + overtime_amount + bonus_amount) - (deductions + advances_deducted), 2)
@@ -6302,20 +6297,110 @@ def update_hr_payroll_item(id):
     ''', (round(tot_basic, 2), round(tot_allowances, 2), round(tot_deductions, 2), round(tot_advances, 2), round(tot_net, 2), emp_count, payroll_id))
 
     conn.commit()
-
-    cursor.execute('SELECT * FROM hr_payroll_items WHERE id = ?', (id,))
-    updated_item = dict(cursor.fetchone())
-
-    cursor.execute('SELECT * FROM hr_payrolls WHERE id = ?', (payroll_id,))
-    updated_payroll = dict(cursor.fetchone())
-
     conn.close()
     return jsonify({
         'success': True,
-        'message': 'تم تعديل راتب الموظف في المسير بنجاح وتحديث الإجماليات',
-        'item': updated_item,
-        'payroll': updated_payroll
+        'message': 'تم تعديل راتب الموظف في المسير بنجاح وتحديث الإجماليات'
     })
+
+@app.route('/api/hr/payrolls/<int:id>/sync', methods=['POST'])
+def sync_hr_payroll_employees(id):
+    data = request.json or {}
+    user_id = data.get('user_id')
+    user_role = data.get('user_role') or ''
+    user_name = data.get('user_name') or ''
+
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM hr_payrolls WHERE id = ?', (id,))
+    payroll = cursor.fetchone()
+    if not payroll:
+        conn.close()
+        return jsonify({'error': 'مسير الرواتب غير موجود'}), 404
+
+    is_abuelnasr, _ = is_user_abuelnasr(cursor, user_id=user_id, user_role=user_role, user_name=user_name)
+    if payroll['status'] in ('approved', 'paid', 'partially_paid') and not is_abuelnasr:
+        conn.close()
+        return jsonify({'error': 'عفواً، لا يمكن تعديل ومزامنة المسير بعد اعتماده إلا من قبل المدير المالي (أ. ابوالنصر البغدادي).'}), 403
+
+    # Fetch all active employees
+    cursor.execute('''
+        SELECT id, name, job_title, basic_salary, (housing_allowance + transport_allowance + other_allowances) AS allowances, iban
+        FROM hr_employees
+        WHERE status = 'active'
+    ''')
+    employees = cursor.fetchall()
+
+    cursor.execute('SELECT * FROM hr_payroll_items WHERE payroll_id = ?', (id,))
+    existing_items = {r['employee_id']: dict(r) for r in cursor.fetchall()}
+
+    for emp in employees:
+        emp_id = emp['id']
+        basic = float(emp['basic_salary'] or 0)
+        allowances = float(emp['allowances'] or 0)
+
+        # Check advances
+        cursor.execute('''
+            SELECT id, monthly_deduction, remaining_amount
+            FROM hr_advances
+            WHERE employee_id = ? AND status = 'active' AND remaining_amount > 0
+            LIMIT 1
+        ''', (emp_id,))
+        adv = cursor.fetchone()
+        adv_deduct = min(float(adv['monthly_deduction'] or 0), float(adv['remaining_amount'] or 0)) if adv else 0.0
+
+        if emp_id in existing_items:
+            it = existing_items[emp_id]
+            if it.get('status') != 'paid':
+                bonus = float(it.get('bonus_amount') or 0) + float(it.get('overtime_amount') or 0)
+                ded = float(it.get('deductions') or 0)
+                net = round((basic + allowances + bonus) - (ded + adv_deduct), 2)
+                cursor.execute('''
+                    UPDATE hr_payroll_items
+                    SET basic_salary = ?,
+                        allowances = ?,
+                        advances_deducted = ?,
+                        net_salary = ?
+                    WHERE id = ?
+                ''', (basic, allowances, adv_deduct, net, it['id']))
+        else:
+            net = round((basic + allowances) - adv_deduct, 2)
+            cursor.execute('''
+                INSERT INTO hr_payroll_items (
+                    payroll_id, employee_id, employee_name, job_title,
+                    basic_salary, allowances, overtime_amount, bonus_amount,
+                    deductions, advances_deducted, net_salary, iban, status
+                ) VALUES (?, ?, ?, ?, ?, ?, 0, 0, 0, ?, ?, ?, 'pending')
+            ''', (id, emp_id, emp['name'], emp['job_title'], basic, allowances, adv_deduct, net, emp['iban']))
+
+    # Recalculate totals
+    cursor.execute('''
+        SELECT 
+            COALESCE(SUM(basic_salary), 0),
+            COALESCE(SUM(allowances + overtime_amount + bonus_amount), 0),
+            COALESCE(SUM(deductions), 0),
+            COALESCE(SUM(advances_deducted), 0),
+            COALESCE(SUM(net_salary), 0),
+            COUNT(id)
+        FROM hr_payroll_items
+        WHERE payroll_id = ?
+    ''', (id,))
+    tot_basic, tot_allowances, tot_deductions, tot_advances, tot_net, emp_count = cursor.fetchone()
+
+    cursor.execute('''
+        UPDATE hr_payrolls
+        SET total_basic = ?,
+            total_allowances = ?,
+            total_deductions = ?,
+            total_advances = ?,
+            total_net = ?,
+            employees_count = ?
+        WHERE id = ?
+    ''', (round(tot_basic, 2), round(tot_allowances, 2), round(tot_deductions, 2), round(tot_advances, 2), round(tot_net, 2), emp_count, id))
+
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True, 'message': 'تم تحديث المسير وإعادة احتساب مستحقات الموظفين بنجاح'})
 
 # ----------------- LEAVES -----------------
 @app.route('/api/hr/leaves', methods=['GET'])

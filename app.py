@@ -5759,8 +5759,23 @@ def delete_hr_employee(id):
 def get_hr_payrolls():
     conn = database.get_db_connection()
     cursor = conn.cursor()
-    cursor.execute('SELECT * FROM hr_payrolls ORDER BY month_year DESC, id DESC')
-    payrolls = [dict(row) for row in cursor.fetchall()]
+    cursor.execute('''
+        SELECT 
+            p.*,
+            COALESCE((SELECT SUM(net_salary) FROM hr_payroll_items WHERE payroll_id = p.id), p.total_net) AS computed_total_net,
+            COALESCE((SELECT COUNT(id) FROM hr_payroll_items WHERE payroll_id = p.id), p.employees_count) AS computed_emp_count
+        FROM hr_payrolls p 
+        ORDER BY p.month_year DESC, p.id DESC
+    ''')
+    rows = cursor.fetchall()
+    payrolls = []
+    for r in rows:
+        d = dict(r)
+        if d.get('computed_total_net') is not None:
+            d['total_net'] = round(float(d['computed_total_net']), 2)
+        if d.get('computed_emp_count') is not None:
+            d['employees_count'] = int(d['computed_emp_count'])
+        payrolls.append(d)
     conn.close()
     return jsonify(payrolls)
 
@@ -5866,7 +5881,37 @@ def get_hr_payroll_details(id):
     payroll = dict(row)
 
     cursor.execute('SELECT * FROM hr_payroll_items WHERE payroll_id = ? ORDER BY id ASC', (id,))
-    payroll['items'] = [dict(r) for r in cursor.fetchall()]
+    items = [dict(r) for r in cursor.fetchall()]
+    payroll['items'] = items
+
+    if items:
+        tot_basic = round(sum(float(it.get('basic_salary') or 0) for it in items), 2)
+        tot_allowances = round(sum(float(it.get('allowances') or 0) + float(it.get('bonus_amount') or 0) + float(it.get('overtime_amount') or 0) for it in items), 2)
+        tot_deductions = round(sum(float(it.get('deductions') or 0) for it in items), 2)
+        tot_advances = round(sum(float(it.get('advances_deducted') or 0) for it in items), 2)
+        tot_net = round(sum(float(it.get('net_salary') or 0) for it in items), 2)
+
+        payroll['total_basic'] = tot_basic
+        payroll['total_allowances'] = tot_allowances
+        payroll['total_deductions'] = tot_deductions
+        payroll['total_advances'] = tot_advances
+        payroll['total_net'] = tot_net
+        payroll['employees_count'] = len(items)
+
+        # Sync back to hr_payrolls table if different
+        if round(float(row.get('total_net') or 0), 2) != tot_net or round(float(row.get('total_basic') or 0), 2) != tot_basic:
+            cursor.execute('''
+                UPDATE hr_payrolls
+                SET total_basic = ?,
+                    total_allowances = ?,
+                    total_deductions = ?,
+                    total_advances = ?,
+                    total_net = ?,
+                    employees_count = ?
+                WHERE id = ?
+            ''', (tot_basic, tot_allowances, tot_deductions, tot_advances, tot_net, len(items), id))
+            conn.commit()
+
     conn.close()
     return jsonify(payroll)
 
@@ -6274,16 +6319,22 @@ def update_hr_payroll_item(id):
     # Recalculate parent payroll totals
     cursor.execute('''
         SELECT 
-            COALESCE(SUM(basic_salary), 0),
-            COALESCE(SUM(allowances + overtime_amount + bonus_amount), 0),
-            COALESCE(SUM(deductions), 0),
-            COALESCE(SUM(advances_deducted), 0),
-            COALESCE(SUM(net_salary), 0),
-            COUNT(id)
+            COALESCE(SUM(basic_salary), 0) AS tot_basic,
+            COALESCE(SUM(allowances + overtime_amount + bonus_amount), 0) AS tot_allowances,
+            COALESCE(SUM(deductions), 0) AS tot_deductions,
+            COALESCE(SUM(advances_deducted), 0) AS tot_advances,
+            COALESCE(SUM(net_salary), 0) AS tot_net,
+            COUNT(id) AS emp_count
         FROM hr_payroll_items
         WHERE payroll_id = ?
     ''', (payroll_id,))
-    tot_basic, tot_allowances, tot_deductions, tot_advances, tot_net, emp_count = cursor.fetchone()
+    calc_row = cursor.fetchone()
+    tot_basic = float(calc_row['tot_basic'] or 0)
+    tot_allowances = float(calc_row['tot_allowances'] or 0)
+    tot_deductions = float(calc_row['tot_deductions'] or 0)
+    tot_advances = float(calc_row['tot_advances'] or 0)
+    tot_net = float(calc_row['tot_net'] or 0)
+    emp_count = int(calc_row['emp_count'] or 0)
 
     cursor.execute('''
         UPDATE hr_payrolls
@@ -6376,16 +6427,22 @@ def sync_hr_payroll_employees(id):
     # Recalculate totals
     cursor.execute('''
         SELECT 
-            COALESCE(SUM(basic_salary), 0),
-            COALESCE(SUM(allowances + overtime_amount + bonus_amount), 0),
-            COALESCE(SUM(deductions), 0),
-            COALESCE(SUM(advances_deducted), 0),
-            COALESCE(SUM(net_salary), 0),
-            COUNT(id)
+            COALESCE(SUM(basic_salary), 0) AS tot_basic,
+            COALESCE(SUM(allowances + overtime_amount + bonus_amount), 0) AS tot_allowances,
+            COALESCE(SUM(deductions), 0) AS tot_deductions,
+            COALESCE(SUM(advances_deducted), 0) AS tot_advances,
+            COALESCE(SUM(net_salary), 0) AS tot_net,
+            COUNT(id) AS emp_count
         FROM hr_payroll_items
         WHERE payroll_id = ?
     ''', (id,))
-    tot_basic, tot_allowances, tot_deductions, tot_advances, tot_net, emp_count = cursor.fetchone()
+    calc_row = cursor.fetchone()
+    tot_basic = float(calc_row['tot_basic'] or 0)
+    tot_allowances = float(calc_row['tot_allowances'] or 0)
+    tot_deductions = float(calc_row['tot_deductions'] or 0)
+    tot_advances = float(calc_row['tot_advances'] or 0)
+    tot_net = float(calc_row['tot_net'] or 0)
+    emp_count = int(calc_row['emp_count'] or 0)
 
     cursor.execute('''
         UPDATE hr_payrolls

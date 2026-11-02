@@ -16088,11 +16088,25 @@ async function viewHrPayrollDetails(id) {
             statusEl.innerHTML = '<i data-lucide="check-circle-2" class="w-3.5 h-3.5"></i><span>تم الصرف والتحويل بالكامل لجميع الموظفين ✓</span>';
         }
 
-        // Totals
-        document.getElementById('payroll-sum-basic').innerText = formatCurrency(payroll.total_basic || 0);
-        document.getElementById('payroll-sum-allowances').innerText = formatCurrency(payroll.total_allowances || 0);
-        document.getElementById('payroll-sum-advances').innerText = formatCurrency(payroll.total_advances || payroll.total_deductions || 0);
-        document.getElementById('payroll-sum-net').innerText = formatCurrency(payroll.total_net || 0);
+        // Totals: compute live from items to ensure 100% precision
+        const liveBasic = items.reduce((acc, it) => acc + (parseFloat(it.basic_salary) || 0), 0);
+        const liveAllowances = items.reduce((acc, it) => {
+            const extra = (parseFloat(it.housing_allowance) || 0) + (parseFloat(it.transport_allowance) || 0) + (parseFloat(it.other_allowances) || 0);
+            const allw = parseFloat(it.allowances !== undefined && it.allowances !== null ? it.allowances : extra) || 0;
+            const bon = (parseFloat(it.bonus_amount || 0) + parseFloat(it.overtime_amount || 0));
+            return acc + allw + bon;
+        }, 0);
+        const liveAdvances = items.reduce((acc, it) => {
+            const ded = parseFloat(it.deductions || 0);
+            const adv = parseFloat(it.advances_deducted !== undefined && it.advances_deducted !== null ? it.advances_deducted : (it.advances_deduction || 0)) || 0;
+            return acc + ded + adv;
+        }, 0);
+        const liveNet = items.reduce((acc, it) => acc + (parseFloat(it.net_salary) || 0), 0);
+
+        document.getElementById('payroll-sum-basic').innerText = formatCurrency(liveBasic || payroll.total_basic || 0);
+        document.getElementById('payroll-sum-allowances').innerText = formatCurrency(liveAllowances || payroll.total_allowances || 0);
+        document.getElementById('payroll-sum-advances').innerText = formatCurrency(liveAdvances || payroll.total_advances || payroll.total_deductions || 0);
+        document.getElementById('payroll-sum-net').innerText = formatCurrency(liveNet || payroll.total_net || 0);
 
         // Reset selection bar & select-all
         const selBar = document.getElementById('payroll-selection-bar');

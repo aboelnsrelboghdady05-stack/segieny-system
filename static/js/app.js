@@ -7884,7 +7884,7 @@ async function printSupplierStatement(supplierId) {
                 <td style="padding: 8px; text-align: left; font-family: monospace; font-weight: bold; color: #16a34a;">${formatCurrency(p.amount)} ر.س</td>
                 <td style="padding: 8px;">${p.payment_method === 'cash' ? 'نقداً' : (p.payment_method === 'bank_transfer' ? 'تحويل بنكي' : 'شيك')}</td>
                 <td style="padding: 8px;">${escapeHtml(p.reference_number || '-')}</td>
-                <td style="padding: 8px;">${p.expense_id ? `فاتورة #${p.expense_id}` : 'دفعة عامة'}</td>
+                <td style="padding: 8px;">${p.expense_id ? `فاتورة #${p.expense_id}` : (p.payment_type ? escapeHtml(p.payment_type) : 'دفعة عامة')}</td>
                 <td style="padding: 8px;">${escapeHtml(p.notes || '-')}</td>
             </tr>
         `).join('');
@@ -7942,10 +7942,17 @@ async function printSupplierStatement(supplierId) {
                         <div class="kpi-title">إجمالي المبالغ المسددة</div>
                         <div class="kpi-value" style="color: #16a34a;">${formatCurrency(totalPaid)} ر.س</div>
                     </div>
+                    ${totalPaid > totalInvoiced + 0.01 ? `
+                    <div class="kpi-card" style="background: #ecfdf5; border-color: #a7f3d0;">
+                        <div class="kpi-title" style="color: #047857; font-weight: bold;">باقيلنا مبلغ عنده (رصيد لصالح المؤسسة)</div>
+                        <div class="kpi-value" style="color: #059669; font-weight: 900;">+${formatCurrency(totalPaid - totalInvoiced)} ر.س</div>
+                    </div>
+                    ` : `
                     <div class="kpi-card" style="background: #fffbeb; border-color: #fde68a;">
                         <div class="kpi-title">صافي الرصيد المستحق للمورد</div>
                         <div class="kpi-value" style="color: #d97706;">${formatCurrency(totalRemaining)} ر.س</div>
                     </div>
+                    `}
                 </div>
 
                 <div class="section-title">أولاً: سجل الفواتير وتوريدات المواد</div>
@@ -11198,12 +11205,31 @@ function renderSuppliersCards(suppliers) {
                             <span class="text-[11px] font-bold text-emerald-400 font-mono">${formatCurrency(paid)}</span>
                         </div>
                     </div>
-                    ${unpaid > 0 ? `
-                        <div class="mt-1 pt-1 border-t border-slate-800 text-[10px] text-amber-300 font-bold flex items-center justify-between">
-                            <span>فواتير مستحقة غير مسددة:</span>
-                            <span class="font-mono text-amber-400">${formatCurrency(unpaid)} ر.س</span>
+                    ${unpaid > 0.01 ? `
+                        <div class="mt-1 pt-1.5 border-t border-slate-800 text-[10px] text-amber-300 font-bold flex items-center justify-between">
+                            <span class="flex items-center gap-1">
+                                <i data-lucide="clock" class="w-3 h-3 text-amber-400"></i>
+                                <span>مستحق للمورد (فواتير غير مسددة):</span>
+                            </span>
+                            <span class="font-mono text-amber-400 font-bold">${formatCurrency(unpaid)} ر.س</span>
                         </div>
-                    ` : ''}
+                    ` : (paid > invoiced + 0.01 ? `
+                        <div class="mt-1 pt-1.5 border-t border-slate-800 text-[10px] text-emerald-300 font-bold flex items-center justify-between bg-emerald-950/30 px-2 py-1 rounded-lg border border-emerald-900/40">
+                            <span class="flex items-center gap-1 text-emerald-400 font-black">
+                                <i data-lucide="arrow-down-left" class="w-3.5 h-3.5 text-emerald-400"></i>
+                                <span>باقيلنا مبلغ عنده (رصيد لصالحنا):</span>
+                            </span>
+                            <span class="font-mono text-emerald-400 font-black text-xs">+${formatCurrency(paid - invoiced)} ر.س</span>
+                        </div>
+                    ` : (invoiced > 0 ? `
+                        <div class="mt-1 pt-1.5 border-t border-slate-800 text-[10px] text-slate-400 font-bold flex items-center justify-between">
+                            <span class="flex items-center gap-1 text-emerald-400">
+                                <i data-lucide="check-circle-2" class="w-3 h-3"></i>
+                                <span>الحساب خالص ومسدد بالكامل ✓</span>
+                            </span>
+                            <span class="font-mono text-slate-400">0.00 ر.س</span>
+                        </div>
+                    ` : ''))}
                 </div>
 
                 ${hasVariance ? `
@@ -11717,17 +11743,17 @@ async function openSupplierDetailModal(supplierId) {
         const remEl = document.getElementById('sd-stat-remaining');
         const remLabel = document.getElementById('sd-stat-remaining-label');
         if (remEl) {
-            if (sum.unpaid_balance > 0) {
-                remEl.innerText = formatCurrency(sum.unpaid_balance);
-                remEl.className = 'text-base sm:text-lg font-black text-amber-400';
-                if (remLabel) remLabel.innerText = 'المتبقي المستحق له';
-            } else if (sum.excess_paid > 0) {
-                remEl.innerText = formatCurrency(sum.excess_paid);
-                remEl.className = 'text-base sm:text-lg font-black text-emerald-400';
-                if (remLabel) remLabel.innerText = 'رصيد دائن للمورد (مدفوع مقدماً)';
+            if (sum.excess_paid > 0.01) {
+                remEl.innerText = `+${formatCurrency(sum.excess_paid)} ر.س`;
+                remEl.className = 'text-base sm:text-lg font-black text-emerald-400 font-mono';
+                if (remLabel) remLabel.innerHTML = '<span class="text-emerald-300 font-black flex items-center justify-center gap-1"><i data-lucide="arrow-down-left" class="w-3.5 h-3.5 text-emerald-400 inline"></i> باقيلنا مبلغ عنده (رصيد لصالحنا)</span>';
+            } else if (sum.unpaid_balance > 0.01) {
+                remEl.innerText = `${formatCurrency(sum.unpaid_balance)} ر.س`;
+                remEl.className = 'text-base sm:text-lg font-black text-amber-400 font-mono';
+                if (remLabel) remLabel.innerText = 'المتبقي المستحق للمورد (فواتير)';
             } else {
-                remEl.innerText = '0.00';
-                remEl.className = 'text-base sm:text-lg font-black text-slate-400';
+                remEl.innerText = '0.00 ر.س';
+                remEl.className = 'text-base sm:text-lg font-black text-slate-400 font-mono';
                 if (remLabel) remLabel.innerText = 'الحساب خالص ومسدد بالكامل ✓';
             }
         }
@@ -12043,12 +12069,17 @@ async function onSupplierPaymentSupplierChanged(supplierId, preselectedExpenseId
     const idInput = document.getElementById('sp-supplier-id');
     const nameEl = document.getElementById('sp-modal-supplier-name');
     const invSelect = document.getElementById('sp-expense-id');
-    invSelect.innerHTML = '<option value="">-- دفعة عامة غير مقيدة بفاتورة (تحت الحساب) --</option>';
+    invSelect.innerHTML = '<option value="">-- سداد مجمع لتغطية الفواتير وقيد الفائض كرصيد لصالحنا --</option>';
+
+    const fillBtn = document.getElementById('sp-btn-fill-all');
+    const quickUnpaidText = document.getElementById('sp-quick-unpaid-text');
 
     if (!supplierId) {
         if (idInput) idInput.value = '';
         if (nameEl) nameEl.innerText = '';
+        if (fillBtn) fillBtn.classList.add('hidden');
         currentSupplierUnpaidInvoices = [];
+        updateSupplierPaymentLiveSummary();
         return;
     }
 
@@ -12063,10 +12094,15 @@ async function onSupplierPaymentSupplierChanged(supplierId, preselectedExpenseId
             const expList = data.supplier.expenses || [];
             currentSupplierUnpaidInvoices = expList;
 
+            let totalUnpaidAll = 0;
+
             expList.forEach(e => {
                 const total = parseFloat(e.amount) || 0;
                 const paid = (e.payment_status === 'unpaid' ? 0 : parseFloat(e.paid_amount || total));
                 const remaining = Math.max(0, total - paid);
+                if (remaining > 0.01) {
+                    totalUnpaidAll += remaining;
+                }
 
                 const opt = document.createElement('option');
                 opt.value = e.id;
@@ -12077,17 +12113,151 @@ async function onSupplierPaymentSupplierChanged(supplierId, preselectedExpenseId
                 invSelect.appendChild(opt);
             });
 
+            if (fillBtn && quickUnpaidText) {
+                if (totalUnpaidAll > 0.01) {
+                    quickUnpaidText.innerText = `${formatCurrency(totalUnpaidAll)} ر.س`;
+                    fillBtn.classList.remove('hidden');
+                } else {
+                    fillBtn.classList.add('hidden');
+                }
+            }
+
             if (preselectedExpenseId) {
                 onSupplierPaymentInvoiceChanged(preselectedExpenseId);
             }
+            updateSupplierPaymentLiveSummary();
         }
     } catch (err) {
         console.error('Error fetching supplier invoices for payment modal:', err);
     }
 }
 
+function fillSupplierFullUnpaidAmount() {
+    let totalUnpaid = 0;
+    const invSelect = document.getElementById('sp-expense-id');
+    const selectedExpenseId = invSelect ? invSelect.value : '';
+
+    if (selectedExpenseId) {
+        const inv = currentSupplierUnpaidInvoices.find(e => String(e.id) === String(selectedExpenseId));
+        if (inv) {
+            const total = parseFloat(inv.amount) || 0;
+            const paid = (inv.payment_status === 'unpaid' ? 0 : parseFloat(inv.paid_amount || total));
+            totalUnpaid = Math.max(0, total - paid);
+        }
+    } else {
+        currentSupplierUnpaidInvoices.forEach(e => {
+            const total = parseFloat(e.amount) || 0;
+            const paid = (e.payment_status === 'unpaid' ? 0 : parseFloat(e.paid_amount || total));
+            const remaining = Math.max(0, total - paid);
+            if (remaining > 0.01) {
+                totalUnpaid += remaining;
+            }
+        });
+    }
+
+    const amtInput = document.getElementById('sp-amount');
+    if (amtInput) {
+        amtInput.value = totalUnpaid > 0 ? totalUnpaid.toFixed(2) : '0.00';
+    }
+    updateSupplierPaymentLiveSummary();
+}
+
+function updateSupplierPaymentLiveSummary() {
+    const previewBox = document.getElementById('sp-balance-preview-box');
+    const unpaidEl = document.getElementById('sp-preview-unpaid');
+    const impactEl = document.getElementById('sp-preview-impact');
+    if (!previewBox || !unpaidEl || !impactEl) return;
+
+    let totalUnpaidAll = 0;
+    currentSupplierUnpaidInvoices.forEach(e => {
+        const total = parseFloat(e.amount) || 0;
+        const paid = (e.payment_status === 'unpaid' ? 0 : parseFloat(e.paid_amount || total));
+        const rem = Math.max(0, total - paid);
+        if (rem > 0.01) totalUnpaidAll += rem;
+    });
+
+    unpaidEl.innerText = `${formatCurrency(totalUnpaidAll)} ر.س`;
+
+    const enteredAmount = parseFloat(document.getElementById('sp-amount')?.value) || 0;
+    const selectedExpenseId = document.getElementById('sp-expense-id')?.value;
+
+    if (enteredAmount <= 0) {
+        previewBox.className = "p-3 rounded-xl bg-slate-900/90 border border-slate-800 text-xs space-y-1.5 transition-all";
+        impactEl.className = "text-[11px] font-bold text-slate-400 pt-1 border-t border-slate-800";
+        impactEl.innerHTML = totalUnpaidAll > 0 
+            ? `أدخل المبلغ لتوضيح أثر السداد على الفواتير (إجمالي المستحق: <span class="text-amber-400">${formatCurrency(totalUnpaidAll)} ر.س</span>)`
+            : 'لا توجد فواتير مستحقة على هذا المورد حالياً (أي مبلغ يُدفع يُسجل كدفعة مقدمة / رصيد لصالحنا)';
+        return;
+    }
+
+    if (!selectedExpenseId) {
+        // سداد مجمع
+        if (totalUnpaidAll === 0) {
+            previewBox.className = "p-3 rounded-xl bg-emerald-950/40 border border-emerald-500/50 text-xs space-y-1.5 transition-all";
+            impactEl.className = "text-[11px] font-bold text-emerald-400 pt-1 border-t border-emerald-800/60";
+            impactEl.innerHTML = `✓ لا توجد فواتير مستحقة. المبلغ بالكامل (<span class="font-mono">${formatCurrency(enteredAmount)} ر.س</span>) سيُقيد كـ <strong>دفعة مقدمة (باقيلي مبلغ عنده / رصيد لصالح المؤسسة)</strong>.`;
+        } else if (enteredAmount > totalUnpaidAll + 0.01) {
+            const excess = enteredAmount - totalUnpaidAll;
+            previewBox.className = "p-3 rounded-xl bg-emerald-950/50 border border-emerald-500 text-xs space-y-1.5 transition-all shadow-lg shadow-emerald-950/50";
+            impactEl.className = "text-[11px] font-bold text-emerald-300 pt-1 border-t border-emerald-700/60";
+            impactEl.innerHTML = `
+                <div class="flex items-center gap-1.5 text-emerald-400 mb-0.5">
+                    <span class="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                    <span>المبلغ يتجاوز إجمالي الفواتير المستحقة!</span>
+                </div>
+                <div>سيتم سداد كافة فواتير المورد بالكامل (${formatCurrency(totalUnpaidAll)} ر.س)، وسيكون <strong>باقيلنا مبلغ عنده (رصيد دائن لصالحنا)</strong>: <span class="font-mono text-emerald-200 text-sm font-extrabold">+${formatCurrency(excess)} ر.س</span> ✓</div>
+            `;
+        } else if (Math.abs(enteredAmount - totalUnpaidAll) <= 0.01) {
+            previewBox.className = "p-3 rounded-xl bg-blue-950/40 border border-blue-500/50 text-xs space-y-1.5 transition-all";
+            impactEl.className = "text-[11px] font-bold text-blue-300 pt-1 border-t border-blue-800/60";
+            impactEl.innerHTML = `✓ سداد كامل دقيق لجميع فواتير المورد المستحقة، وسيصبح رصيد المورد مساوياً للصفر (0.00 ر.س).`;
+        } else {
+            const rem = totalUnpaidAll - enteredAmount;
+            previewBox.className = "p-3 rounded-xl bg-amber-950/40 border border-amber-500/50 text-xs space-y-1.5 transition-all";
+            impactEl.className = "text-[11px] font-bold text-amber-300 pt-1 border-t border-amber-800/60";
+            impactEl.innerHTML = `سداد جزئي للفواتير حسب الأقدمية (FIFO). سيتبقى للمورد بذمتنا بعد هذا السداد: <span class="font-mono text-amber-200 font-extrabold">${formatCurrency(rem)} ر.س</span>.`;
+        }
+    } else {
+        // فاتورة محددة
+        const inv = currentSupplierUnpaidInvoices.find(e => String(e.id) === String(selectedExpenseId));
+        const invTotal = inv ? (parseFloat(inv.amount) || 0) : 0;
+        const invPaid = inv ? (inv.payment_status === 'unpaid' ? 0 : parseFloat(inv.paid_amount || invTotal)) : 0;
+        const invRem = Math.max(0, invTotal - invPaid);
+
+        if (enteredAmount > invRem + 0.01) {
+            const excess = enteredAmount - invRem;
+            const otherUnpaid = Math.max(0, totalUnpaidAll - invRem);
+            if (excess > otherUnpaid + 0.01) {
+                const finalExcess = excess - otherUnpaid;
+                previewBox.className = "p-3 rounded-xl bg-emerald-950/50 border border-emerald-500 text-xs space-y-1.5 transition-all";
+                impactEl.className = "text-[11px] font-bold text-emerald-300 pt-1 border-t border-emerald-700/60";
+                impactEl.innerHTML = `
+                    <div class="text-emerald-400 mb-0.5">✓ سيتم سداد الفاتورة المختارة بالكامل + تغطية باقي فواتير المورد</div>
+                    <div>سيتجاوز السداد جميع الفواتير، وسيكون <strong>باقيلنا مبلغ عنده (رصيد لصالحنا)</strong>: <span class="font-mono text-emerald-200 text-sm font-extrabold">+${formatCurrency(finalExcess)} ر.س</span>.</div>
+                `;
+            } else {
+                previewBox.className = "p-3 rounded-xl bg-blue-950/40 border border-blue-500/50 text-xs space-y-1.5 transition-all";
+                impactEl.className = "text-[11px] font-bold text-blue-300 pt-1 border-t border-blue-800/60";
+                impactEl.innerHTML = `سيتم سداد الفاتورة المختارة بالكامل، وتحويل الفائض (${formatCurrency(excess)} ر.س) لتسديد الفواتير الأخرى للمورد تلقائياً.`;
+            }
+        } else if (Math.abs(enteredAmount - invRem) <= 0.01) {
+            previewBox.className = "p-3 rounded-xl bg-emerald-950/40 border border-emerald-500/50 text-xs space-y-1.5 transition-all";
+            impactEl.className = "text-[11px] font-bold text-emerald-400 pt-1 border-t border-emerald-800/60";
+            impactEl.innerHTML = `✓ سداد الفاتورة المختارة بالكامل (100%).`;
+        } else {
+            const rem = invRem - enteredAmount;
+            previewBox.className = "p-3 rounded-xl bg-amber-950/40 border border-amber-500/50 text-xs space-y-1.5 transition-all";
+            impactEl.className = "text-[11px] font-bold text-amber-300 pt-1 border-t border-amber-800/60";
+            impactEl.innerHTML = `سداد جزئي للفاتورة المختارة. سيتبقى منها بذمتنا: <span class="font-mono text-amber-200 font-extrabold">${formatCurrency(rem)} ر.س</span>.`;
+        }
+    }
+}
+
 function onSupplierPaymentInvoiceChanged(expenseId) {
-    if (!expenseId) return;
+    if (!expenseId) {
+        updateSupplierPaymentLiveSummary();
+        return;
+    }
     const inv = currentSupplierUnpaidInvoices.find(e => String(e.id) === String(expenseId));
     if (inv) {
         const total = parseFloat(inv.amount) || 0;
@@ -12114,6 +12284,7 @@ function onSupplierPaymentInvoiceChanged(expenseId) {
             if (pSelect) pSelect.value = inv.project_id;
         }
     }
+    updateSupplierPaymentLiveSummary();
 }
 
 async function submitSupplierPaymentForm(e) {
@@ -12152,7 +12323,7 @@ async function submitSupplierPaymentForm(e) {
         });
         const data = await res.json();
         if (data.success) {
-            showToast('تم تسجيل سداد الدفعة للمورد بنجاح وقيدها في كشف الحساب!');
+            showToast(data.message || 'تم تسجيل سداد الدفعة للمورد بنجاح وقيدها في كشف الحساب!', 'success');
             closeModal('supplier-payment-modal');
             document.getElementById('supplier-payment-form').reset();
             await loadSuppliersData();

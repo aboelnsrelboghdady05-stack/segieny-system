@@ -5580,8 +5580,13 @@
 
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
-                        <label class="block font-bold text-slate-300 mb-1">مبلغ السداد (ر.س) *</label>
-                        <input type="number" step="0.01" min="0.01" id="sp-amount" required placeholder="0.00" class="w-full bg-slate-900 border border-slate-750 rounded-xl px-3 py-2 text-white font-mono font-bold text-emerald-400 text-sm focus:border-emerald-500">
+                        <div class="flex items-center justify-between mb-1">
+                            <label class="block font-bold text-slate-300">مبلغ السداد (ر.س) *</label>
+                            <button type="button" id="sp-btn-fill-all" onclick="fillSupplierFullUnpaidAmount()" class="hidden text-[10px] text-emerald-400 hover:text-emerald-300 font-bold underline cursor-pointer" title="تعبئة إجمالي الفواتير غير المسددة حالياً">
+                                سداد كامل المستحق (<span id="sp-quick-unpaid-text">0.00</span>)
+                            </button>
+                        </div>
+                        <input type="number" step="0.01" min="0.01" id="sp-amount" oninput="updateSupplierPaymentLiveSummary()" required placeholder="0.00" class="w-full bg-slate-900 border border-slate-750 rounded-xl px-3 py-2 text-white font-mono font-bold text-emerald-400 text-sm focus:border-emerald-500">
                     </div>
                     <div>
                         <label class="block font-bold text-slate-300 mb-1">تاريخ السداد *</label>
@@ -5589,13 +5594,26 @@
                     </div>
                 </div>
 
+                <!-- Live Balance & Invoices Impact Preview Box -->
+                <div id="sp-balance-preview-box" class="p-3 rounded-xl bg-slate-900/90 border border-slate-800 text-xs space-y-1.5 transition-all">
+                    <!-- Populated dynamically via JS -->
+                    <div class="flex items-center justify-between text-slate-400 text-[11px]">
+                        <span>الفواتير المستحقة غير المسددة:</span>
+                        <span id="sp-preview-unpaid" class="font-mono font-bold text-amber-400">0.00 ر.س</span>
+                    </div>
+                    <div id="sp-preview-impact" class="text-[11px] font-bold text-slate-300 pt-1 border-t border-slate-800">
+                        أدخل المبلغ لتوضيح أثر السداد على الفواتير والرصيد
+                    </div>
+                </div>
+
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                         <label class="block font-bold text-slate-300 mb-1">نوع السداد / الدفعة *</label>
                         <select id="sp-payment-type" class="w-full bg-slate-900 border border-slate-750 rounded-xl px-3 py-2 text-white text-xs focus:border-emerald-500">
+                            <option value="سداد مجمع للفواتير">سداد مجمع / تسوية فواتير</option>
                             <option value="دفعة تحت الحساب">دفعة تحت الحساب (عامة)</option>
-                            <option value="سداد جزئي لفاتورة">سداد جزئي لفاتورة</option>
                             <option value="سداد فاتورة بالكامل">سداد فاتورة بالكامل</option>
+                            <option value="سداد جزئي لفاتورة">سداد جزئي لفاتورة</option>
                             <option value="سلفة / دفعة مقدمة">سلفة / دفعة مقدمة قبل التوريد</option>
                             <option value="تصفية حساب نهائي">تصفية حساب نهائي</option>
                         </select>
@@ -5615,8 +5633,8 @@
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                         <label class="block font-bold text-slate-300 mb-1">ربط بفاتورة توريد معينة (اختياري)</label>
-                        <select id="sp-expense-id" onchange="onSupplierPaymentInvoiceChanged(this.value)" class="w-full bg-slate-900 border border-slate-750 rounded-xl px-3 py-2 text-white text-xs focus:border-emerald-500">
-                            <option value="">-- دفعة عامة غير مقيدة بفاتورة (تحت الحساب) --</option>
+                        <select id="sp-expense-id" onchange="onSupplierPaymentInvoiceChanged(this.value); updateSupplierPaymentLiveSummary();" class="w-full bg-slate-900 border border-slate-750 rounded-xl px-3 py-2 text-white text-xs focus:border-emerald-500">
+                            <option value="">-- سداد مجمع لتغطية الفواتير وقيد الفائض كرصيد لصالحنا --</option>
                         </select>
                     </div>
                     <div>
@@ -7441,7 +7459,7 @@
 
     <!-- Scripts -->
     <script src="/static/js/i18n.js?v=20261020_v1"></script>
-    <script src="/static/js/app.js?v=20261102_v7"></script>
+    <script src="/static/js/app.js?v=20261104_v1"></script>
     <script>
     (function() {
         try {

@@ -3541,42 +3541,126 @@ def add_supplier_payment(supplier_id):
             receipt_file_path = f"/uploads/{stored}"
             receipt_file_name = orig
 
+    # Collect unpaid/partial expenses for this supplier
     cursor.execute('''
-        INSERT INTO supplier_payments (
-            supplier_id, project_id, expense_id, quotation_id,
-            amount, payment_date, payment_method, payment_type,
-            reference_number, receipt_file_path, receipt_file_name, notes
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ''', (
-        supplier_id, project_id, expense_id, quotation_id,
-        amount, payment_date, payment_method, payment_type,
-        reference_number, receipt_file_path, receipt_file_name, notes
-    ))
-    payment_id = cursor.lastrowid
+        SELECT id, title, amount, paid_amount, payment_status 
+        FROM expenses 
+        WHERE (supplier_id = ? OR (supplier_id IS NULL AND (quotation_id IN (SELECT sq.id FROM supplier_quotations sq WHERE sq.supplier_id = ?) OR TRIM(paid_to) = (SELECT TRIM(name) FROM suppliers WHERE id = ?))))
+          AND (payment_status != 'paid' OR payment_status IS NULL)
+        ORDER BY expense_date ASC, id ASC
+    ''', (supplier_id, supplier_id, supplier_id))
+    all_unpaid_exps = cursor.fetchall()
 
-    # If linked to a specific invoice/expense, update its paid_amount and payment_status
+    created_payment_ids = []
+    remaining_to_allocate = amount
+    settled_invoices_count = 0
+    excess_credit = 0.0
+
+    # 1. If user chose a specific invoice, prioritize it
     if expense_id:
-        cursor.execute('SELECT amount FROM expenses WHERE id = ?', (expense_id,))
-        exp_row = cursor.fetchone()
-        if exp_row:
-            cursor.execute('SELECT COALESCE(SUM(amount), 0) FROM supplier_payments WHERE expense_id = ?', (expense_id,))
-            total_paid_on_exp = float(cursor.fetchone()[0])
-            exp_amount = float(exp_row['amount'] or 0)
-            if total_paid_on_exp >= exp_amount - 0.01:
-                status = 'paid'
-            elif total_paid_on_exp > 0:
-                status = 'partial'
-            else:
-                status = 'unpaid'
-            cursor.execute('UPDATE expenses SET paid_amount = ?, payment_status = ?, payment_date = COALESCE(payment_date, ?) WHERE id = ?', (total_paid_on_exp, status, payment_date, expense_id))
+        target_exp = next((e for e in all_unpaid_exps if e['id'] == expense_id), None)
+        if not target_exp:
+            cursor.execute('SELECT id, title, amount, paid_amount, payment_status FROM expenses WHERE id = ?', (expense_id,))
+            target_exp = cursor.fetchone()
+        
+        if target_exp:
+            exp_amt = float(target_exp['amount'] or 0)
+            exp_paid = float(target_exp['paid_amount'] or 0)
+            exp_rem = max(0.0, exp_amt - exp_paid)
+
+            if exp_rem > 0:
+                alloc = min(remaining_to_allocate, exp_rem)
+                new_paid = exp_paid + alloc
+                new_st = 'paid' if new_paid >= exp_amt - 0.01 else 'partial'
+                cursor.execute('''
+                    UPDATE expenses 
+                    SET paid_amount = ?, payment_status = ?, payment_date = COALESCE(payment_date, ?) 
+                    WHERE id = ?
+                ''', (round(new_paid, 2), new_st, payment_date, target_exp['id']))
+                
+                ptype = 'سداد فاتورة بالكامل' if new_st == 'paid' else 'سداد جزئي لفاتورة'
+                pnotes = notes or f"سداد عن فاتورة: {target_exp['title']}"
+                cursor.execute('''
+                    INSERT INTO supplier_payments (
+                        supplier_id, project_id, expense_id, quotation_id,
+                        amount, payment_date, payment_method, payment_type,
+                        reference_number, receipt_file_path, receipt_file_name, notes
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (supplier_id, project_id, target_exp['id'], quotation_id, alloc, payment_date, payment_method, ptype, reference_number, receipt_file_path, receipt_file_name, pnotes))
+                created_payment_ids.append(cursor.lastrowid)
+                remaining_to_allocate -= alloc
+                if new_st == 'paid':
+                    settled_invoices_count += 1
+
+    # 2. If there is remaining amount and other unpaid invoices exist, auto-settle across them (FIFO)
+    if remaining_to_allocate > 0.01:
+        for uexp in all_unpaid_exps:
+            if remaining_to_allocate <= 0.01:
+                break
+            if expense_id and uexp['id'] == expense_id:
+                continue
+            uexp_amt = float(uexp['amount'] or 0)
+            uexp_paid = float(uexp['paid_amount'] or 0)
+            uexp_rem = max(0.0, uexp_amt - uexp_paid)
+            if uexp_rem <= 0.01:
+                continue
+
+            alloc = min(remaining_to_allocate, uexp_rem)
+            new_p = uexp_paid + alloc
+            new_st = 'paid' if new_p >= uexp_amt - 0.01 else 'partial'
+            cursor.execute('''
+                UPDATE expenses 
+                SET paid_amount = ?, payment_status = ?, payment_date = COALESCE(payment_date, ?) 
+                WHERE id = ?
+            ''', (round(new_p, 2), new_st, payment_date, uexp['id']))
+
+            ptype = 'سداد فاتورة بالكامل' if new_st == 'paid' else 'سداد جزئي لفاتورة'
+            pnotes = notes or f"سداد عن فاتورة: {uexp['title']}"
+            cursor.execute('''
+                INSERT INTO supplier_payments (
+                    supplier_id, project_id, expense_id, quotation_id,
+                    amount, payment_date, payment_method, payment_type,
+                    reference_number, receipt_file_path, receipt_file_name, notes
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (supplier_id, project_id, uexp['id'], quotation_id, alloc, payment_date, payment_method, ptype, reference_number, receipt_file_path, receipt_file_name, pnotes))
+            created_payment_ids.append(cursor.lastrowid)
+            remaining_to_allocate -= alloc
+            if new_st == 'paid':
+                settled_invoices_count += 1
+
+    # 3. If there is STILL remaining amount (or supplier had no unpaid invoices at all), record as advance credit!
+    if remaining_to_allocate > 0.01 or not created_payment_ids:
+        excess_credit = round(remaining_to_allocate, 2)
+        ptype = 'سلفة / دفعة مقدمة قبل التوريد' if settled_invoices_count == 0 and not expense_id else 'دفعة مقدمة / رصيد إضافي لصالحنا'
+        pnotes = notes or 'رصيد دائن للمؤسسة طرف المورد (دفعة زائدة / سداد مقدم)'
+        cursor.execute('''
+            INSERT INTO supplier_payments (
+                supplier_id, project_id, expense_id, quotation_id,
+                amount, payment_date, payment_method, payment_type,
+                reference_number, receipt_file_path, receipt_file_name, notes
+            ) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (supplier_id, project_id, quotation_id, remaining_to_allocate, payment_date, payment_method, ptype, reference_number, receipt_file_path, receipt_file_name, pnotes))
+        created_payment_ids.append(cursor.lastrowid)
 
     conn.commit()
     conn.close()
+
+    msg = 'تم تسجيل سداد الدفعة للمورد بنجاح وقيدها في كشف الحساب'
+    if excess_credit > 0:
+        if settled_invoices_count > 0:
+            msg = f'تم سداد {settled_invoices_count} فاتورة بالكامل، وتجاوز المبلغ الفواتير حيث يوجد الآن رصيد لصالحنا طرف المورد (باقيلنا مبلغ عنده) قدره: {excess_credit:,.2f} ر.س ✓'
+        else:
+            msg = f'تم قيد الدفعة بالكامل كرصيد لصالحنا طرف المورد (باقيلنا مبلغ عنده / دفعة مقدمة) قدره: {excess_credit:,.2f} ر.س ✓'
+    elif settled_invoices_count > 0:
+        msg = f'تم سداد وتحديث حالة {settled_invoices_count} فاتورة للمورد بنجاح ✓'
+
     return jsonify({
         'success': True,
-        'id': payment_id,
-        'message': 'تم تسجيل سداد الدفعة للمورد بنجاح وقيدها في كشف الحساب'
+        'id': created_payment_ids[0] if created_payment_ids else None,
+        'payment_ids': created_payment_ids,
+        'excess_credit': excess_credit,
+        'settled_invoices_count': settled_invoices_count,
+        'message': msg
     })
 
 @app.route('/api/suppliers/<int:supplier_id>/payments', methods=['GET'])

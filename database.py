@@ -789,6 +789,15 @@ def init_db():
     if 'custody_name' not in hr_payroll_cols:
         try: cursor.execute('ALTER TABLE hr_payrolls ADD COLUMN custody_name TEXT')
         except: pass
+    if 'project_id' not in hr_payroll_cols:
+        try: cursor.execute('ALTER TABLE hr_payrolls ADD COLUMN project_id INTEGER')
+        except: pass
+    if 'project_name' not in hr_payroll_cols:
+        try: cursor.execute('ALTER TABLE hr_payrolls ADD COLUMN project_name TEXT')
+        except: pass
+    if 'project_allocation' not in hr_payroll_cols:
+        try: cursor.execute('ALTER TABLE hr_payrolls ADD COLUMN project_allocation TEXT')
+        except: pass
 
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS hr_payroll_items (
@@ -826,7 +835,10 @@ def init_db():
         ('custody_name', 'TEXT'),
         ('payment_date', 'TEXT'),
         ('paid_by', 'TEXT'),
-        ('disbursed_at', 'TEXT')
+        ('disbursed_at', 'TEXT'),
+        ('project_id', 'INTEGER'),
+        ('project_name', 'TEXT'),
+        ('project_allocation', 'TEXT')
     ]:
         if col not in hr_item_cols:
             try: cursor.execute(f'ALTER TABLE hr_payroll_items ADD COLUMN {col} {col_type}')

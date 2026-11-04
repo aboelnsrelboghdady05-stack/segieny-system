@@ -6210,11 +6210,89 @@ def disburse_hr_payroll_items(id):
             except:
                 pass
 
-        # Disburse each item
+        # Parse project allocations
+        raw_default_pids = data.get('default_project_ids') or data.get('project_ids') or []
+        if isinstance(raw_default_pids, (int, str)) and str(raw_default_pids).isdigit():
+            default_project_ids = [int(raw_default_pids)]
+        elif isinstance(raw_default_pids, list):
+            default_project_ids = [int(p) for p in raw_default_pids if p and str(p).isdigit()]
+        else:
+            default_project_ids = []
+
+        emp_allocations = data.get('emp_allocations') or {}
+        if not isinstance(emp_allocations, dict):
+            emp_allocations = {}
+
+        cursor.execute('SELECT id, name, code FROM projects')
+        all_projs_dict = {p['id']: p['name'] for p in cursor.fetchall()}
+
+        def_fallback_pid = 7 if 7 in all_projs_dict else (list(all_projs_dict.keys())[0] if all_projs_dict else 1)
+        if not default_project_ids:
+            if cust and cust.get('project_id') and cust['project_id'] in all_projs_dict:
+                default_project_ids = [cust['project_id']]
+            else:
+                default_project_ids = [def_fallback_pid]
+
+        project_expense_totals = {}
+
+        # Disburse each item with project allocation
         for it in target_items:
             item_id = it['id']
             emp_id = it['employee_id']
             adv_ded = float(it.get('advances_deducted') or 0.0)
+            net_sal = float(it.get('net_salary') or 0.0)
+
+            # Determine projects for this specific employee
+            raw_pids = emp_allocations.get(str(item_id)) or emp_allocations.get(item_id)
+            if not raw_pids or not isinstance(raw_pids, list) or len(raw_pids) == 0:
+                raw_pids = default_project_ids
+
+            item_pids = [int(pid) for pid in raw_pids if pid and str(pid).isdigit() and int(pid) in all_projs_dict]
+            if not item_pids:
+                item_pids = default_project_ids or [def_fallback_pid]
+
+            num_p = len(item_pids)
+            alloc_list = []
+            base_share = round(net_sal / num_p, 2)
+            running_share = 0.0
+
+            for p_idx, pid in enumerate(item_pids):
+                if p_idx == num_p - 1:
+                    p_amt = round(net_sal - running_share, 2)
+                else:
+                    p_amt = base_share
+                    running_share += base_share
+
+                p_name = all_projs_dict.get(pid, f'مشروع #{pid}')
+                alloc_list.append({
+                    'project_id': pid,
+                    'project_name': p_name,
+                    'amount': p_amt,
+                    'percentage': round(100.0 / num_p, 1)
+                })
+
+                if pid not in project_expense_totals:
+                    project_expense_totals[pid] = {
+                        'project_name': p_name,
+                        'amount': 0.0,
+                        'items': []
+                    }
+                project_expense_totals[pid]['amount'] = round(project_expense_totals[pid]['amount'] + p_amt, 2)
+                project_expense_totals[pid]['items'].append({
+                    'employee_name': it['employee_name'],
+                    'amount': p_amt,
+                    'full_net': net_sal
+                })
+
+            if num_p == 1:
+                item_project_id = item_pids[0]
+                item_project_name = all_projs_dict.get(item_project_id, '')
+            else:
+                item_project_id = None
+                p_names_short = ' / '.join([all_projs_dict.get(pid, f'#{pid}') for pid in item_pids])
+                item_project_name = f"مقسم بالتساوي ({num_p} مشاريع): {p_names_short}"
+
+            item_project_alloc_json = json.dumps(alloc_list, ensure_ascii=False)
 
             # Extra note with voucher if present
             item_notes = it.get('notes') or ''
@@ -6223,6 +6301,8 @@ def disburse_hr_payroll_items(id):
                 disburse_note += f" ({custody_name})"
             if receipt_voucher_no:
                 disburse_note += f" [سند/حوالة: {receipt_voucher_no}]"
+            if item_project_name:
+                disburse_note += f" [{item_project_name}]"
             if notes:
                 disburse_note += f" - {notes}"
             
@@ -6237,9 +6317,17 @@ def disburse_hr_payroll_items(id):
                     payment_date = ?,
                     paid_by = ?,
                     disbursed_at = ?,
-                    notes = ?
+                    notes = ?,
+                    project_id = ?,
+                    project_name = ?,
+                    project_allocation = ?
                 WHERE id = ?
-            ''', (payment_method, custody_id, custody_name, payment_date, manager_title, now_str, full_notes, item_id))
+            ''', (
+                payment_method, custody_id, custody_name, payment_date,
+                manager_title, now_str, full_notes,
+                item_project_id, item_project_name, item_project_alloc_json,
+                item_id
+            ))
 
             # Deduct advance if present
             if adv_ded > 0:
@@ -6260,70 +6348,87 @@ def disburse_hr_payroll_items(id):
 
         payroll_new_status = 'paid' if remaining_count == 0 else 'partially_paid'
 
+        if len(project_expense_totals) == 1:
+            payroll_proj_id = list(project_expense_totals.keys())[0]
+            payroll_proj_name = project_expense_totals[payroll_proj_id]['project_name']
+        else:
+            payroll_proj_id = None
+            payroll_proj_name = f"موزع بالتساوي على {len(project_expense_totals)} مشاريع"
+
         cursor.execute('''
             UPDATE hr_payrolls
             SET status = ?,
                 payment_date = ?,
-                payment_method = COALESCE(payment_method || ' / ', '') || ?
+                payment_method = COALESCE(payment_method || ' / ', '') || ?,
+                project_id = ?,
+                project_name = ?
             WHERE id = ?
-        ''', (payroll_new_status, payment_date, payment_method, id))
+        ''', (payroll_new_status, payment_date, payment_method, payroll_proj_id, payroll_proj_name, id))
 
-        # Record expense in expenses table so it links with Custody Statement and Expenses log
-        emp_names_all = '، '.join([it['employee_name'] for it in target_items])
-        expense_title = f"رواتب شهر {payroll['month_year']} ({len(target_items)} موظف): {emp_names_all}"
-        if len(expense_title) > 200:
-            expense_title = f"رواتب شهر {payroll['month_year']} ({len(target_items)} موظف)"
-
-        emp_names_preview = '، '.join([it['employee_name'] for it in target_items[:3]])
-        if len(target_items) > 3:
-            emp_names_preview += f' وآخرين ({len(target_items)} موظف)'
-
-        exp_project_id = None
-        if cust and cust.get('project_id'):
-            exp_project_id = cust['project_id']
-        else:
-            cursor.execute('SELECT id FROM projects ORDER BY id ASC LIMIT 1')
-            first_proj = cursor.fetchone()
-            exp_project_id = first_proj[0] if first_proj else 7
-
+        # Record project-specific expenses in expenses table
         exp_paid_by = cust_emp if (payment_method == 'عهدة' and cust_emp) else manager_title
-        exp_paid_to = emp_names_preview
         exp_custody_id = custody_id if payment_method == 'عهدة' else None
 
-        cursor.execute('''
-            INSERT INTO expenses (
-                project_id, title, category, amount, payment_method,
-                paid_by, paid_to, expense_date, notes, approval_status,
-                approved_by, approved_at, payment_status, payment_date,
-                paid_amount, custody_id, created_by
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'approved', ?, ?, 'paid', ?, ?, ?, ?)
-        ''', (
-            exp_project_id,
-            expense_title,
-            'رواتب وأجور',
-            total_net_disburse,
-            payment_method,
-            exp_paid_by,
-            exp_paid_to,
-            payment_date,
-            f"مسير رواتب شهر {payroll['month_year']}{' - ' + notes if notes else ''}",
-            manager_title,
-            now_str,
-            payment_date,
-            total_net_disburse,
-            exp_custody_id,
-            manager_title
-        ))
+        for proj_id, p_info in project_expense_totals.items():
+            proj_amount = round(p_info['amount'], 2)
+            if proj_amount <= 0.0:
+                continue
+
+            p_name = p_info['project_name']
+            p_items = p_info['items']
+
+            p_emp_names = '، '.join([f"{x['employee_name']} ({x['amount']:,.2f} ر.س)" for x in p_items[:4]])
+            if len(p_items) > 4:
+                p_emp_names += f' وآخرين ({len(p_items)} موظف)'
+
+            exp_title = f"رواتب شهر {payroll['month_year']} - {p_name} ({len(p_items)} موظف)"
+            if len(exp_title) > 200:
+                exp_title = f"رواتب شهر {payroll['month_year']} - {p_name}"
+
+            exp_notes = f"حصة المشروع من رواتب شهر {payroll['month_year']} ({len(p_items)} موظف: {p_emp_names})"
+            if notes:
+                exp_notes += f" | ملاحظات: {notes}"
+
+            cursor.execute('''
+                INSERT INTO expenses (
+                    project_id, title, category, amount, payment_method,
+                    paid_by, paid_to, expense_date, notes, approval_status,
+                    approved_by, approved_at, payment_status, payment_date,
+                    paid_amount, custody_id, created_by
+                ) VALUES (?, ?, 'رواتب وأجور', ?, ?, ?, ?, ?, ?, 'approved', ?, ?, 'paid', ?, ?, ?, ?)
+            ''', (
+                proj_id,
+                exp_title,
+                proj_amount,
+                payment_method,
+                exp_paid_by,
+                p_emp_names,
+                payment_date,
+                exp_notes,
+                manager_title,
+                now_str,
+                payment_date,
+                proj_amount,
+                exp_custody_id,
+                manager_title
+            ))
 
         # Invalidate bank balance cache
         _company_bank_balance_cache['balance'] = None
 
         # Record notification
         try:
+            emp_names_preview = '، '.join([it['employee_name'] for it in target_items[:3]])
+            if len(target_items) > 3:
+                emp_names_preview += f' وآخرين ({len(target_items)} موظف)'
+
+            proj_desc_list = [f"{info['project_name']} ({info['amount']:,.2f} ر.س)" for info in project_expense_totals.values()]
+            proj_summary_desc = '، '.join(proj_desc_list)
+
             cursor.execute('''
                 INSERT INTO notifications (project_id, type, title, message)
                 VALUES (NULL, 'payroll', 'صرف رواتب موظفين', ?)
-            ''', (f"تم صرف رواتب ({emp_names_preview}) لشهر {payroll['month_year']} بمبلغ {total_net_disburse:,.2f} ر.س عن طريق {payment_method}{' (' + custody_name + ')' if custody_name else ''} بواسطة {manager_title}.",))
+            ''', (f"تم صرف رواتب ({emp_names_preview}) لشهر {payroll['month_year']} بمبلغ {total_net_disburse:,.2f} ر.س موزعة على المشاريع: [{proj_summary_desc}] بواسطة {manager_title}.",))
         except:
             pass
 
@@ -6332,12 +6437,14 @@ def disburse_hr_payroll_items(id):
 
         status_label = "واكتمل صرف المسير بالكامل ✓" if payroll_new_status == 'paid' else f"ومتبقي {remaining_count} موظف قيد الصرف"
         method_desc = f"خصماً من عهدة {custody_name}" if payment_method == 'عهدة' else f"عبر {payment_method}"
-        
+        projs_count_label = f"وتحميلها بالتساوي على {len(project_expense_totals)} مشروع" if len(project_expense_totals) > 1 else f"وتحميلها على {list(project_expense_totals.values())[0]['project_name']}"
+
         return jsonify({
             'success': True,
-            'message': f"تم بنجاح صرف رواتب {len(target_items)} موظف بإجمالي {total_net_disburse:,.2f} ر.س {method_desc} {status_label}",
+            'message': f"تم بنجاح صرف رواتب {len(target_items)} موظف بإجمالي {total_net_disburse:,.2f} ر.س {projs_count_label} {method_desc} {status_label}",
             'disbursed_count': len(target_items),
             'disbursed_total': total_net_disburse,
+            'projects_count': len(project_expense_totals),
             'payroll_status': payroll_new_status,
             'remaining_count': remaining_count
         })

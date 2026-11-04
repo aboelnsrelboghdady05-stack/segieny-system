@@ -16347,6 +16347,7 @@ async function viewHrPayrollDetails(id) {
                                     <span class="text-[9px] text-slate-300 font-sans">
                                         ${it.payment_method || 'تحويل بنكي'}${it.custody_name ? ` (${it.custody_name})` : ''}
                                     </span>
+                                    ${it.project_name ? `<span class="text-[9px] text-amber-300 font-bold font-sans block mt-0.5"><i data-lucide="building-2" class="w-3 h-3 inline ml-0.5 text-amber-400"></i>${escapeHtml(it.project_name)}</span>` : ''}
                                     ${it.payment_date ? `<span class="text-[9px] text-slate-500 font-mono">${it.payment_date}</span>` : ''}
                                 </div>
                             ` : `
@@ -16572,6 +16573,11 @@ async function openDisbursePayrollModal(target) {
         return;
     }
 
+    currentHrDisbursePayroll = payroll;
+    currentHrDisburseTargetItems = targetItems;
+    isHrDisburseCustomPerEmp = false;
+    hrDisburseEmpAllocations = {};
+
     const totalAmount = targetItems.reduce((acc, it) => acc + (parseFloat(it.net_salary) || 0), 0);
     const itemIds = targetItems.map(it => it.id);
 
@@ -16590,7 +16596,7 @@ async function openDisbursePayrollModal(target) {
     const previewContainer = document.getElementById('hr-disburse-emp-list-preview');
     previewContainer.innerHTML = targetItems.map(it => `
         <span class="inline-flex items-center gap-1 bg-slate-900 border border-slate-750 px-2 py-1 rounded-md text-[10px] text-white m-0.5">
-            <span class="font-bold text-slate-200">${it.employee_name}:</span>
+            <span class="font-bold text-slate-200">${escapeHtml(it.employee_name)}:</span>
             <span class="font-mono text-emerald-400">${formatCurrency(it.net_salary)}</span>
         </span>
     `).join('');
@@ -16606,6 +16612,17 @@ async function openDisbursePayrollModal(target) {
     const custodyContainer = document.getElementById('hr-disburse-custody-container');
     if (custodyContainer) custodyContainer.classList.add('hidden');
 
+    // Reset customization toggle & container
+    const customContainer = document.getElementById('hr-disburse-custom-emp-container');
+    if (customContainer) customContainer.classList.add('hidden');
+    const toggleText = document.getElementById('text-toggle-emp-project-alloc');
+    if (toggleText) toggleText.innerText = 'تخصيص لكل موظف على حدة';
+    const toggleBtn = document.getElementById('btn-toggle-emp-project-alloc');
+    if (toggleBtn) toggleBtn.className = 'text-[11px] font-bold text-amber-400 hover:text-amber-300 flex items-center gap-1 cursor-pointer transition';
+
+    // Populate Projects UI for Allocation
+    await populateHrDisburseProjectsUI();
+
     // Preload active custodies so they are immediately available
     loadActiveCustodiesForHrPayroll();
 
@@ -16617,6 +16634,278 @@ async function openDisbursePayrollModal(target) {
 
     openModal('hr-disburse-payroll-modal');
     initLucide();
+}
+
+// ----------------- HR PAYROLL PROJECT ALLOCATION HELPERS -----------------
+let currentHrDisbursePayroll = null;
+let currentHrDisburseTargetItems = [];
+let isHrDisburseCustomPerEmp = false;
+let hrDisburseEmpAllocations = {};
+
+async function ensureProjectsLoadedForDisburse() {
+    if (window.allProjectsList && window.allProjectsList.length > 0) {
+        return window.allProjectsList;
+    }
+    try {
+        const res = await fetch('/api/projects');
+        const list = await res.json();
+        if (Array.isArray(list)) {
+            window.allProjectsList = list;
+            allProjectsList = list;
+            return list;
+        }
+    } catch (e) {
+        console.error('Error fetching projects for disburse:', e);
+    }
+    return [];
+}
+
+async function populateHrDisburseProjectsUI(preferredProjectId = null) {
+    const projects = await ensureProjectsLoadedForDisburse();
+    const batchContainer = document.getElementById('hr-disburse-projects-checkboxes');
+    if (!batchContainer) return;
+
+    if (projects.length === 0) {
+        batchContainer.innerHTML = '<div class="p-3 text-center text-slate-500">لا توجد مشاريع مسجلة حالياً</div>';
+        return;
+    }
+
+    // Determine default checked project: preferred or HQ (id 7) or first
+    let defaultCheckId = preferredProjectId;
+    if (!defaultCheckId) {
+        const hq = projects.find(p => p.id === 7 || (p.code && p.code.includes('HQ')));
+        defaultCheckId = hq ? hq.id : projects[0].id;
+    }
+
+    batchContainer.innerHTML = projects.map(p => {
+        const isChecked = (defaultCheckId && String(p.id) === String(defaultCheckId)) || (projects.length === 1);
+        return `
+            <label class="flex items-center gap-2.5 p-2 rounded-xl bg-slate-900 hover:bg-slate-850 border border-slate-800 cursor-pointer text-xs transition">
+                <input type="checkbox" name="hr_batch_project_check" value="${p.id}" ${isChecked ? 'checked' : ''} onchange="onHrBatchProjectsChanged()" class="rounded bg-slate-950 border-slate-700 text-emerald-500 focus:ring-0 cursor-pointer">
+                <div class="truncate">
+                    <span class="font-bold text-white block truncate">${escapeHtml(p.name)}</span>
+                    <span class="text-[10px] text-slate-400 font-mono">${p.code || 'PRJ'}</span>
+                </div>
+            </label>
+        `;
+    }).join('');
+
+    renderHrDisburseEmpCustomList();
+    updateHrDisburseBatchProjectsHint();
+    updateHrDisburseOverallImpact();
+}
+
+function getHrBatchSelectedProjectIds() {
+    const checks = document.querySelectorAll('input[name="hr_batch_project_check"]:checked');
+    return Array.from(checks).map(c => parseInt(c.value)).filter(Boolean);
+}
+
+function updateHrDisburseBatchProjectsHint() {
+    const selectedIds = getHrBatchSelectedProjectIds();
+    const hintBox = document.getElementById('hr-disburse-batch-split-hint');
+    const hintText = document.getElementById('hr-disburse-batch-split-text');
+    if (!hintBox || !hintText) return;
+
+    const projects = window.allProjectsList || [];
+    const totalAmount = parseFloat(document.getElementById('hr-disburse-total-amount')?.getAttribute('data-amount') || 0);
+
+    if (selectedIds.length === 0) {
+        hintBox.classList.remove('hidden');
+        hintBox.className = 'text-[11px] font-bold text-rose-400 flex items-center gap-1.5 bg-rose-500/10 p-2 rounded-lg border border-rose-500/30';
+        hintText.innerText = '⚠️ يرجى اختيار مشروع واحد على الأقل لتحميل الرواتب عليه.';
+    } else if (selectedIds.length === 1) {
+        const p = projects.find(x => x.id === selectedIds[0]);
+        hintBox.classList.remove('hidden');
+        hintBox.className = 'text-[11px] font-bold text-emerald-400 flex items-center gap-1.5 bg-emerald-950/30 p-2 rounded-lg border border-emerald-900/40';
+        hintText.innerHTML = `✓ سيتم تحميل إجمالي الرواتب بالكامل (100%) على: <strong>${escapeHtml(p ? p.name : 'المشروع المختار')}</strong>.`;
+    } else {
+        const n = selectedIds.length;
+        const share = totalAmount / n;
+        const pNames = selectedIds.map(id => {
+            const p = projects.find(x => x.id === id);
+            return p ? p.name : `#${id}`;
+        }).join(' + ');
+
+        hintBox.classList.remove('hidden');
+        hintBox.className = 'text-[11px] font-bold text-emerald-400 flex items-center gap-1.5 bg-emerald-950/40 p-2 rounded-lg border border-emerald-500/40';
+        hintText.innerHTML = `✓ سيتم تقسيم الرواتب <strong>بالتساوي</strong> على ${n} مشاريع (حصة كل مشروع: <span class="font-mono text-emerald-300 font-extrabold">${formatCurrency(share)} ر.س</span>): <span class="text-slate-300 font-normal">[${escapeHtml(pNames)}]</span>.`;
+    }
+}
+
+function onHrBatchProjectsChanged() {
+    updateHrDisburseBatchProjectsHint();
+    if (!isHrDisburseCustomPerEmp) {
+        applyBatchProjectsToAllEmps(false);
+    }
+    updateHrDisburseOverallImpact();
+}
+
+function toggleHrDisbursePerEmpAllocation() {
+    isHrDisburseCustomPerEmp = !isHrDisburseCustomPerEmp;
+    const customContainer = document.getElementById('hr-disburse-custom-emp-container');
+    const toggleText = document.getElementById('text-toggle-emp-project-alloc');
+    const toggleBtn = document.getElementById('btn-toggle-emp-project-alloc');
+
+    if (customContainer) {
+        if (isHrDisburseCustomPerEmp) {
+            customContainer.classList.remove('hidden');
+            if (toggleText) toggleText.innerText = 'الرجوع للتوزيع العام الموحد';
+            if (toggleBtn) toggleBtn.className = 'text-[11px] font-bold text-emerald-400 hover:text-emerald-300 flex items-center gap-1 cursor-pointer transition';
+            applyBatchProjectsToAllEmps(false);
+        } else {
+            customContainer.classList.add('hidden');
+            if (toggleText) toggleText.innerText = 'تخصيص لكل موظف على حدة';
+            if (toggleBtn) toggleBtn.className = 'text-[11px] font-bold text-amber-400 hover:text-amber-300 flex items-center gap-1 cursor-pointer transition';
+            applyBatchProjectsToAllEmps(true);
+        }
+    }
+    updateHrDisburseOverallImpact();
+}
+
+function renderHrDisburseEmpCustomList() {
+    const listContainer = document.getElementById('hr-disburse-emp-allocation-list');
+    if (!listContainer) return;
+
+    const projects = window.allProjectsList || [];
+    const batchSelectedIds = getHrBatchSelectedProjectIds();
+
+    listContainer.innerHTML = currentHrDisburseTargetItems.map(it => {
+        const net = parseFloat(it.net_salary) || 0;
+        return `
+            <div class="p-2.5 rounded-xl bg-slate-900 border border-slate-800 space-y-1.5" data-emp-item-id="${it.id}">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <span class="font-bold text-white text-xs">${escapeHtml(it.employee_name)}</span>
+                        <span class="text-[10px] text-slate-400 font-sans mr-1">(${escapeHtml(it.job_title || 'موظف')})</span>
+                    </div>
+                    <span class="font-mono font-black text-emerald-400 text-xs">${formatCurrency(net)} ر.س</span>
+                </div>
+                <div class="flex flex-wrap gap-1.5 text-[10px]">
+                    ${projects.map(p => {
+                        const isChecked = batchSelectedIds.includes(p.id);
+                        return `
+                            <label class="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-950 border border-slate-800 hover:border-slate-700 cursor-pointer transition">
+                                <input type="checkbox" class="emp-proj-check-${it.id} rounded bg-slate-900 border-slate-700 text-emerald-500 focus:ring-0" value="${p.id}" ${isChecked ? 'checked' : ''} onchange="onEmpProjectCheckChanged(${it.id})">
+                                <span class="text-slate-300 font-medium">${escapeHtml(p.name)}</span>
+                            </label>
+                        `;
+                    }).join('')}
+                </div>
+                <div id="emp-split-status-${it.id}" class="text-[10px] text-slate-400 font-sans">
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    currentHrDisburseTargetItems.forEach(it => updateEmpSplitStatusLabel(it.id));
+}
+
+function updateEmpSplitStatusLabel(itemId) {
+    const it = currentHrDisburseTargetItems.find(x => x.id === itemId);
+    if (!it) return;
+    const net = parseFloat(it.net_salary) || 0;
+    const checks = document.querySelectorAll(`.emp-proj-check-${itemId}:checked`);
+    const pids = Array.from(checks).map(c => parseInt(c.value));
+    const statusEl = document.getElementById(`emp-split-status-${itemId}`);
+    if (!statusEl) return;
+
+    const projects = window.allProjectsList || [];
+    if (pids.length === 0) {
+        statusEl.innerHTML = '<span class="text-amber-400 font-medium">⚠️ لم يتم تحديد مشروع (سيتم استخدام التوزيع العام الموحد)</span>';
+    } else if (pids.length === 1) {
+        const p = projects.find(x => x.id === pids[0]);
+        statusEl.innerHTML = `<span class="text-emerald-400 font-bold">✓ 100% على: ${escapeHtml(p ? p.name : '#' + pids[0])} (${formatCurrency(net)} ر.س)</span>`;
+    } else {
+        const n = pids.length;
+        const share = net / n;
+        statusEl.innerHTML = `<span class="text-emerald-400 font-bold">✓ مقسم بالتساوي (${formatCurrency(share)} ر.س لكل مشروع من الـ ${n} مشاريع)</span>`;
+    }
+}
+
+function onEmpProjectCheckChanged(itemId) {
+    updateEmpSplitStatusLabel(itemId);
+    updateHrDisburseOverallImpact();
+}
+
+function applyBatchProjectsToAllEmps(forceSync = false) {
+    const batchSelectedIds = getHrBatchSelectedProjectIds();
+    currentHrDisburseTargetItems.forEach(it => {
+        const checks = document.querySelectorAll(`.emp-proj-check-${it.id}`);
+        checks.forEach(chk => {
+            chk.checked = batchSelectedIds.includes(parseInt(chk.value));
+        });
+        updateEmpSplitStatusLabel(it.id);
+    });
+    updateHrDisburseOverallImpact();
+}
+
+function updateHrDisburseOverallImpact() {
+    const summaryList = document.getElementById('hr-disburse-impact-list');
+    const totalEl = document.getElementById('hr-disburse-impact-total');
+    if (!summaryList || !totalEl) return;
+
+    const projects = window.allProjectsList || [];
+    const batchSelectedIds = getHrBatchSelectedProjectIds();
+    const projectTotals = {};
+
+    let totalDisbursed = 0;
+
+    currentHrDisburseTargetItems.forEach(it => {
+        const net = parseFloat(it.net_salary) || 0;
+        totalDisbursed += net;
+
+        let pids = [];
+        if (isHrDisburseCustomPerEmp) {
+            const checks = document.querySelectorAll(`.emp-proj-check-${it.id}:checked`);
+            pids = Array.from(checks).map(c => parseInt(c.value));
+        }
+        if (pids.length === 0) {
+            pids = batchSelectedIds.length > 0 ? batchSelectedIds : [7];
+        }
+
+        const numP = pids.length;
+        const baseShare = Math.round((net / numP) * 100) / 100;
+        let running = 0;
+
+        pids.forEach((pid, idx) => {
+            const share = (idx === numP - 1) ? Math.round((net - running) * 100) / 100 : baseShare;
+            running += share;
+
+            if (!projectTotals[pid]) {
+                const p = projects.find(x => x.id === pid);
+                projectTotals[pid] = {
+                    name: p ? p.name : `مشروع #${pid}`,
+                    amount: 0,
+                    count: 0
+                };
+            }
+            projectTotals[pid].amount += share;
+            projectTotals[pid].count += 1;
+        });
+    });
+
+    totalEl.innerText = `${formatCurrency(totalDisbursed)} ر.س`;
+
+    const keys = Object.keys(projectTotals);
+    if (keys.length === 0) {
+        summaryList.innerHTML = '<div class="text-slate-500">لم يتم اختيار أي مشاريع بعد</div>';
+        return;
+    }
+
+    summaryList.innerHTML = keys.map(k => {
+        const item = projectTotals[k];
+        const pct = totalDisbursed > 0 ? ((item.amount / totalDisbursed) * 100).toFixed(1) : 0;
+        return `
+            <div class="flex items-center justify-between text-[11px] py-1 border-b border-slate-900 last:border-0">
+                <span class="text-slate-300 font-bold flex items-center gap-1.5">
+                    <span class="w-2 h-2 rounded-full bg-emerald-400 shrink-0"></span>
+                    <span class="truncate max-w-[280px]">${escapeHtml(item.name)}</span>
+                    <span class="text-[10px] text-slate-500 font-normal">(${item.count} موظف - ${pct}%)</span>
+                </span>
+                <span class="font-mono text-emerald-300 font-bold">${formatCurrency(item.amount)} ر.س</span>
+            </div>
+        `;
+    }).join('');
 }
 
 function onHrPayrollDisburseMethodChange(method) {
@@ -16660,9 +16949,10 @@ async function loadActiveCustodiesForHrPayroll(selectedId = null) {
             const reqNo = c.request_number || `CUST-#${c.id}`;
             const emp = c.employee_name || 'موظف';
             const prj = c.project_name ? `${c.project_name}` : 'مصروف عام';
+            const prjId = c.project_id || '';
             const bal = parseFloat(c.remaining_balance != null ? c.remaining_balance : ((c.disbursed_amount || c.amount || 0) - (c.spent_amount || 0))) || 0;
             const isSel = (selectedId && String(c.id) === String(selectedId)) ? 'selected' : '';
-            opts += `<option value="${c.id}" ${isSel} data-balance="${bal}" data-employee="${escapeHtml(emp)}" data-project="${escapeHtml(prj)}">${reqNo} | ${emp} | (${prj}) — المتبقي: ${formatCurrency(bal)} ر.س</option>`;
+            opts += `<option value="${c.id}" ${isSel} data-balance="${bal}" data-employee="${escapeHtml(emp)}" data-project="${escapeHtml(prj)}" data-project-id="${prjId}">${reqNo} | ${emp} | (${prj}) — المتبقي: ${formatCurrency(bal)} ر.س</option>`;
         });
         select.innerHTML = opts;
 
@@ -16702,6 +16992,7 @@ function onHrPayrollDisburseCustodySelected() {
     const bal = parseFloat(opt.getAttribute('data-balance') || 0);
     const emp = opt.getAttribute('data-employee') || '';
     const prj = opt.getAttribute('data-project') || '';
+    const prjId = opt.getAttribute('data-project-id');
     const totalAmount = parseFloat(document.getElementById('hr-disburse-total-amount')?.getAttribute('data-amount') || 0);
 
     if (badge) {
@@ -16728,6 +17019,20 @@ function onHrPayrollDisburseCustodySelected() {
             warning.classList.add('hidden');
         }
     }
+
+    // Auto-check custody project if valid and no projects checked yet
+    if (prjId && !isHrDisburseCustomPerEmp) {
+        const batchChecks = document.querySelectorAll('input[name="hr_batch_project_check"]');
+        let anyChecked = false;
+        batchChecks.forEach(chk => { if (chk.checked) anyChecked = true; });
+        if (!anyChecked) {
+            const targetChk = document.querySelector(`input[name="hr_batch_project_check"][value="${prjId}"]`);
+            if (targetChk) {
+                targetChk.checked = true;
+                onHrBatchProjectsChanged();
+            }
+        }
+    }
 }
 
 // Keep backward compatibility alias
@@ -16750,12 +17055,31 @@ async function submitHrPayrollDisbursement(e) {
         return;
     }
 
+    // Parse Project Allocations
+    const batchSelectedIds = getHrBatchSelectedProjectIds();
+    const empAllocations = {};
+
+    if (isHrDisburseCustomPerEmp) {
+        currentHrDisburseTargetItems.forEach(it => {
+            const checks = document.querySelectorAll(`.emp-proj-check-${it.id}:checked`);
+            const pids = Array.from(checks).map(c => parseInt(c.value));
+            if (pids.length > 0) {
+                empAllocations[it.id] = pids;
+            }
+        });
+    }
+
+    if (batchSelectedIds.length === 0 && Object.keys(empAllocations).length === 0) {
+        showToast('يرجى اختيار مشروع واحد على الأقل لتحميل الرواتب عليه', 'warning');
+        return;
+    }
+
     const u = currentUser || JSON.parse(localStorage.getItem('segieny_auth_user') || '{}');
     const originalText = btn.innerHTML;
 
     try {
         btn.disabled = true;
-        btn.innerHTML = '<span class="inline-block animate-spin mr-1">⌛</span> جاري تنفيذ الصرف...';
+        btn.innerHTML = '<span class="inline-block animate-spin mr-1">⌛</span> جاري تنفيذ الصرف وتحميل المشاريع...';
 
         const res = await fetch(`/api/hr/payrolls/${payrollId}/disburse`, {
             method: 'POST',
@@ -16767,6 +17091,8 @@ async function submitHrPayrollDisbursement(e) {
                 payment_date: paymentDate,
                 voucher_no: voucherNo,
                 notes: notes,
+                default_project_ids: batchSelectedIds,
+                emp_allocations: empAllocations,
                 user_id: u.id,
                 user_role: u.role,
                 user_name: u.name
@@ -17050,6 +17376,7 @@ async function printHrPayroll(payrollId = null) {
                 </td>
                 <td style="padding: 6px 6px; text-align: center; font-size: 9px; color: #334155;">
                     ${payMethod}
+                    ${it.project_name ? `<div style="font-weight: bold; color: #b45309; font-size: 8.5px; margin-top: 2px;">${escapeHtml(it.project_name)}</div>` : ''}
                 </td>
                 <td style="padding: 6px 6px; text-align: center; font-size: 9px; color: #64748b;">
                     ${escapeHtml(it.notes || '')}

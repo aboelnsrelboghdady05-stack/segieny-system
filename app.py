@@ -2287,6 +2287,22 @@ def create_expense():
     ))
     expense_id = cursor.lastrowid
 
+    # Record supplier payment voucher if supplier is selected and an initial payment amount was recorded
+    if supplier_id and paid_amount and float(paid_amount) > 0 and payment_status in ('paid', 'partial'):
+        pay_type = 'سداد فاتورة بالكامل' if payment_status == 'paid' else 'سداد جزئي لفاتورة'
+        pay_notes = notes or f"سداد عن فاتورة: {title}"
+        cursor.execute('''
+            INSERT INTO supplier_payments (
+                supplier_id, project_id, expense_id, quotation_id,
+                amount, payment_date, payment_method, payment_type,
+                reference_number, receipt_file_path, receipt_file_name, notes
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)
+        ''', (
+            supplier_id, project_id, expense_id, quotation_id,
+            float(paid_amount), payment_date or expense_date, payment_method or 'تحويل بنكي',
+            pay_type, invoice_file_path, invoice_file_name, pay_notes
+        ))
+
     # Deduct from project budget & custody ONLY IF approved by Financial Manager
     if approval_status == 'approved':
         if project_id:
@@ -2726,6 +2742,40 @@ def update_expense(expense_id):
         expense_id
     ))
 
+    # Sync with supplier_payments if supplier is linked
+    if supplier_id:
+        cursor.execute('SELECT id FROM supplier_payments WHERE expense_id = ?', (expense_id,))
+        sp_existing = cursor.fetchone()
+        if sp_existing:
+            if paid_amount and float(paid_amount) > 0 and payment_status in ('paid', 'partial'):
+                pay_type = 'سداد فاتورة بالكامل' if payment_status == 'paid' else 'سداد جزئي لفاتورة'
+                cursor.execute('''
+                    UPDATE supplier_payments
+                    SET amount = ?, payment_date = ?, payment_method = ?,
+                        supplier_id = ?, project_id = ?, quotation_id = ?,
+                        payment_type = ?
+                    WHERE id = ?
+                ''', (float(paid_amount), payment_date or expense_date, payment_method or 'تحويل بنكي', supplier_id, project_id, quotation_id, pay_type, sp_existing[0]))
+            elif payment_status == 'unpaid' or not paid_amount or float(paid_amount) == 0:
+                cursor.execute('DELETE FROM supplier_payments WHERE id = ?', (sp_existing[0],))
+        else:
+            if paid_amount and float(paid_amount) > 0 and payment_status in ('paid', 'partial'):
+                pay_type = 'سداد فاتورة بالكامل' if payment_status == 'paid' else 'سداد جزئي لفاتورة'
+                pay_notes = notes or f"سداد عن فاتورة: {title}"
+                cursor.execute('''
+                    INSERT INTO supplier_payments (
+                        supplier_id, project_id, expense_id, quotation_id,
+                        amount, payment_date, payment_method, payment_type,
+                        reference_number, receipt_file_path, receipt_file_name, notes
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)
+                ''', (
+                    supplier_id, project_id, expense_id, quotation_id,
+                    float(paid_amount), payment_date or expense_date, payment_method or 'تحويل بنكي',
+                    pay_type, invoice_file_path, invoice_file_name, pay_notes
+                ))
+    else:
+        cursor.execute('DELETE FROM supplier_payments WHERE expense_id = ?', (expense_id,))
+
     # Adjust custody spent_amount if custody was/is involved AND expense is approved
     is_approved = (existing.get('approval_status') or 'approved') == 'approved'
     if is_approved:
@@ -2943,8 +2993,8 @@ def delete_expense(expense_id):
             WHERE generated_expense_id = ?
         ''', (expense_id,))
 
-        # 2. Unlink supplier payments & subcontractor payments referencing this expense
-        cursor.execute('UPDATE supplier_payments SET expense_id = NULL WHERE expense_id = ?', (expense_id,))
+        # 2. Delete supplier payments & unlink subcontractor payments referencing this expense
+        cursor.execute('DELETE FROM supplier_payments WHERE expense_id = ?', (expense_id,))
         cursor.execute('UPDATE subcontractor_payments SET expense_id = NULL WHERE expense_id = ?', (expense_id,))
 
         # 3. Delete expense items

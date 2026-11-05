@@ -785,10 +785,18 @@ def get_project_details(project_id):
 
     # Project Expenses
     cursor.execute('''
-        SELECT e.*, ph.name AS phase_name, it.title AS item_title, it.item_code
+        SELECT e.*, 
+               ph.name AS phase_name, 
+               it.title AS item_title, 
+               it.item_code,
+               cust.request_number AS custody_request_number,
+               cust.employee_name AS custody_employee_name,
+               s.name AS supplier_name
         FROM expenses e
         LEFT JOIN project_phases ph ON e.phase_id = ph.id
         LEFT JOIN phase_items it ON e.item_id = it.id
+        LEFT JOIN custody_requests cust ON e.custody_id = cust.id
+        LEFT JOIN suppliers s ON e.supplier_id = s.id
         WHERE e.project_id = ?
         ORDER BY e.expense_date DESC, e.id DESC
     ''', (project_id,))
@@ -1888,7 +1896,7 @@ def get_expenses():
                cust.request_number AS custody_request_number,
                cust.employee_name AS custody_employee_name
         FROM expenses e
-        JOIN projects p ON e.project_id = p.id
+        LEFT JOIN projects p ON e.project_id = p.id
         LEFT JOIN project_phases ph ON e.phase_id = ph.id
         LEFT JOIN phase_items it ON e.item_id = it.id
         LEFT JOIN suppliers s ON e.supplier_id = s.id
@@ -1916,8 +1924,11 @@ def get_expenses():
     if has_increase in ('1', 1, 'true', True):
         query += ' AND e.has_price_increase = 1'
     if category:
-        query += ' AND e.category = ?'
-        params.append(category)
+        if category in ('رواتب وأجور', 'رواتب'):
+            query += " AND (e.category = 'رواتب وأجور' OR e.category = 'رواتب')"
+        else:
+            query += ' AND e.category = ?'
+            params.append(category)
     if from_date:
         query += ' AND e.expense_date >= ?'
         params.append(from_date)
@@ -6391,14 +6402,15 @@ def disburse_hr_payroll_items(id):
 
             cursor.execute('''
                 INSERT INTO expenses (
-                    project_id, title, category, amount, payment_method,
-                    paid_by, paid_to, expense_date, notes, approval_status,
+                    project_id, title, category, amount, amount_without_tax, tax_amount, is_tax_invoice,
+                    payment_method, paid_by, paid_to, expense_date, notes, approval_status,
                     approved_by, approved_at, payment_status, payment_date,
                     paid_amount, custody_id, created_by
-                ) VALUES (?, ?, 'رواتب وأجور', ?, ?, ?, ?, ?, ?, 'approved', ?, ?, 'paid', ?, ?, ?, ?)
+                ) VALUES (?, ?, 'رواتب وأجور', ?, ?, 0.0, 0, ?, ?, ?, ?, ?, 'approved', ?, ?, 'paid', ?, ?, ?, ?)
             ''', (
                 proj_id,
                 exp_title,
+                proj_amount,
                 proj_amount,
                 payment_method,
                 exp_paid_by,

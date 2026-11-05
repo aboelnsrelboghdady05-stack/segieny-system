@@ -1828,6 +1828,25 @@ function updateExpenseFilterPillStyles(activeStatus) {
     });
 }
 
+function setExpenseCategoryQuickFilter(category) {
+    const catSelect = document.getElementById('expense-filter-category');
+    const salariesBtn = document.getElementById('btn-exp-filter-salaries');
+    if (catSelect) {
+        if (catSelect.value === category) {
+            catSelect.value = '';
+            if (salariesBtn) {
+                salariesBtn.className = 'exp-status-pill px-3 py-1.5 rounded-xl text-xs font-bold transition bg-slate-800 text-purple-300 hover:text-white hover:bg-slate-750 flex items-center gap-1.5 border border-purple-500/40';
+            }
+        } else {
+            catSelect.value = category || '';
+            if (salariesBtn) {
+                salariesBtn.className = 'exp-status-pill px-3 py-1.5 rounded-xl text-xs font-bold transition bg-purple-600 text-white flex items-center gap-1.5 shadow';
+            }
+        }
+    }
+    loadExpenses();
+}
+
 function updateExpenseFilterPillCounts(expenses) {
     if (!Array.isArray(expenses)) return;
     const allCount = expenses.length;
@@ -1835,18 +1854,21 @@ function updateExpenseFilterPillCounts(expenses) {
     const approvedCount = expenses.filter(e => (e.approval_status || 'approved') === 'approved').length;
     const paidCount = expenses.filter(e => (e.payment_status || 'paid') === 'paid').length;
     const unpaidCount = expenses.filter(e => e.payment_status === 'unpaid').length;
+    const salariesCount = expenses.filter(e => e.category === 'رواتب وأجور' || e.category === 'رواتب').length;
 
     const elAll = document.getElementById('badge-exp-count-all');
     const elPending = document.getElementById('badge-exp-count-pending');
     const elApproved = document.getElementById('badge-exp-count-approved');
     const elPaid = document.getElementById('badge-exp-count-paid');
     const elUnpaid = document.getElementById('badge-exp-count-unpaid');
+    const elSalaries = document.getElementById('badge-exp-count-salaries');
 
     if (elAll) elAll.innerText = allCount;
     if (elPending) elPending.innerText = pendingCount;
     if (elApproved) elApproved.innerText = approvedCount;
     if (elPaid) elPaid.innerText = paidCount;
     if (elUnpaid) elUnpaid.innerText = unpaidCount;
+    if (elSalaries) elSalaries.innerText = salariesCount;
 }
 
 function applyClientExpenseFilters() {
@@ -2111,8 +2133,16 @@ function renderExpensesTable(expenses) {
 
         const noTax = (e.amount_without_tax && e.amount_without_tax > 0) ? e.amount_without_tax : e.amount;
 
+        const isSalaryExp = e.category === 'رواتب وأجور' || e.category === 'رواتب';
+        const catBadge = isSalaryExp ? `
+            <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-purple-500/15 text-purple-300 border border-purple-500/30 shadow-sm">
+                <i data-lucide="banknote" class="w-3.5 h-3.5 text-purple-400"></i>
+                <span>رواتب وأجور</span>
+            </span>
+        ` : `<span class="px-2 py-0.5 rounded text-[11px] bg-slate-800 border border-slate-700 text-slate-300">${typeof tr === 'function' ? tr(e.category) : e.category}</span>`;
+
         const row = document.createElement('tr');
-        row.className = `hover:bg-slate-800/60 transition ${isPending ? 'bg-amber-500/5' : ''}`;
+        row.className = `hover:bg-slate-800/60 transition ${isPending ? 'bg-amber-500/5' : ''} ${isSalaryExp ? 'bg-purple-950/10' : ''}`;
         row.innerHTML = `
             <td class="p-3.5 whitespace-nowrap text-slate-400 font-mono text-xs">${e.expense_date}</td>
             <td class="p-3.5 whitespace-nowrap font-mono text-xs">
@@ -2121,9 +2151,15 @@ function renderExpensesTable(expenses) {
                     : `<span class="text-emerald-400 font-bold">${e.payment_date || e.expense_date}</span>`
                 }
             </td>
-            <td class="p-3.5 whitespace-nowrap font-bold text-white">${e.project_name}</td>
+            <td class="p-3.5 whitespace-nowrap font-bold text-white">${e.project_name || 'مصروف عام'}</td>
             <td class="p-3.5 font-medium text-slate-200">
-                ${e.title}
+                ${isSalaryExp ? `
+                    <div class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-black bg-purple-500/20 text-purple-300 border border-purple-500/30 mb-1">
+                        <i data-lucide="users" class="w-3 h-3 text-purple-400"></i>
+                        <span>مسير رواتب</span>
+                    </div>
+                ` : ''}
+                <div class="text-white font-bold text-xs">${e.title}</div>
                 ${e.custody_id ? `<div class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-amber-500/15 text-amber-400 border border-amber-500/25 mr-1 mt-0.5 font-bold"><i data-lucide="wallet" class="w-3 h-3"></i> خصم من عهدة: ${escapeHtml(e.custody_employee_name || 'موظف')} (${escapeHtml(e.custody_request_number || '')})</div>` : ''}
                 ${e.supplier_name ? `<div class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-amber-500/10 text-amber-400 border border-amber-500/20 mr-1 mt-0.5 font-bold"><i data-lucide="truck" class="w-3 h-3"></i> ${e.supplier_name}</div>` : ''}
                 ${e.has_price_increase === 1 ? `<div class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-rose-500/15 text-rose-400 border border-rose-500/30 mr-1 mt-0.5 font-bold">⚠️ زيادة سعر: +${formatCurrency(e.total_variance || 0)}</div>` : ''}
@@ -2131,7 +2167,7 @@ function renderExpensesTable(expenses) {
                 ${e.notes ? `<div class="text-[11px] text-slate-400 mt-0.5">${e.notes}</div>` : ''}
             </td>
             <td class="p-3.5 whitespace-nowrap">
-                <span class="px-2 py-0.5 rounded text-[11px] bg-slate-800 border border-slate-700 text-slate-300">${typeof tr === 'function' ? tr(e.category) : e.category}</span>
+                ${catBadge}
             </td>
             <td class="p-3.5 whitespace-nowrap text-center">
                 ${taxBadge}
@@ -4723,6 +4759,173 @@ function renderProjectDetailsBasicHeader(p) {
     if (progEl) progEl.innerText = `${p.progress_percent || 0}%`;
 }
 
+let currentProjectDetailExpensesFilter = 'all';
+
+function filterProjectDetailExpenses(mode) {
+    currentProjectDetailExpensesFilter = mode || 'all';
+    if (currentProjectDetailData) {
+        renderProjectExpensesTab(currentProjectDetailData, currentProjectDetailExpensesFilter);
+        initLucide();
+    }
+}
+
+function renderProjectExpensesTab(p, filterMode = 'all') {
+    currentProjectDetailExpensesFilter = filterMode;
+    const expTbody = document.getElementById('detail-expenses-tbody');
+    if (!expTbody) return;
+    expTbody.innerHTML = '';
+
+    const allExpenses = p.expenses || [];
+    const totalExpenses = allExpenses.reduce((acc, e) => acc + (parseFloat(e.amount) || 0), 0);
+    const salaryExpenses = allExpenses.filter(e => e.category === 'رواتب وأجور' || e.category === 'رواتب').reduce((acc, e) => acc + (parseFloat(e.amount) || 0), 0);
+    const operationalExpenses = Math.max(0, totalExpenses - salaryExpenses);
+
+    const countAll = allExpenses.length;
+    const countSalaries = allExpenses.filter(e => e.category === 'رواتب وأجور' || e.category === 'رواتب').length;
+    const countOperational = countAll - countSalaries;
+
+    // Update summary chips
+    const statTotalEl = document.getElementById('proj-exp-stat-total');
+    if (statTotalEl) statTotalEl.innerText = formatCurrency(totalExpenses);
+    const statMatEl = document.getElementById('proj-exp-stat-materials');
+    if (statMatEl) statMatEl.innerText = formatCurrency(operationalExpenses);
+    const statSalEl = document.getElementById('proj-exp-stat-salaries');
+    if (statSalEl) statSalEl.innerText = formatCurrency(salaryExpenses);
+
+    // Update filter counts
+    const cAllEl = document.getElementById('count-pexp-all');
+    if (cAllEl) cAllEl.innerText = countAll;
+    const cOpEl = document.getElementById('count-pexp-operational');
+    if (cOpEl) cOpEl.innerText = countOperational;
+    const cSalEl = document.getElementById('count-pexp-salaries');
+    if (cSalEl) cSalEl.innerText = countSalaries;
+
+    // Update active filter pill styles
+    const btnAll = document.getElementById('btn-pexp-all');
+    const btnOp = document.getElementById('btn-pexp-operational');
+    const btnSal = document.getElementById('btn-pexp-salaries');
+    if (btnAll) btnAll.className = filterMode === 'all' ? 'px-2.5 py-1 rounded-lg font-bold bg-emerald-600 text-white transition text-[11px] shadow' : 'px-2.5 py-1 rounded-lg font-bold bg-slate-800 text-slate-300 hover:text-white border border-slate-700 transition text-[11px]';
+    if (btnOp) btnOp.className = filterMode === 'operational' ? 'px-2.5 py-1 rounded-lg font-bold bg-blue-600 text-white transition text-[11px] shadow' : 'px-2.5 py-1 rounded-lg font-bold bg-slate-800 text-slate-300 hover:text-white border border-slate-700 transition text-[11px]';
+    if (btnSal) btnSal.className = filterMode === 'salaries' ? 'px-2.5 py-1 rounded-lg font-bold bg-purple-600 text-white transition text-[11px] shadow flex items-center gap-1' : 'px-2.5 py-1 rounded-lg font-bold bg-purple-950/40 text-purple-300 hover:text-white border border-purple-500/40 transition text-[11px] flex items-center gap-1';
+
+    let displayList = allExpenses;
+    if (filterMode === 'operational') {
+        displayList = allExpenses.filter(e => e.category !== 'رواتب وأجور' && e.category !== 'رواتب');
+    } else if (filterMode === 'salaries') {
+        displayList = allExpenses.filter(e => e.category === 'رواتب وأجور' || e.category === 'رواتب');
+    }
+
+    const isFinManager = isFinancialManagerUser();
+    if (displayList.length === 0) {
+        const emptyMsg = filterMode === 'salaries' ? 'لا توجد مصاريف رواتب محملة على هذا المشروع بعد' : (filterMode === 'operational' ? 'لا توجد مصاريف تشغيل أو مواد مسجلة لهذا المشروع' : 'لا توجد مصاريف مسجلة لهذا المشروع بعد');
+        expTbody.innerHTML = `<tr><td colspan="10" class="p-6 text-center text-slate-500">${emptyMsg}</td></tr>`;
+        return;
+    }
+
+    displayList.forEach(e => {
+        const isApproved = (e.approval_status || 'approved') === 'approved';
+        const isPending = e.approval_status === 'pending';
+        const isRejected = e.approval_status === 'rejected';
+        const isSalaryExp = (e.category === 'رواتب وأجور' || e.category === 'رواتب');
+
+        const isTaxInv = e.is_tax_invoice === 1 || e.tax_amount > 0;
+        const taxBadge = isTaxInv ? `
+            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                <i data-lucide="shield-check" class="w-3 h-3"></i>
+                <span>ضريبية 15%</span>
+            </span>
+            <div class="text-[10px] text-emerald-400 font-bold mt-0.5">مسترد: ${formatCurrency(e.tax_amount || 0)}</div>
+        ` : `<span class="px-2 py-0.5 rounded text-[10px] bg-slate-800 text-slate-400 border border-slate-700">بدون ضريبة</span>`;
+
+        let appBadge = '';
+        if (isPending) {
+            appBadge = `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30 animate-pulse"><i data-lucide="clock" class="w-3 h-3"></i><span>بانتظار التعميد</span></span>`;
+        } else if (isRejected) {
+            appBadge = `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/15 text-rose-400 border border-rose-500/30" title="${escapeHtml(e.approval_notes || '')}"><i data-lucide="x-circle" class="w-3 h-3"></i><span>مرفوضة</span></span>`;
+        } else {
+            appBadge = `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30" title="${escapeHtml(e.approved_by || 'معمد')}"><i data-lucide="shield-check" class="w-3 h-3"></i><span>معمدة ✓</span></span>`;
+        }
+
+        let appActions = '';
+        if (isFinManager && isPending) {
+            appActions = `
+                <button onclick="approveExpense(${e.id})" title="تعميد الفاتورة والخصم من الحسابات" class="px-2 py-0.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[10px] inline-flex items-center gap-1 transition">
+                    <i data-lucide="shield-check" class="w-3 h-3"></i>
+                    <span>تعميد</span>
+                </button>
+                <button onclick="rejectExpense(${e.id})" title="رفض الفاتورة" class="p-1 text-rose-400 hover:text-white rounded hover:bg-rose-600/30 transition">
+                    <i data-lucide="x" class="w-3.5 h-3.5"></i>
+                </button>
+            `;
+        }
+
+        const noTax = (e.amount_without_tax && e.amount_without_tax > 0) ? e.amount_without_tax : e.amount;
+
+        const catBadge = isSalaryExp ? `
+            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                <i data-lucide="banknote" class="w-3 h-3 text-purple-400"></i>
+                <span>رواتب وأجور</span>
+            </span>
+        ` : `<span class="px-2 py-0.5 rounded text-[10px] bg-slate-800 text-slate-300 border border-slate-700">${typeof tr === 'function' ? tr(e.category) : e.category}</span>`;
+
+        const tr = document.createElement('tr');
+        tr.className = `${isPending ? 'bg-amber-500/5' : ''} ${isSalaryExp ? 'bg-purple-950/10' : ''}`;
+        tr.innerHTML = `
+            <td class="p-2.5 text-slate-400 whitespace-nowrap">${e.expense_date}</td>
+            <td class="p-2.5 font-bold text-white">
+                ${isSalaryExp ? `
+                    <div class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-black bg-purple-500/20 text-purple-300 border border-purple-500/30 mb-1">
+                        <i data-lucide="users" class="w-3 h-3 text-purple-400"></i>
+                        <span>مسير رواتب</span>
+                    </div>
+                ` : ''}
+                <div class="text-white">${escapeHtml(e.title)}</div>
+                ${e.custody_id ? `<div class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-amber-500/15 text-amber-400 border border-amber-500/25 mt-1 font-bold"><i data-lucide="wallet" class="w-3 h-3"></i> خصم من عهدة: ${escapeHtml(e.custody_employee_name || 'موظف')} (${escapeHtml(e.custody_request_number || '')})</div>` : ''}
+                ${e.supplier_name ? `<div class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-amber-500/10 text-amber-400 border border-amber-500/20 mt-1 font-bold"><i data-lucide="truck" class="w-3 h-3"></i> ${escapeHtml(e.supplier_name)}</div>` : ''}
+                ${e.phase_name ? `<div class="text-[10px] text-emerald-400/80 font-normal mt-0.5">${escapeHtml(e.phase_name)}${e.item_title ? ` • ${escapeHtml(e.item_title)}` : ''}</div>` : ''}
+                ${e.notes ? `<div class="text-[10px] text-slate-400 font-normal mt-0.5">${escapeHtml(e.notes)}</div>` : ''}
+            </td>
+            <td class="p-2.5 whitespace-nowrap">${catBadge}</td>
+            <td class="p-2.5 text-center whitespace-nowrap">${taxBadge}</td>
+            <td class="p-2.5 font-bold text-blue-400 text-xs whitespace-nowrap">${formatCurrency(noTax)}</td>
+            <td class="p-2.5 font-black text-rose-400 text-sm whitespace-nowrap">${formatCurrency(e.amount)}</td>
+            <td class="p-2.5 text-slate-300">
+                <div class="text-xs font-medium text-white">${escapeHtml(e.paid_to || e.paid_by || '-')}</div>
+                ${e.paid_by && e.paid_to ? `<div class="text-[10px] text-slate-400">الصارف: ${escapeHtml(e.paid_by)}</div>` : ''}
+            </td>
+            <td class="p-2.5 text-center whitespace-nowrap">
+                ${e.invoice_file_path ? `
+                    <button onclick="viewInvoice('${e.invoice_file_path}', '${e.title}')" class="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-bold hover:underline">فاتورة</button>
+                ` : '<span class="text-slate-600">-</span>'}
+            </td>
+            <td class="p-2.5 text-center whitespace-nowrap">
+                ${appBadge}
+            </td>
+            <td class="p-2.5 text-center whitespace-nowrap">
+                <div class="flex items-center justify-center gap-1">
+                    ${appActions}
+                    ${(isApproved && !isFinManager) ? `
+                        <span class="p-1 text-slate-600 cursor-not-allowed inline-flex items-center" title="المصروف معتمد مالياً ولا يمكن تعديله أو نقله أو حذفه إلا من قبل المدير المالي (أ. ابوالنصر البغدادي)">
+                            <i data-lucide="lock" class="w-3.5 h-3.5 text-slate-500"></i>
+                        </span>
+                    ` : `
+                        <button onclick="openTransferExpenseModal(${e.id})" title="نقل المصروف لمشروع آخر" class="p-1 text-slate-400 hover:text-emerald-400 rounded hover:bg-slate-800 transition">
+                            <i data-lucide="arrow-right-left" class="w-3.5 h-3.5"></i>
+                        </button>
+                        <button onclick="openEditExpenseModal(${e.id})" title="تعديل المصروف" class="p-1 text-slate-400 hover:text-amber-400 rounded hover:bg-slate-800 transition">
+                            <i data-lucide="edit-3" class="w-3.5 h-3.5"></i>
+                        </button>
+                        <button onclick="deleteExpense(${e.id})" title="حذف المصروف" class="p-1 text-slate-400 hover:text-rose-400 rounded hover:bg-slate-800 transition">
+                            <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                        </button>
+                    `}
+                </div>
+            </td>
+        `;
+        expTbody.appendChild(tr);
+    });
+}
+
 function renderProjectDetailsContent(p) {
     currentProjectDetailData = p;
     renderProjectDetailsBasicHeader(p);
@@ -4748,97 +4951,7 @@ function renderProjectDetailsContent(p) {
     renderProjectPaymentsTab(p);
 
     // 2. Render project expenses
-    const expTbody = document.getElementById('detail-expenses-tbody');
-    if (expTbody) {
-        expTbody.innerHTML = '';
-        const isFinManager = isFinancialManagerUser();
-        if ((p.expenses || []).length === 0) {
-            expTbody.innerHTML = `<tr><td colspan="10" class="p-4 text-center text-slate-500">لا توجد مصاريف مسجلة لهذا المشروع بعد</td></tr>`;
-        } else {
-            p.expenses.forEach(e => {
-                const isApproved = (e.approval_status || 'approved') === 'approved';
-                const isPending = e.approval_status === 'pending';
-                const isRejected = e.approval_status === 'rejected';
-
-                const isTaxInv = e.is_tax_invoice === 1 || e.tax_amount > 0;
-                const taxBadge = isTaxInv ? `
-                    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                        <i data-lucide="shield-check" class="w-3 h-3"></i>
-                        <span>ضريبية 15%</span>
-                    </span>
-                    <div class="text-[10px] text-emerald-400 font-bold mt-0.5">مسترد: ${formatCurrency(e.tax_amount || 0)}</div>
-                ` : `<span class="px-2 py-0.5 rounded text-[10px] bg-slate-800 text-slate-400 border border-slate-700">بدون ضريبة</span>`;
-
-                let appBadge = '';
-                if (isPending) {
-                    appBadge = `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30 animate-pulse"><i data-lucide="clock" class="w-3 h-3"></i><span>بانتظار التعميد</span></span>`;
-                } else if (isRejected) {
-                    appBadge = `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/15 text-rose-400 border border-rose-500/30" title="${escapeHtml(e.approval_notes || '')}"><i data-lucide="x-circle" class="w-3 h-3"></i><span>مرفوضة</span></span>`;
-                } else {
-                    appBadge = `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30" title="${escapeHtml(e.approved_by || 'معمد')}"><i data-lucide="shield-check" class="w-3 h-3"></i><span>معمدة ✓</span></span>`;
-                }
-
-                let appActions = '';
-                if (isFinManager && isPending) {
-                    appActions = `
-                        <button onclick="approveExpense(${e.id})" title="تعميد الفاتورة والخصم من الحسابات" class="px-2 py-0.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[10px] inline-flex items-center gap-1 transition">
-                            <i data-lucide="shield-check" class="w-3 h-3"></i>
-                            <span>تعميد</span>
-                        </button>
-                        <button onclick="rejectExpense(${e.id})" title="رفض الفاتورة" class="p-1 text-rose-400 hover:text-white rounded hover:bg-rose-600/30 transition">
-                            <i data-lucide="x" class="w-3.5 h-3.5"></i>
-                        </button>
-                    `;
-                }
-
-                const noTax = (e.amount_without_tax && e.amount_without_tax > 0) ? e.amount_without_tax : e.amount;
-
-                const tr = document.createElement('tr');
-                tr.className = isPending ? 'bg-amber-500/5' : '';
-                tr.innerHTML = `
-                    <td class="p-2.5 text-slate-400 whitespace-nowrap">${e.expense_date}</td>
-                    <td class="p-2.5 font-bold text-white">
-                        ${e.title}
-                        ${e.phase_name ? `<div class="text-[10px] text-emerald-400/80 font-normal mt-0.5">${e.phase_name}${e.item_title ? ` • ${e.item_title}` : ''}</div>` : ''}
-                    </td>
-                    <td class="p-2.5 text-slate-300">${e.category}</td>
-                    <td class="p-2.5 text-center whitespace-nowrap">${taxBadge}</td>
-                    <td class="p-2.5 font-bold text-blue-400 text-xs whitespace-nowrap">${formatCurrency(noTax)}</td>
-                    <td class="p-2.5 font-black text-rose-400 text-sm whitespace-nowrap">${formatCurrency(e.amount)}</td>
-                    <td class="p-2.5 text-slate-300">${e.paid_to || '-'}</td>
-                    <td class="p-2.5 text-center whitespace-nowrap">
-                        ${e.invoice_file_path ? `
-                            <button onclick="viewInvoice('${e.invoice_file_path}', '${e.title}')" class="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-bold hover:underline">فاتورة</button>
-                        ` : '<span class="text-slate-600">-</span>'}
-                    </td>
-                    <td class="p-2.5 text-center whitespace-nowrap">
-                        ${appBadge}
-                    </td>
-                    <td class="p-2.5 text-center whitespace-nowrap">
-                        <div class="flex items-center justify-center gap-1">
-                            ${appActions}
-                            ${(isApproved && !isFinManager) ? `
-                                <span class="p-1 text-slate-600 cursor-not-allowed inline-flex items-center" title="المصروف معتمد مالياً ولا يمكن تعديله أو نقله أو حذفه إلا من قبل المدير المالي (أ. ابوالنصر البغدادي)">
-                                    <i data-lucide="lock" class="w-3.5 h-3.5 text-slate-500"></i>
-                                </span>
-                            ` : `
-                                <button onclick="openTransferExpenseModal(${e.id})" title="نقل المصروف لمشروع آخر" class="p-1 text-slate-400 hover:text-emerald-400 rounded hover:bg-slate-800 transition">
-                                    <i data-lucide="arrow-right-left" class="w-3.5 h-3.5"></i>
-                                </button>
-                                <button onclick="openEditExpenseModal(${e.id})" title="تعديل المصروف" class="p-1 text-slate-400 hover:text-amber-400 rounded hover:bg-slate-800 transition">
-                                    <i data-lucide="edit-3" class="w-3.5 h-3.5"></i>
-                                </button>
-                                <button onclick="deleteExpense(${e.id})" title="حذف المصروف" class="p-1 text-slate-400 hover:text-rose-400 rounded hover:bg-slate-800 transition">
-                                    <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
-                                </button>
-                            `}
-                        </div>
-                    </td>
-                `;
-                expTbody.appendChild(tr);
-            });
-        }
-    }
+    renderProjectExpensesTab(p, currentProjectDetailExpensesFilter || 'all');
 
     // 3. Render project tasks
     const tasksCont = document.getElementById('detail-tasks-container');
@@ -17104,10 +17217,15 @@ async function submitHrPayrollDisbursement(e) {
             showToast(data.message || 'تم صرف الرواتب بنجاح', 'success');
             closeModal('hr-disburse-payroll-modal');
             await loadHrData();
+            if (typeof window.projectDetailsCache !== 'undefined') window.projectDetailsCache = {};
+            if (typeof loadProjects === 'function') loadProjects();
             if (typeof loadCustody === 'function') loadCustody();
             if (typeof loadExpenses === 'function') loadExpenses();
             if (typeof loadCashFlow === 'function') loadCashFlow();
             if (typeof loadDashboard === 'function') loadDashboard();
+            if (typeof currentProjectIdForModal !== 'undefined' && currentProjectIdForModal) {
+                openProjectDetails(currentProjectIdForModal, true);
+            }
             if (document.getElementById('hr-payroll-detail-modal')?.classList.contains('hidden') === false) {
                 await viewHrPayrollDetails(payrollId);
             }

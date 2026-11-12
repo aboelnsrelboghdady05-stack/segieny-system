@@ -3714,9 +3714,9 @@ def add_supplier_payment(supplier_id):
     msg = 'تم تسجيل سداد الدفعة للمورد بنجاح وقيدها في كشف الحساب'
     if excess_credit > 0:
         if settled_invoices_count > 0:
-            msg = f'تم سداد {settled_invoices_count} فاتورة بالكامل، وتجاوز المبلغ الفواتير حيث يوجد الآن رصيد لصالحنا طرف المورد (باقيلنا مبلغ عنده) قدره: {excess_credit:,.2f} ر.س ✓'
+            msg = f'تم سداد {settled_invoices_count} فاتورة بالكامل، وتجاوز المبلغ الفواتير حيث يوجد الآن رصيد لصالح الشركة قدره: {excess_credit:,.2f} ر.س ✓'
         else:
-            msg = f'تم قيد الدفعة بالكامل كرصيد لصالحنا طرف المورد (باقيلنا مبلغ عنده / دفعة مقدمة) قدره: {excess_credit:,.2f} ر.س ✓'
+            msg = f'تم قيد الدفعة بالكامل كرصيد لصالح الشركة (دفعة مقدمة) قدره: {excess_credit:,.2f} ر.س ✓'
     elif settled_invoices_count > 0:
         msg = f'تم سداد وتحديث حالة {settled_invoices_count} فاتورة للمورد بنجاح ✓'
 

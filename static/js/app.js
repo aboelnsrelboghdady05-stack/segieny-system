@@ -8057,7 +8057,7 @@ async function printSupplierStatement(supplierId) {
                     </div>
                     ${totalPaid > totalInvoiced + 0.01 ? `
                     <div class="kpi-card" style="background: #ecfdf5; border-color: #a7f3d0;">
-                        <div class="kpi-title" style="color: #047857; font-weight: bold;">باقيلنا مبلغ عنده (رصيد لصالح المؤسسة)</div>
+                        <div class="kpi-title" style="color: #047857; font-weight: bold;">رصيد لصالح الشركة</div>
                         <div class="kpi-value" style="color: #059669; font-weight: 900;">+${formatCurrency(totalPaid - totalInvoiced)} ر.س</div>
                     </div>
                     ` : `
@@ -11330,7 +11330,7 @@ function renderSuppliersCards(suppliers) {
                         <div class="mt-1 pt-1.5 border-t border-slate-800 text-[10px] text-emerald-300 font-bold flex items-center justify-between bg-emerald-950/30 px-2 py-1 rounded-lg border border-emerald-900/40">
                             <span class="flex items-center gap-1 text-emerald-400 font-black">
                                 <i data-lucide="arrow-down-left" class="w-3.5 h-3.5 text-emerald-400"></i>
-                                <span>باقيلنا مبلغ عنده (رصيد لصالحنا):</span>
+                                <span>رصيد لصالح الشركة:</span>
                             </span>
                             <span class="font-mono text-emerald-400 font-black text-xs">+${formatCurrency(paid - invoiced)} ر.س</span>
                         </div>
@@ -11859,7 +11859,7 @@ async function openSupplierDetailModal(supplierId) {
             if (sum.excess_paid > 0.01) {
                 remEl.innerText = `+${formatCurrency(sum.excess_paid)} ر.س`;
                 remEl.className = 'text-base sm:text-lg font-black text-emerald-400 font-mono';
-                if (remLabel) remLabel.innerHTML = '<span class="text-emerald-300 font-black flex items-center justify-center gap-1"><i data-lucide="arrow-down-left" class="w-3.5 h-3.5 text-emerald-400 inline"></i> باقيلنا مبلغ عنده (رصيد لصالحنا)</span>';
+                if (remLabel) remLabel.innerHTML = '<span class="text-emerald-300 font-black flex items-center justify-center gap-1"><i data-lucide="arrow-down-left" class="w-3.5 h-3.5 text-emerald-400 inline"></i> رصيد لصالح الشركة</span>';
             } else if (sum.unpaid_balance > 0.01) {
                 remEl.innerText = `${formatCurrency(sum.unpaid_balance)} ر.س`;
                 remEl.className = 'text-base sm:text-lg font-black text-amber-400 font-mono';
@@ -12308,7 +12308,7 @@ function updateSupplierPaymentLiveSummary() {
         if (totalUnpaidAll === 0) {
             previewBox.className = "p-3 rounded-xl bg-emerald-950/40 border border-emerald-500/50 text-xs space-y-1.5 transition-all";
             impactEl.className = "text-[11px] font-bold text-emerald-400 pt-1 border-t border-emerald-800/60";
-            impactEl.innerHTML = `✓ لا توجد فواتير مستحقة. المبلغ بالكامل (<span class="font-mono">${formatCurrency(enteredAmount)} ر.س</span>) سيُقيد كـ <strong>دفعة مقدمة (باقيلي مبلغ عنده / رصيد لصالح المؤسسة)</strong>.`;
+            impactEl.innerHTML = `✓ لا توجد فواتير مستحقة. المبلغ بالكامل (<span class="font-mono">${formatCurrency(enteredAmount)} ر.س</span>) سيُقيد كـ <strong>دفعة مقدمة (رصيد لصالح الشركة)</strong>.`;
         } else if (enteredAmount > totalUnpaidAll + 0.01) {
             const excess = enteredAmount - totalUnpaidAll;
             previewBox.className = "p-3 rounded-xl bg-emerald-950/50 border border-emerald-500 text-xs space-y-1.5 transition-all shadow-lg shadow-emerald-950/50";
@@ -12318,7 +12318,7 @@ function updateSupplierPaymentLiveSummary() {
                     <span class="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
                     <span>المبلغ يتجاوز إجمالي الفواتير المستحقة!</span>
                 </div>
-                <div>سيتم سداد كافة فواتير المورد بالكامل (${formatCurrency(totalUnpaidAll)} ر.س)، وسيكون <strong>باقيلنا مبلغ عنده (رصيد دائن لصالحنا)</strong>: <span class="font-mono text-emerald-200 text-sm font-extrabold">+${formatCurrency(excess)} ر.س</span> ✓</div>
+                <div>سيتم سداد كافة فواتير المورد بالكامل (${formatCurrency(totalUnpaidAll)} ر.س)، وسيكون <strong>رصيد لصالح الشركة</strong>: <span class="font-mono text-emerald-200 text-sm font-extrabold">+${formatCurrency(excess)} ر.س</span> ✓</div>
             `;
         } else if (Math.abs(enteredAmount - totalUnpaidAll) <= 0.01) {
             previewBox.className = "p-3 rounded-xl bg-blue-950/40 border border-blue-500/50 text-xs space-y-1.5 transition-all";
@@ -12346,7 +12346,7 @@ function updateSupplierPaymentLiveSummary() {
                 impactEl.className = "text-[11px] font-bold text-emerald-300 pt-1 border-t border-emerald-700/60";
                 impactEl.innerHTML = `
                     <div class="text-emerald-400 mb-0.5">✓ سيتم سداد الفاتورة المختارة بالكامل + تغطية باقي فواتير المورد</div>
-                    <div>سيتجاوز السداد جميع الفواتير، وسيكون <strong>باقيلنا مبلغ عنده (رصيد لصالحنا)</strong>: <span class="font-mono text-emerald-200 text-sm font-extrabold">+${formatCurrency(finalExcess)} ر.س</span>.</div>
+                    <div>سيتجاوز السداد جميع الفواتير، وسيكون <strong>رصيد لصالح الشركة</strong>: <span class="font-mono text-emerald-200 text-sm font-extrabold">+${formatCurrency(finalExcess)} ر.س</span>.</div>
                 `;
             } else {
                 previewBox.className = "p-3 rounded-xl bg-blue-950/40 border border-blue-500/50 text-xs space-y-1.5 transition-all";

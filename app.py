@@ -2226,6 +2226,9 @@ def create_expense():
     items_json_str = json.dumps(items_data, ensure_ascii=False) if items_data else None
 
     payment_status = data.get('payment_status', 'paid')
+    if payment_method == 'آجل':
+        payment_status = 'unpaid'
+
     raw_paid_amt = data.get('paid_amount')
     if payment_status == 'unpaid':
         paid_amount = 0.0
@@ -2699,6 +2702,8 @@ def update_expense(expense_id):
     items_json_str = json.dumps(items_data, ensure_ascii=False) if items_data else (existing.get('items_json') if not has_items_payload else None)
 
     payment_status = data.get('payment_status', existing.get('payment_status', 'paid'))
+    if payment_method == 'آجل' and (not data.get('paid_amount') or float(data.get('paid_amount') or 0) == 0):
+        payment_status = 'unpaid'
     raw_paid_amt = data.get('paid_amount')
     if payment_status == 'unpaid':
         paid_amount = 0.0
@@ -2757,7 +2762,7 @@ def update_expense(expense_id):
                     WHERE id = ?
                 ''', (float(paid_amount), payment_date or expense_date, payment_method or 'تحويل بنكي', supplier_id, project_id, quotation_id, pay_type, sp_existing[0]))
             elif payment_status == 'unpaid' or not paid_amount or float(paid_amount) == 0:
-                cursor.execute('DELETE FROM supplier_payments WHERE id = ?', (sp_existing[0],))
+                cursor.execute('DELETE FROM supplier_payments WHERE expense_id = ?', (expense_id,))
         else:
             if paid_amount and float(paid_amount) > 0 and payment_status in ('paid', 'partial'):
                 pay_type = 'سداد فاتورة بالكامل' if payment_status == 'paid' else 'سداد جزئي لفاتورة'

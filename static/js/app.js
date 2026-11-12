@@ -3912,7 +3912,7 @@ async function openEditExpenseModal(expenseId) {
 
         const editPStatEl = document.getElementById('expense-payment-status');
         if (editPStatEl) {
-            editPStatEl.value = exp.payment_status || 'paid';
+            editPStatEl.value = (exp.payment_method === 'آجل' || exp.payment_status === 'unpaid') ? 'unpaid' : (exp.payment_status || 'paid');
             if (typeof onExpensePaymentStatusChanged === 'function') onExpensePaymentStatusChanged();
         }
         const editPAmtEl = document.getElementById('expense-paid-amount');
@@ -14529,6 +14529,14 @@ async function onExpensePaymentMethodChanged(selectedCustodyId = null) {
         if (warn) warn.classList.add('hidden');
         const info = document.getElementById('expense-custody-info');
         if (info) info.classList.add('hidden');
+    }
+
+    if (payMethod === 'آجل') {
+        const pStat = document.getElementById('expense-payment-status');
+        if (pStat) {
+            pStat.value = 'unpaid';
+            if (typeof onExpensePaymentStatusChanged === 'function') onExpensePaymentStatusChanged();
+        }
     }
 }
 

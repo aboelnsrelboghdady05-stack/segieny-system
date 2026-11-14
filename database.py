@@ -890,6 +890,27 @@ def init_db():
     )
     ''')
 
+    # Scheduled Expenses table (المصاريف المجدولة والالتزامات المستقبلية - مستقلة تماماً عن تكلفة وتقارير المشاريع)
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS scheduled_expenses (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL,
+        amount REAL NOT NULL,
+        due_date TEXT NOT NULL,
+        category TEXT DEFAULT 'عام',
+        project_id INTEGER,
+        priority TEXT DEFAULT 'medium',
+        recurrence TEXT DEFAULT 'once',
+        status TEXT DEFAULT 'pending',
+        notes TEXT,
+        created_by TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        executed_at TIMESTAMP,
+        executed_expense_id INTEGER,
+        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL
+    )
+    ''')
+
     conn.commit()
 
     # Seed initial data if empty

@@ -347,6 +347,11 @@
                         <i data-lucide="wallet" class="w-4 h-4 text-emerald-400"></i>
                         <span data-i18n="nav_cashflow">التدفق النقدي والسيولة</span>
                     </button>
+                    <button onclick="switchTab('scheduled_expenses')" id="nav-scheduled_expenses" class="nav-tab shrink-0 px-3.5 py-1.5 sm:py-2 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-2 text-cyan-300 hover:text-white transition-all">
+                        <i data-lucide="calendar-clock" class="w-4 h-4 text-cyan-400"></i>
+                        <span>المصاريف المجدولة والسيولة</span>
+                        <span id="badge-scheduled-pending-count" class="px-1.5 py-0.2 text-[10px] rounded-full bg-cyan-500/20 text-cyan-300 font-bold hidden">0</span>
+                    </button>
                     <button onclick="switchTab('subcontractors')" id="nav-subcontractors" class="nav-tab shrink-0 px-3.5 py-1.5 sm:py-2 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-2 text-slate-300 hover:text-white transition-all">
                         <i data-lucide="users" class="w-4 h-4"></i>
                         <span data-i18n="nav_subcontractors">مقاولو الباطن</span>
@@ -1961,6 +1966,260 @@
                     <div class="h-72 w-full">
                         <canvas id="cf-chart"></canvas>
                     </div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- ========================================== -->
+        <!-- TAB: SCHEDULED EXPENSES & LIQUIDITY (المصاريف المجدولة والسيولة) -->
+        <!-- ========================================== -->
+        <div id="tab-scheduled_expenses" class="tab-content hidden space-y-6">
+
+            <!-- Top Header & Actions -->
+            <div class="bg-slate-850 p-6 rounded-2xl border border-slate-800 space-y-5 print:hidden">
+                <div class="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
+                    <div class="flex items-center gap-3">
+                        <div class="w-12 h-12 rounded-2xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400">
+                            <i data-lucide="calendar-clock" class="w-7 h-7"></i>
+                        </div>
+                        <div>
+                            <div class="flex items-center gap-2 flex-wrap">
+                                <h2 class="text-2xl font-black text-white">المصاريف المجدولة ومحاكاة السيولة</h2>
+                                <span class="px-2.5 py-0.5 text-xs font-bold rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">مربوطة بالسيولة لحظياً</span>
+                                <span class="px-2.5 py-0.5 text-xs font-bold rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/20">لا تؤثر على تكاليف وتقارير المشاريع</span>
+                            </div>
+                            <p class="text-xs text-slate-400 mt-1">تخطيط وجدولة الالتزامات المستقبلية ومقارنتها برصيد البنك والخزينة الفعلي لضمان وفرة السيولة دون احتسابها كمصروفات مشاريع فعلية</p>
+                        </div>
+                    </div>
+                    
+                    <!-- Top Actions -->
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <button onclick="openScheduledExpenseModal()" class="px-4 py-2.5 rounded-xl bg-gradient-to-r from-cyan-600 to-teal-600 hover:from-cyan-500 hover:to-teal-500 text-white font-black text-sm flex items-center gap-2 shadow-lg shadow-cyan-950/40 transition">
+                            <i data-lucide="plus-circle" class="w-4 h-4"></i>
+                            <span>جدولة مصروف جديد</span>
+                        </button>
+                        <button onclick="loadScheduledExpenses()" title="تحديث البيانات" class="p-2.5 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-300 border border-slate-700 transition">
+                            <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+                        </button>
+                        <button onclick="exportScheduledExpensesExcel()" title="تصدير كشف Excel" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-750 text-emerald-400 border border-slate-700 text-xs font-bold flex items-center gap-1.5 transition">
+                            <i data-lucide="file-spreadsheet" class="w-4 h-4"></i>
+                            <span class="hidden sm:inline">تصدير Excel</span>
+                        </button>
+                        <button onclick="printScheduledExpensesReport()" title="طباعة كشف الجدولة" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-200 border border-slate-700 text-xs font-bold flex items-center gap-1.5 transition">
+                            <i data-lucide="printer" class="w-4 h-4"></i>
+                            <span class="hidden sm:inline">طباعة الكشف</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Live Dynamic Liquidity Status Alert Banner -->
+                <div id="sched-liquidity-banner" class="p-4 rounded-xl border flex items-center justify-between gap-4 transition-all">
+                    <!-- Populated dynamically via JS -->
+                </div>
+            </div>
+
+            <!-- Hero Liquidity & Coverage KPI Cards (4 Cards) -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <!-- 1. Current Available Bank Liquidity -->
+                <div class="p-5 rounded-2xl bg-gradient-to-br from-emerald-950/30 to-slate-900 border border-emerald-500/30 shadow-lg relative overflow-hidden">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-xs font-bold text-emerald-300">🏦 السيولة النقدية المتاحة حالياً</span>
+                        <div class="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
+                            <i data-lucide="wallet" class="w-4 h-4"></i>
+                        </div>
+                    </div>
+                    <div id="sched-stat-current-liquidity" class="text-2xl sm:text-3xl font-black text-white font-mono tracking-tight">0.00 ر.س</div>
+                    <div class="mt-2 text-[11px] text-emerald-400/80 flex items-center gap-1">
+                        <i data-lucide="check-circle" class="w-3.5 h-3.5 text-emerald-400 inline"></i>
+                        <span>مطابق لرصيد البنك والخزينة الفعلي المتاح</span>
+                    </div>
+                </div>
+
+                <!-- 2. Total Pending Scheduled Commitments -->
+                <div class="p-5 rounded-2xl bg-gradient-to-br from-cyan-950/30 to-slate-900 border border-cyan-500/30 shadow-lg relative overflow-hidden">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-xs font-bold text-cyan-300">📅 إجمالي المصاريف المجدولة (المعلقة)</span>
+                        <div class="w-8 h-8 rounded-lg bg-cyan-500/20 text-cyan-400 flex items-center justify-center">
+                            <i data-lucide="calendar-clock" class="w-4 h-4"></i>
+                        </div>
+                    </div>
+                    <div id="sched-stat-total-pending" class="text-2xl sm:text-3xl font-black text-white font-mono tracking-tight">0.00 ر.س</div>
+                    <div class="mt-2 text-[11px] text-cyan-400 flex items-center justify-between">
+                        <span><span id="sched-stat-pending-count" class="font-bold font-mono">0</span> التزام معلق</span>
+                        <span class="text-[10px] text-slate-400">خاصة بالجدولة فقط</span>
+                    </div>
+                </div>
+
+                <!-- 3. Projected Remaining Liquidity -->
+                <div id="sched-card-projected-container" class="p-5 rounded-2xl bg-gradient-to-br from-slate-850 to-slate-900 border border-slate-800 shadow-lg relative overflow-hidden">
+                    <div class="flex items-center justify-between mb-2">
+                        <span id="sched-projected-label" class="text-xs font-bold text-slate-300">🔮 صافي السيولة المتبقية بعد الصرف</span>
+                        <div id="sched-projected-icon-box" class="w-8 h-8 rounded-lg bg-blue-500/20 text-blue-400 flex items-center justify-center">
+                            <i data-lucide="trending-up" class="w-4 h-4"></i>
+                        </div>
+                    </div>
+                    <div id="sched-stat-projected-liquidity" class="text-2xl sm:text-3xl font-black text-white font-mono tracking-tight">0.00 ر.س</div>
+                    <div id="sched-projected-subtext" class="mt-2 text-[11px] text-slate-400">
+                        السيولة - المصاريف المجدولة
+                    </div>
+                </div>
+
+                <!-- 4. Coverage Ratio & Safety Index -->
+                <div class="p-5 rounded-2xl bg-gradient-to-br from-purple-950/30 to-slate-900 border border-purple-500/30 shadow-lg relative overflow-hidden">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-xs font-bold text-purple-300">🛡️ نسبة تغطية السيولة</span>
+                        <div class="w-8 h-8 rounded-lg bg-purple-500/20 text-purple-400 flex items-center justify-center">
+                            <i data-lucide="shield-check" class="w-4 h-4"></i>
+                        </div>
+                    </div>
+                    <div id="sched-stat-coverage-ratio" class="text-2xl sm:text-3xl font-black text-white font-mono tracking-tight">100%</div>
+                    <div class="mt-2 text-[11px] flex items-center justify-between">
+                        <span id="sched-stat-status-badge" class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-500/20 text-emerald-400">تغطية آمنة</span>
+                        <span class="text-[10px] text-slate-400">السيولة ÷ الالتزامات</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Quick Timeframe Buckets Bar -->
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-850 p-4 rounded-2xl border border-slate-800 text-xs">
+                <div class="p-3 rounded-xl bg-slate-900/80 border border-slate-800 flex items-center justify-between">
+                    <div>
+                        <span class="text-slate-400 block text-[11px]">مستحق متأخر</span>
+                        <strong id="sched-stat-overdue" class="text-sm font-bold font-mono text-rose-400">0.00 ر.س</strong>
+                    </div>
+                    <i data-lucide="alert-triangle" class="w-4 h-4 text-rose-400"></i>
+                </div>
+                <div class="p-3 rounded-xl bg-slate-900/80 border border-slate-800 flex items-center justify-between">
+                    <div>
+                        <span class="text-slate-400 block text-[11px]">خلال الأسبوع الحالي</span>
+                        <strong id="sched-stat-week" class="text-sm font-bold font-mono text-amber-400">0.00 ر.س</strong>
+                    </div>
+                    <i data-lucide="calendar" class="w-4 h-4 text-amber-400"></i>
+                </div>
+                <div class="p-3 rounded-xl bg-slate-900/80 border border-slate-800 flex items-center justify-between">
+                    <div>
+                        <span class="text-slate-400 block text-[11px]">خلال الشهر الحالي</span>
+                        <strong id="sched-stat-month" class="text-sm font-bold font-mono text-cyan-400">0.00 ر.س</strong>
+                    </div>
+                    <i data-lucide="calendar-days" class="w-4 h-4 text-cyan-400"></i>
+                </div>
+                <div class="p-3 rounded-xl bg-slate-900/80 border border-slate-800 flex items-center justify-between">
+                    <div>
+                        <span class="text-slate-400 block text-[11px]">مستحق لاحقاً</span>
+                        <strong id="sched-stat-later" class="text-sm font-bold font-mono text-slate-300">0.00 ر.س</strong>
+                    </div>
+                    <i data-lucide="clock" class="w-4 h-4 text-slate-400"></i>
+                </div>
+            </div>
+
+            <!-- Filters & Controls Bar -->
+            <div class="bg-slate-850 p-4 rounded-2xl border border-slate-800 space-y-3">
+                <div class="flex flex-col md:flex-row items-center justify-between gap-3">
+                    <!-- Search Input -->
+                    <div class="relative w-full md:w-80">
+                        <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute right-3 top-3"></i>
+                        <input type="text" id="sched-search-input" oninput="filterScheduledExpensesTable()" placeholder="ابحث في البيان، الوصف، الملاحظات..." class="w-full bg-slate-900 border border-slate-750 rounded-xl pr-9 pl-3 py-2 text-xs text-white placeholder-slate-500 outline-none focus:border-cyan-500 transition">
+                    </div>
+
+                    <!-- Dropdown Filters -->
+                    <div class="flex items-center gap-2 flex-wrap w-full md:w-auto">
+                        <!-- Timeframe Filter -->
+                        <select id="sched-filter-timeframe" onchange="loadScheduledExpenses()" class="bg-slate-900 border border-slate-750 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-cyan-500">
+                            <option value="all">كل الفترات الزمنية</option>
+                            <option value="overdue">المتأخر فقط</option>
+                            <option value="this_week">مستحق هذا الأسبوع</option>
+                            <option value="this_month">مستحق هذا الشهر</option>
+                            <option value="later">مستحق لاحقاً</option>
+                        </select>
+
+                        <!-- Status Filter -->
+                        <select id="sched-filter-status" onchange="loadScheduledExpenses()" class="bg-slate-900 border border-slate-750 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-cyan-500">
+                            <option value="all">كافة الحالات</option>
+                            <option value="pending" selected>المعلقة فقط (المجدولة)</option>
+                            <option value="executed">تم التنفيذ / الصرف</option>
+                            <option value="cancelled">الملغاة</option>
+                        </select>
+
+                        <!-- Priority Filter -->
+                        <select id="sched-filter-priority" onchange="loadScheduledExpenses()" class="bg-slate-900 border border-slate-750 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-cyan-500">
+                            <option value="all">كافة الأولويات</option>
+                            <option value="high">🔴 عاجل ومؤكد</option>
+                            <option value="medium">🟡 متوسط الأهمية</option>
+                            <option value="low">🔵 عادي / اختياري</option>
+                        </select>
+
+                        <!-- Project Tag Filter -->
+                        <select id="sched-filter-project" onchange="loadScheduledExpenses()" class="bg-slate-900 border border-slate-750 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-cyan-500">
+                            <option value="all">كافة المشاريع والعام</option>
+                            <!-- Loaded via JS -->
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Scheduled Expenses List & Table -->
+            <div class="bg-slate-850 rounded-2xl border border-slate-800 overflow-hidden shadow-xl">
+                <div class="p-4 border-b border-slate-800 flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                        <i data-lucide="list-checks" class="w-4 h-4 text-cyan-400"></i>
+                        <h3 class="font-bold text-sm text-white">سجل المصاريف المجدولة والالتزامات المستقبلية</h3>
+                    </div>
+                    <div class="text-xs text-slate-400">
+                        <span>إجمالي المعروض: </span>
+                        <strong id="sched-footer-shown-count" class="text-cyan-400 font-mono">0</strong>
+                        <span> بمبلغ: </span>
+                        <strong id="sched-footer-shown-sum" class="text-white font-mono font-bold">0.00 ر.س</strong>
+                    </div>
+                </div>
+
+                <div class="overflow-x-auto">
+                    <table class="w-full text-right text-xs">
+                        <thead class="bg-slate-900/90 text-slate-400 font-bold border-b border-slate-800">
+                            <tr>
+                                <th class="p-3 text-center">م</th>
+                                <th class="p-3 text-center">تاريخ الاستحقاق</th>
+                                <th class="p-3">البيان / الغرض</th>
+                                <th class="p-3 text-left font-mono">المبلغ (ر.س)</th>
+                                <th class="p-3 text-center">الأولوية</th>
+                                <th class="p-3 text-center">التصنيف</th>
+                                <th class="p-3">وسم المشروع</th>
+                                <th class="p-3 text-center">التكرار</th>
+                                <th class="p-3 text-center">الحالة</th>
+                                <th class="p-3 text-center">الإجراءات</th>
+                            </tr>
+                        </thead>
+                        <tbody id="scheduled-expenses-tbody" class="divide-y divide-slate-800/80">
+                            <!-- Populated via JS -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Empty State -->
+                <div id="scheduled-expenses-empty" class="hidden text-center py-16 px-4 space-y-3">
+                    <div class="w-14 h-14 mx-auto rounded-2xl bg-cyan-500/10 text-cyan-400 flex items-center justify-center">
+                        <i data-lucide="calendar-check" class="w-7 h-7"></i>
+                    </div>
+                    <h4 class="text-base font-bold text-white">لا توجد مصاريف مجدولة مطابقة للبحث أو الفلتر</h4>
+                    <p class="text-xs text-slate-400 max-w-md mx-auto">يمكنك إضافة التزام مالي أو مصروف مستقبلي بالنقر على زر (جدولة مصروف جديد) لمطابقته مع السيولة دون التأثير على تقارير المشاريع.</p>
+                    <button onclick="openScheduledExpenseModal()" class="px-4 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs inline-flex items-center gap-2 transition">
+                        <i data-lucide="plus" class="w-4 h-4"></i>
+                        <span>جدولة أول مصروف الآن</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Project Breakdown Mini Cards (Informational Reference Only) -->
+            <div class="bg-slate-850 p-5 rounded-2xl border border-slate-800 space-y-3">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                        <i data-lucide="pie-chart" class="w-4 h-4 text-purple-400"></i>
+                        <h4 class="font-bold text-sm text-white">توزيع الالتزامات المجدولة حسب المشاريع (للمطابقة والمتابعة فقط)</h4>
+                    </div>
+                    <span class="text-[11px] text-slate-400">لأغراض تقدير التدفق ولا تظهر في التكلفة الفعلية للمشروع</span>
+                </div>
+                <div id="sched-projects-breakdown-grid" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                    <!-- Populated via JS -->
                 </div>
             </div>
 
@@ -7568,6 +7827,198 @@
         </div>
     </div>
 
+    <!-- ========================================== -->
+    <!-- MODAL: ADD / EDIT SCHEDULED EXPENSE -->
+    <!-- ========================================== -->
+    <div id="scheduled-expense-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fadeIn">
+        <div class="bg-slate-850 border border-slate-750 w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            
+            <!-- Modal Header -->
+            <div class="p-5 border-b border-slate-750 flex items-center justify-between bg-slate-900/60">
+                <div class="flex items-center gap-2.5">
+                    <div class="w-9 h-9 rounded-xl bg-cyan-500/20 text-cyan-400 flex items-center justify-center">
+                        <i data-lucide="calendar-plus" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h3 id="sched-modal-title" class="font-bold text-base text-white">جدولة مصروف / التزام مستقبلي</h3>
+                        <p class="text-[11px] text-slate-400">خاص بمطابقة السيولة النقدية - لا يؤثر على تقارير وتكلفة المشاريع</p>
+                    </div>
+                </div>
+                <button type="button" onclick="closeModal('scheduled-expense-modal')" class="p-2 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <!-- Modal Body (Form) -->
+            <form id="scheduled-expense-form" onsubmit="event.preventDefault(); saveScheduledExpense();" class="p-5 space-y-4 overflow-y-auto flex-1">
+                <input type="hidden" id="sched-edit-id" value="">
+
+                <!-- Title / Description -->
+                <div class="space-y-1.5">
+                    <label class="block text-xs font-bold text-slate-300">البيان / الغرض من المصروف <span class="text-rose-400">*</span></label>
+                    <input type="text" id="sched-title" required placeholder="مثال: دفعة مصنع خرسانة / إيجار سكن عمال / سداد تأمينات" class="w-full bg-slate-900 border border-slate-750 rounded-xl px-3 py-2.5 text-xs text-white placeholder-slate-500 outline-none focus:border-cyan-500 transition">
+                </div>
+
+                <!-- Amount & Due Date -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div class="space-y-1.5">
+                        <label class="block text-xs font-bold text-slate-300">المبلغ التقديري (ر.س) <span class="text-rose-400">*</span></label>
+                        <div class="relative">
+                            <input type="number" id="sched-amount" step="0.01" min="0.01" required placeholder="0.00" class="w-full bg-slate-900 border border-slate-750 rounded-xl pr-3 pl-12 py-2.5 text-sm font-mono font-bold text-white placeholder-slate-500 outline-none focus:border-cyan-500 transition">
+                            <span class="absolute left-3 top-2.5 text-xs text-slate-400 font-bold">ر.س</span>
+                        </div>
+                    </div>
+                    <div class="space-y-1.5">
+                        <label class="block text-xs font-bold text-slate-300">تاريخ الاستحقاق المتوقع <span class="text-rose-400">*</span></label>
+                        <input type="date" id="sched-due-date" required class="w-full bg-slate-900 border border-slate-750 rounded-xl px-3 py-2.5 text-xs text-white outline-none focus:border-cyan-500 transition font-mono">
+                    </div>
+                </div>
+
+                <!-- Priority & Category -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div class="space-y-1.5">
+                        <label class="block text-xs font-bold text-slate-300">درجة الأولوية والتأكيد</label>
+                        <select id="sched-priority" class="w-full bg-slate-900 border border-slate-750 rounded-xl px-3 py-2.5 text-xs text-white outline-none focus:border-cyan-500 transition">
+                            <option value="high">🔴 عاجل ومؤكد الصرف</option>
+                            <option value="medium" selected>🟡 متوسط الأهمية</option>
+                            <option value="low">🔵 عادي / اختياري حسب السيولة</option>
+                        </select>
+                    </div>
+                    <div class="space-y-1.5">
+                        <label class="block text-xs font-bold text-slate-300">التصنيف والنوع</label>
+                        <select id="sched-category" class="w-full bg-slate-900 border border-slate-750 rounded-xl px-3 py-2.5 text-xs text-white outline-none focus:border-cyan-500 transition">
+                            <option value="توريدات مواد" selected>توريدات مواد وموردين</option>
+                            <option value="مقاولو باطن">مقاولو باطن وعمالة</option>
+                            <option value="إيجارات ومقرات">إيجارات ومقرات وسكن</option>
+                            <option value="رواتب ومستحقات">رواتب ومستحقات عاملين</option>
+                            <option value="رسوم حكومية وتأمينات">رسوم حكومية وتأمينات</option>
+                            <option value="مصاريف عمومية وإدارية">مصاريف عمومية وإدارية</option>
+                            <option value="مسحوبات شركاء">مسحوبات شخصية / شركاء</option>
+                            <option value="عام">عام / مصاريف أخرى</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Project Tag & Recurrence -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div class="space-y-1.5">
+                        <label class="block text-xs font-bold text-slate-300">
+                            وسم المشروع <span class="text-[10px] text-slate-400 font-normal">(اختياري - للمتابعة فقط)</span>
+                        </label>
+                        <select id="sched-project-id" class="w-full bg-slate-900 border border-slate-750 rounded-xl px-3 py-2.5 text-xs text-white outline-none focus:border-cyan-500 transition">
+                            <option value="">-- عام (بدون مشروع محدد) --</option>
+                            <!-- Loaded via JS -->
+                        </select>
+                    </div>
+                    <div class="space-y-1.5">
+                        <label class="block text-xs font-bold text-slate-300">دورية التكرار</label>
+                        <select id="sched-recurrence" class="w-full bg-slate-900 border border-slate-750 rounded-xl px-3 py-2.5 text-xs text-white outline-none focus:border-cyan-500 transition">
+                            <option value="once" selected>مرة واحدة (غير متكرر)</option>
+                            <option value="weekly">أسبوعي</option>
+                            <option value="monthly">شهري</option>
+                            <option value="quarterly">ربع سنوي (كل 3 أشهر)</option>
+                            <option value="yearly">سنوي</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Status (When editing) -->
+                <div id="sched-status-container" class="hidden space-y-1.5">
+                    <label class="block text-xs font-bold text-slate-300">حالة المصروف المجدول</label>
+                    <select id="sched-status" class="w-full bg-slate-900 border border-slate-750 rounded-xl px-3 py-2.5 text-xs text-white outline-none focus:border-cyan-500 transition">
+                        <option value="pending">معلق / قيد الجدولة</option>
+                        <option value="executed">تم التنفيذ / الصرف</option>
+                        <option value="cancelled">ملغي</option>
+                    </select>
+                </div>
+
+                <!-- Notes -->
+                <div class="space-y-1.5">
+                    <label class="block text-xs font-bold text-slate-300">ملاحظات وشروط الدفع</label>
+                    <textarea id="sched-notes" rows="2" placeholder="ملاحظات توضيحية بخصوص طريقة التحويل أو موعد الاستلام..." class="w-full bg-slate-900 border border-slate-750 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 outline-none focus:border-cyan-500 transition resize-none"></textarea>
+                </div>
+
+                <div class="p-3 rounded-xl bg-cyan-950/30 border border-cyan-800/40 text-[11px] text-cyan-300 flex items-start gap-2">
+                    <i data-lucide="shield-check" class="w-4 h-4 text-cyan-400 shrink-0 mt-0.5"></i>
+                    <span><strong>ملاحظة للمدير المالي:</strong> هذا المصروف يدخل فقط في حسابات ومحاكاة السيولة النقدية المتاحة ولا يؤثر إطلاقاً على تكاليف أو ميزانيات المشاريع حتى يتم صرفه فعلياً.</span>
+                </div>
+
+                <!-- Modal Actions -->
+                <div class="pt-2 flex items-center justify-end gap-2 border-t border-slate-800">
+                    <button type="button" onclick="closeModal('scheduled-expense-modal')" class="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-300 text-xs font-bold transition">
+                        إلغاء
+                    </button>
+                    <button type="submit" id="btn-save-scheduled-expense" class="px-5 py-2.5 rounded-xl bg-gradient-to-r from-cyan-600 to-teal-600 hover:from-cyan-500 hover:to-teal-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-lg shadow-cyan-950/40 transition">
+                        <i data-lucide="save" class="w-4 h-4"></i>
+                        <span id="btn-save-scheduled-text">حفظ الجدولة</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- MODAL: EXECUTE SCHEDULED EXPENSE CONFIRMATION -->
+    <!-- ========================================== -->
+    <div id="scheduled-expense-execute-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fadeIn">
+        <div class="bg-slate-850 border border-slate-750 w-full max-w-md rounded-2xl shadow-2xl overflow-hidden p-6 space-y-4">
+            <div class="flex items-center gap-3">
+                <div class="w-12 h-12 rounded-2xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
+                    <i data-lucide="check-circle-2" class="w-6 h-6"></i>
+                </div>
+                <div>
+                    <h3 class="font-bold text-base text-white">تأكيد تنفيذ وصرف المصروف المجدول</h3>
+                    <p class="text-xs text-slate-400 truncate max-w-[280px]" id="exec-modal-item-title">-</p>
+                </div>
+            </div>
+
+            <div class="p-3.5 rounded-xl bg-slate-900 border border-slate-800 space-y-1.5 text-xs">
+                <div class="flex justify-between">
+                    <span class="text-slate-400">المبلغ المطلوب صرفه:</span>
+                    <strong id="exec-modal-amount" class="text-white font-mono font-bold">0.00 ر.س</strong>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-slate-400">تاريخ الاستحقاق المجدول:</span>
+                    <span id="exec-modal-date" class="text-slate-300 font-mono">-</span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-slate-400">المشروع المرتبط:</span>
+                    <span id="exec-modal-project" class="text-cyan-300">-</span>
+                </div>
+            </div>
+
+            <div class="space-y-2 text-xs">
+                <label class="block font-bold text-slate-200">اختر طريقة التنفيذ:</label>
+                <div class="space-y-2">
+                    <label class="p-3 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-750 cursor-pointer flex items-start gap-2.5 transition">
+                        <input type="radio" name="exec-choice" value="schedule_only" checked class="mt-0.5 text-cyan-500 focus:ring-0">
+                        <div>
+                            <strong class="text-white block">تعليم كـ "تم التنفيذ" في الجدولة فقط</strong>
+                            <span class="text-[11px] text-slate-400">تحديث سجل المجدول بأنه تم صرفه دون المساس بتقارير أو تكاليف المشاريع الفعلية.</span>
+                        </div>
+                    </label>
+                    <label class="p-3 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-750 cursor-pointer flex items-start gap-2.5 transition">
+                        <input type="radio" name="exec-choice" value="convert_to_actual" class="mt-0.5 text-emerald-500 focus:ring-0">
+                        <div>
+                            <strong class="text-emerald-300 block">ترحيل كـ "مصروف فعلي" في النظام والمشروع</strong>
+                            <span class="text-[11px] text-slate-400">تسجيله رسمياً في جدول المصروفات والفواتير وخصمه من السيولة البنكية.</span>
+                        </div>
+                    </label>
+                </div>
+            </div>
+
+            <div class="pt-2 flex items-center justify-end gap-2 border-t border-slate-800">
+                <button type="button" onclick="closeModal('scheduled-expense-execute-modal')" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-300 text-xs font-bold transition">
+                    إلغاء
+                </button>
+                <button type="button" onclick="confirmExecuteScheduledExpense()" class="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-lg shadow-emerald-950/40 transition">
+                    <i data-lucide="check" class="w-4 h-4"></i>
+                    <span>تأكيد التنفيذ</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- Toast Notification -->
     <div id="toast" class="hidden fixed bottom-6 left-6 z-50 px-5 py-3 rounded-2xl shadow-2xl flex items-center gap-3 text-sm font-bold animate-slideUp">
         <span id="toast-icon"></span>
@@ -7576,7 +8027,7 @@
 
     <!-- Scripts -->
     <script src="/static/js/i18n.js?v=20261020_v1"></script>
-    <script src="/static/js/app.js?v=20261104_v3"></script>
+    <script src="/static/js/app.js?v=20261114_sched_v1"></script>
     <script>
     (function() {
         try {

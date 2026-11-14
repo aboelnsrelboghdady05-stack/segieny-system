@@ -216,7 +216,7 @@ function switchTab(tabId) {
         btn.classList.add('bg-slate-800', 'text-slate-300');
     });
     const mobileTabs = document.querySelectorAll('.mobile-tab');
-    const tabNames = ['dashboard', 'projects', 'tasks', 'expenses', 'suppliers', 'cashflow', 'subcontractors', 'custody', 'documents', 'reports', 'chat', 'team', 'hr'];
+    const tabNames = ['dashboard', 'projects', 'tasks', 'expenses', 'suppliers', 'cashflow', 'scheduled_expenses', 'subcontractors', 'custody', 'documents', 'reports', 'chat', 'team', 'hr'];
     const idx = tabNames.indexOf(tabId);
     if (idx !== -1 && mobileTabs[idx]) {
         mobileTabs[idx].classList.remove('bg-slate-800', 'text-slate-300');
@@ -240,6 +240,7 @@ function switchTab(tabId) {
         }
         else if (tabId === 'suppliers') loadSuppliersData();
         else if (tabId === 'cashflow') loadCashFlow();
+        else if (tabId === 'scheduled_expenses') loadScheduledExpenses();
         else if (tabId === 'subcontractors') loadSubcontractors();
         else if (tabId === 'custody') loadCustody();
         else if (tabId === 'documents') loadDocuments();
@@ -19666,6 +19667,880 @@ function printSingleExpenseRequest() {
                 <div class="sig-box">
                     <strong>المستلم / الصارف</strong>
                     <div class="sig-line">${escapeHtml(req.beneficiary_name)}</div>
+                </div>
+            </div>
+
+            <script>
+                window.onload = function() { window.print(); }
+            </script>
+        </body>
+        </html>
+    `);
+    printWin.document.close();
+}
+
+// ============================================================================
+// MODULE: SCHEDULED EXPENSES & LIQUIDITY SIMULATION (المصاريف المجدولة والسيولة)
+// ============================================================================
+window.scheduledExpensesState = {
+    items: [],
+    liquidity: null,
+    projects: [],
+    filteredItems: []
+};
+
+/**
+ * Fetch and load scheduled expenses data along with live liquidity simulation.
+ */
+async function loadScheduledExpenses() {
+    try {
+        const status = document.getElementById('sched-filter-status')?.value || 'all';
+        const priority = document.getElementById('sched-filter-priority')?.value || 'all';
+        const projectId = document.getElementById('sched-filter-project')?.value || 'all';
+        const timeframe = document.getElementById('sched-filter-timeframe')?.value || 'all';
+
+        const params = new URLSearchParams({ status, priority, project_id: projectId, timeframe });
+        const res = await fetch(`/api/scheduled-expenses?${params.toString()}`).then(r => r.json());
+
+        if (!res || !res.success) {
+            showToast(res?.message || 'تعذر تحميل المصاريف المجدولة', 'error');
+            return;
+        }
+
+        window.scheduledExpensesState.items = res.items || [];
+        window.scheduledExpensesState.liquidity = res.liquidity || {};
+        window.scheduledExpensesState.projects = res.projects || [];
+
+        // 1. Update Navigation Badge
+        const navBadge = document.getElementById('badge-scheduled-pending-count');
+        const pendingCount = res.liquidity?.pending_count || 0;
+        if (navBadge) {
+            if (pendingCount > 0) {
+                navBadge.textContent = pendingCount;
+                navBadge.classList.remove('hidden');
+            } else {
+                navBadge.classList.add('hidden');
+            }
+        }
+
+        // 2. Render Hero KPI Cards
+        const currentLiq = Number(res.liquidity.current_liquidity || 0);
+        const totalPending = Number(res.liquidity.total_pending_amount || 0);
+        const projectedLiq = Number(res.liquidity.projected_remaining_liquidity || 0);
+        const coverageRatio = Number(res.liquidity.coverage_ratio || 0);
+        const liqStatus = res.liquidity.liquidity_status || 'safe';
+
+        const elCurr = document.getElementById('sched-stat-current-liquidity');
+        if (elCurr) elCurr.textContent = formatCurrency(currentLiq);
+
+        const elTotPending = document.getElementById('sched-stat-total-pending');
+        if (elTotPending) elTotPending.textContent = formatCurrency(totalPending);
+
+        const elPendingCount = document.getElementById('sched-stat-pending-count');
+        if (elPendingCount) elPendingCount.textContent = pendingCount;
+
+        const elProj = document.getElementById('sched-stat-projected-liquidity');
+        const elProjContainer = document.getElementById('sched-card-projected-container');
+        const elProjSubtext = document.getElementById('sched-projected-subtext');
+        const elProjIconBox = document.getElementById('sched-projected-icon-box');
+
+        if (elProj) {
+            elProj.textContent = formatCurrency(projectedLiq);
+            if (projectedLiq < 0) {
+                elProj.className = 'text-2xl sm:text-3xl font-black text-rose-400 font-mono tracking-tight';
+                if (elProjContainer) {
+                    elProjContainer.className = 'p-5 rounded-2xl bg-gradient-to-br from-rose-950/40 to-slate-900 border border-rose-500/40 shadow-lg relative overflow-hidden';
+                }
+                if (elProjIconBox) {
+                    elProjIconBox.className = 'w-8 h-8 rounded-lg bg-rose-500/20 text-rose-400 flex items-center justify-center';
+                    elProjIconBox.innerHTML = '<i data-lucide="trending-down" class="w-4 h-4"></i>';
+                }
+                if (elProjSubtext) elProjSubtext.innerHTML = '<span class="text-rose-400 font-bold">⚠️ عجز متوقع بالسيولة إذا تم صرف كافة البنود</span>';
+            } else {
+                elProj.className = 'text-2xl sm:text-3xl font-black text-emerald-300 font-mono tracking-tight';
+                if (elProjContainer) {
+                    elProjContainer.className = 'p-5 rounded-2xl bg-gradient-to-br from-emerald-950/30 to-slate-900 border border-emerald-500/30 shadow-lg relative overflow-hidden';
+                }
+                if (elProjIconBox) {
+                    elProjIconBox.className = 'w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center';
+                    elProjIconBox.innerHTML = '<i data-lucide="trending-up" class="w-4 h-4"></i>';
+                }
+                if (elProjSubtext) elProjSubtext.innerHTML = '<span class="text-emerald-400/80">السيولة المتاحة فائضة وتغطي المجدول بأمان</span>';
+            }
+        }
+
+        const elRatio = document.getElementById('sched-stat-coverage-ratio');
+        if (elRatio) elRatio.textContent = coverageRatio >= 999 ? '∞' : `${coverageRatio}%`;
+
+        const elStatusBadge = document.getElementById('sched-stat-status-badge');
+        if (elStatusBadge) {
+            if (liqStatus === 'safe') {
+                elStatusBadge.className = 'px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30';
+                elStatusBadge.textContent = 'تغطية آمنة ومريحة';
+            } else if (liqStatus === 'warning') {
+                elStatusBadge.className = 'px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30';
+                elStatusBadge.textContent = 'تغطية حرجة (هامش ضئيل)';
+            } else {
+                elStatusBadge.className = 'px-2 py-0.5 rounded-md text-[10px] font-bold bg-rose-500/20 text-rose-400 border border-rose-500/30';
+                elStatusBadge.textContent = 'عجز سيولة متوقع';
+            }
+        }
+
+        // 3. Render Quick Buckets
+        const elOverdue = document.getElementById('sched-stat-overdue');
+        if (elOverdue) elOverdue.textContent = formatCurrency(res.liquidity.overdue_amount || 0);
+
+        const elWeek = document.getElementById('sched-stat-week');
+        if (elWeek) elWeek.textContent = formatCurrency(res.liquidity.due_this_week || 0);
+
+        const elMonth = document.getElementById('sched-stat-month');
+        if (elMonth) elMonth.textContent = formatCurrency(res.liquidity.due_this_month || 0);
+
+        const elLater = document.getElementById('sched-stat-later');
+        if (elLater) elLater.textContent = formatCurrency(res.liquidity.due_later || 0);
+
+        // 4. Render Dynamic Liquidity Alert Banner
+        renderScheduledLiquidityBanner(res.liquidity);
+
+        // 5. Populate Project Dropdowns
+        populateScheduledProjectsDropdowns(res.projects);
+
+        // 6. Render Table
+        filterScheduledExpensesTable();
+
+        // 7. Render Projects Breakdown Cards
+        renderScheduledProjectsBreakdown(res.liquidity.by_project || []);
+
+        if (typeof initLucide === 'function') initLucide();
+    } catch (err) {
+        console.error('Error in loadScheduledExpenses:', err);
+        showToast('حدث خطأ أثناء تحميل المصاريف المجدولة', 'error');
+    }
+}
+
+/**
+ * Render the live Liquidity Alert Banner with business recommendations.
+ */
+function renderScheduledLiquidityBanner(liq) {
+    const banner = document.getElementById('sched-liquidity-banner');
+    if (!banner) return;
+
+    const status = liq?.liquidity_status || 'safe';
+    const curr = Number(liq?.current_liquidity || 0);
+    const pending = Number(liq?.total_pending_amount || 0);
+    const proj = Number(liq?.projected_remaining_liquidity || 0);
+    const ratio = Number(liq?.coverage_ratio || 0);
+
+    if (pending === 0) {
+        banner.className = 'p-4 rounded-xl border border-cyan-500/20 bg-cyan-950/20 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3';
+        banner.innerHTML = `
+            <div class="flex items-center gap-3">
+                <div class="w-9 h-9 rounded-xl bg-cyan-500/20 text-cyan-400 flex items-center justify-center shrink-0">
+                    <i data-lucide="check-circle-2" class="w-5 h-5"></i>
+                </div>
+                <div>
+                    <h4 class="text-xs sm:text-sm font-bold text-white">لا توجد مصاريف معلقة مجدولة حالياً</h4>
+                    <p class="text-xs text-slate-400">السيولة النقدية المتاحة في البنك والخزينة بالكامل جاهزة للاستخدام ومقدارها <span class="text-cyan-300 font-bold font-mono">${formatCurrency(curr)}</span>.</p>
+                </div>
+            </div>
+            <button onclick="openScheduledExpenseModal()" class="px-3 py-1.5 rounded-lg bg-cyan-600/30 hover:bg-cyan-600/50 text-cyan-300 border border-cyan-500/30 text-xs font-bold transition">
+                + جدولة التزام جديد
+            </button>
+        `;
+        return;
+    }
+
+    if (status === 'safe') {
+        banner.className = 'p-4 rounded-xl border border-emerald-500/30 bg-emerald-950/20 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3';
+        banner.innerHTML = `
+            <div class="flex items-center gap-3">
+                <div class="w-9 h-9 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
+                    <i data-lucide="shield-check" class="w-5 h-5"></i>
+                </div>
+                <div>
+                    <h4 class="text-xs sm:text-sm font-bold text-emerald-300">مؤشر السيولة آمن ومريح (تغطية ${ratio}%)</h4>
+                    <p class="text-xs text-slate-300">السيولة النقدية المتاحة (<span class="font-bold text-white font-mono">${formatCurrency(curr)}</span>) تغطي كافة الالتزامات المجدولة المعلقة (<span class="font-bold text-white font-mono">${formatCurrency(pending)}</span>) بفائض سيولة متبقي متوقع قدره <span class="font-bold text-emerald-400 font-mono">${formatCurrency(proj)}</span>.</p>
+                </div>
+            </div>
+            <span class="px-3 py-1 rounded-full text-xs font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shrink-0">
+                جاهزية كاملة للصرف
+            </span>
+        `;
+    } else if (status === 'warning') {
+        banner.className = 'p-4 rounded-xl border border-amber-500/30 bg-amber-950/20 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3';
+        banner.innerHTML = `
+            <div class="flex items-center gap-3">
+                <div class="w-9 h-9 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center shrink-0">
+                    <i data-lucide="alert-triangle" class="w-5 h-5"></i>
+                </div>
+                <div>
+                    <h4 class="text-xs sm:text-sm font-bold text-amber-300">تنبيه سيولة: هامش الأمان النقدي ضئيل (تغطية ${ratio}%)</h4>
+                    <p class="text-xs text-slate-300">الالتزامات المجدولة (<span class="font-bold text-white font-mono">${formatCurrency(pending)}</span>) ستستنزف معظم السيولة الحالية، ويتبقى هامش أمان <span class="font-bold text-amber-400 font-mono">${formatCurrency(proj)}</span> فقط. يفضل تسريع تحصيل المستخلصات.</p>
+                </div>
+            </div>
+            <span class="px-3 py-1 rounded-full text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 shrink-0">
+                هامش منخفض
+            </span>
+        `;
+    } else {
+        const deficit = Math.abs(proj);
+        banner.className = 'p-4 rounded-xl border border-rose-500/40 bg-rose-950/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-pulse';
+        banner.innerHTML = `
+            <div class="flex items-center gap-3">
+                <div class="w-9 h-9 rounded-xl bg-rose-500/20 text-rose-400 flex items-center justify-center shrink-0">
+                    <i data-lucide="alert-octagon" class="w-5 h-5"></i>
+                </div>
+                <div>
+                    <h4 class="text-xs sm:text-sm font-bold text-rose-300">تحذير عجز مالي متوقع (عجز قدره ${formatCurrency(deficit)})</h4>
+                    <p class="text-xs text-slate-300">إجمالي الالتزامات المجدولة (<span class="font-bold text-white font-mono">${formatCurrency(pending)}</span>) يتجاوز رصيد السيولة البنكية المتاحة (<span class="font-bold text-white font-mono">${formatCurrency(curr)}</span>). نسبة التغطية <span class="font-bold text-rose-400 font-mono">${ratio}%</span> فقط. يرجى تأجيل المصاريف غير العاجلة أو توفير سيولة إضافية.</p>
+                </div>
+            </div>
+            <span class="px-3 py-1 rounded-full text-xs font-bold bg-rose-500/30 text-rose-300 border border-rose-500/50 shrink-0">
+                يلزم اتخاذ إجراء
+            </span>
+        `;
+    }
+}
+
+/**
+ * Populate project dropdowns for filter and modal.
+ */
+function populateScheduledProjectsDropdowns(projects) {
+    const filterSelect = document.getElementById('sched-filter-project');
+    const modalSelect = document.getElementById('sched-project-id');
+
+    const currentFilterVal = filterSelect ? filterSelect.value : 'all';
+    const currentModalVal = modalSelect ? modalSelect.value : '';
+
+    if (filterSelect) {
+        let fHtml = '<option value="all">كافة المشاريع والعام</option><option value="general">عام فقط (بدون مشروع)</option>';
+        (projects || []).forEach(p => {
+            fHtml += `<option value="${p.id}">${escapeHtml(p.name)}</option>`;
+        });
+        filterSelect.innerHTML = fHtml;
+        if (currentFilterVal) filterSelect.value = currentFilterVal;
+    }
+
+    if (modalSelect) {
+        let mHtml = '<option value="">-- عام (بدون مشروع محدد) --</option>';
+        (projects || []).forEach(p => {
+            mHtml += `<option value="${p.id}">${escapeHtml(p.name)}</option>`;
+        });
+        modalSelect.innerHTML = mHtml;
+        if (currentModalVal) modalSelect.value = currentModalVal;
+    }
+}
+
+/**
+ * Filter scheduled expenses table based on text search and populate tbody.
+ */
+function filterScheduledExpensesTable() {
+    const q = (document.getElementById('sched-search-input')?.value || '').trim().toLowerCase();
+    const items = window.scheduledExpensesState.items || [];
+
+    const filtered = items.filter(it => {
+        if (!q) return true;
+        const titleMatch = (it.title || '').toLowerCase().includes(q);
+        const notesMatch = (it.notes || '').toLowerCase().includes(q);
+        const catMatch = (it.category || '').toLowerCase().includes(q);
+        const projMatch = (it.project_name || '').toLowerCase().includes(q);
+        return titleMatch || notesMatch || catMatch || projMatch;
+    });
+
+    window.scheduledExpensesState.filteredItems = filtered;
+    renderScheduledExpensesTable(filtered);
+}
+
+/**
+ * Render table rows for scheduled expenses.
+ */
+function renderScheduledExpensesTable(items) {
+    const tbody = document.getElementById('scheduled-expenses-tbody');
+    const emptyState = document.getElementById('scheduled-expenses-empty');
+    const elShownCount = document.getElementById('sched-footer-shown-count');
+    const elShownSum = document.getElementById('sched-footer-shown-sum');
+
+    if (!tbody) return;
+
+    if (!items || items.length === 0) {
+        tbody.innerHTML = '';
+        if (emptyState) emptyState.classList.remove('hidden');
+        if (elShownCount) elShownCount.textContent = '0';
+        if (elShownSum) elShownSum.textContent = '0.00 ر.س';
+        return;
+    }
+
+    if (emptyState) emptyState.classList.add('hidden');
+
+    let sum = 0;
+    const todayStr = new Date().toISOString().split('T')[0];
+
+    const recurrenceLabels = {
+        once: 'مرة واحدة',
+        weekly: 'أسبوعي',
+        monthly: 'شهري',
+        quarterly: 'ربع سنوي',
+        yearly: 'سنوي'
+    };
+
+    let html = '';
+    items.forEach((it, idx) => {
+        const amt = Number(it.amount || 0);
+        sum += amt;
+
+        // Priority Badge
+        let prioBadge = '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30">🔵 عادي</span>';
+        if (it.priority === 'high') {
+            prioBadge = '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/20 text-rose-400 border border-rose-500/30">🔴 عاجل</span>';
+        } else if (it.priority === 'medium') {
+            prioBadge = '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">🟡 متوسط</span>';
+        }
+
+        // Status Badge
+        let statusBadge = '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">قيد الجدولة</span>';
+        if (it.status === 'executed') {
+            statusBadge = '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">تم الصرف</span>';
+        } else if (it.status === 'cancelled') {
+            statusBadge = '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-700/60 text-slate-400 border border-slate-700">ملغي</span>';
+        }
+
+        // Date Display & Urgency
+        const dueDate = it.due_date || '';
+        let dateUrgency = '';
+        if (it.status === 'pending' && dueDate) {
+            if (dueDate < todayStr) {
+                dateUrgency = '<span class="inline-block text-[10px] px-1.5 py-0.2 rounded bg-rose-500/20 text-rose-400 font-bold mr-1">متأخر</span>';
+            } else if (dueDate === todayStr) {
+                dateUrgency = '<span class="inline-block text-[10px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 font-bold mr-1">اليوم</span>';
+            }
+        }
+
+        // Project tag
+        const projectLabel = it.project_name ? 
+            `<span class="text-cyan-300 font-bold truncate max-w-[140px] block" title="${escapeHtml(it.project_name)}">${escapeHtml(it.project_name)}</span>` : 
+            `<span class="text-slate-400">عام (بدون مشروع)</span>`;
+
+        // Row background styling
+        let rowClass = 'hover:bg-slate-800/60 transition';
+        if (it.status === 'executed') rowClass += ' opacity-70 bg-slate-900/40';
+        else if (it.status === 'cancelled') rowClass += ' opacity-50 bg-slate-900/60 line-through';
+
+        html += `
+            <tr class="${rowClass}">
+                <td class="p-3 text-center text-slate-400 font-mono font-bold">${idx + 1}</td>
+                <td class="p-3 text-center whitespace-nowrap">
+                    <div class="font-mono text-white text-xs">${dueDate || '-'}</div>
+                    ${dateUrgency}
+                </td>
+                <td class="p-3">
+                    <strong class="text-white block text-xs">${escapeHtml(it.title)}</strong>
+                    ${it.notes ? `<p class="text-[11px] text-slate-400 truncate max-w-[220px]" title="${escapeHtml(it.notes)}">${escapeHtml(it.notes)}</p>` : ''}
+                </td>
+                <td class="p-3 text-left font-mono font-bold text-white text-sm whitespace-nowrap">
+                    ${formatCurrency(amt)}
+                </td>
+                <td class="p-3 text-center whitespace-nowrap">${prioBadge}</td>
+                <td class="p-3 text-center whitespace-nowrap">
+                    <span class="px-2 py-0.5 rounded-lg bg-slate-800 text-slate-300 border border-slate-750 text-[11px]">${escapeHtml(it.category || 'عام')}</span>
+                </td>
+                <td class="p-3">${projectLabel}</td>
+                <td class="p-3 text-center text-[11px] text-slate-300 whitespace-nowrap">${recurrenceLabels[it.recurrence] || it.recurrence || 'مرة واحدة'}</td>
+                <td class="p-3 text-center whitespace-nowrap">${statusBadge}</td>
+                <td class="p-3 text-center whitespace-nowrap">
+                    <div class="flex items-center justify-center gap-1">
+                        ${it.status === 'pending' ? `
+                            <button onclick="openExecuteScheduledExpenseModal(${it.id})" title="تأكيد الصرف / التنفيذ" class="p-1.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/40 text-emerald-400 border border-emerald-500/30 transition">
+                                <i data-lucide="check" class="w-3.5 h-3.5"></i>
+                            </button>
+                        ` : ''}
+                        <button onclick="openScheduledExpenseModal(${it.id})" title="تعديل" class="p-1.5 rounded-lg bg-blue-600/20 hover:bg-blue-600/40 text-blue-400 border border-blue-500/30 transition">
+                            <i data-lucide="pencil" class="w-3.5 h-3.5"></i>
+                        </button>
+                        ${it.status === 'pending' ? `
+                            <button onclick="cancelScheduledExpense(${it.id})" title="إلغاء الجدولة" class="p-1.5 rounded-lg bg-amber-600/20 hover:bg-amber-600/40 text-amber-400 border border-amber-500/30 transition">
+                                <i data-lucide="ban" class="w-3.5 h-3.5"></i>
+                            </button>
+                        ` : ''}
+                        <button onclick="deleteScheduledExpense(${it.id})" title="حذف نهائي" class="p-1.5 rounded-lg bg-rose-600/20 hover:bg-rose-600/40 text-rose-400 border border-rose-500/30 transition">
+                            <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                        </button>
+                    </div>
+                </td>
+            </tr>
+        `;
+    });
+
+    tbody.innerHTML = html;
+    if (elShownCount) elShownCount.textContent = items.length;
+    if (elShownSum) elShownSum.textContent = formatCurrency(sum);
+    if (typeof initLucide === 'function') initLucide();
+}
+
+/**
+ * Render informational project breakdown mini cards.
+ */
+function renderScheduledProjectsBreakdown(breakdown) {
+    const grid = document.getElementById('sched-projects-breakdown-grid');
+    if (!grid) return;
+
+    if (!breakdown || breakdown.length === 0) {
+        grid.innerHTML = '<div class="col-span-full text-center text-xs text-slate-500 py-3">لا توجد التزامات مجدولة موزعة على مشاريع حالياً.</div>';
+        return;
+    }
+
+    let html = '';
+    breakdown.forEach(p => {
+        html += `
+            <div class="p-3.5 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-between">
+                <div class="space-y-0.5 max-w-[70%]">
+                    <strong class="text-xs text-white block truncate" title="${escapeHtml(p.project_name)}">${escapeHtml(p.project_name)}</strong>
+                    <span class="text-[10px] text-slate-400 font-mono">${p.items_count} بند مجدول</span>
+                </div>
+                <div class="text-left font-mono font-bold text-xs text-cyan-300">
+                    ${formatCurrency(p.total_amount)}
+                </div>
+            </div>
+        `;
+    });
+
+    grid.innerHTML = html;
+}
+
+/**
+ * Open modal to add or edit a scheduled expense.
+ */
+function openScheduledExpenseModal(editId = null) {
+    const form = document.getElementById('scheduled-expense-form');
+    if (form) form.reset();
+
+    const titleEl = document.getElementById('sched-modal-title');
+    const btnTextEl = document.getElementById('btn-save-scheduled-text');
+    const idInput = document.getElementById('sched-edit-id');
+    const statusContainer = document.getElementById('sched-status-container');
+
+    if (editId) {
+        const item = (window.scheduledExpensesState.items || []).find(it => it.id === editId);
+        if (!item) {
+            showToast('لم يتم العثور على البند المطلوب', 'error');
+            return;
+        }
+
+        if (idInput) idInput.value = item.id;
+        if (titleEl) titleEl.textContent = 'تعديل المصروف المجدول';
+        if (btnTextEl) btnTextEl.textContent = 'حفظ التعديلات';
+        if (statusContainer) statusContainer.classList.remove('hidden');
+
+        document.getElementById('sched-title').value = item.title || '';
+        document.getElementById('sched-amount').value = item.amount || '';
+        document.getElementById('sched-due-date').value = item.due_date || '';
+        document.getElementById('sched-priority').value = item.priority || 'medium';
+        document.getElementById('sched-category').value = item.category || 'عام';
+        document.getElementById('sched-project-id').value = item.project_id || '';
+        document.getElementById('sched-recurrence').value = item.recurrence || 'once';
+        document.getElementById('sched-status').value = item.status || 'pending';
+        document.getElementById('sched-notes').value = item.notes || '';
+    } else {
+        if (idInput) idInput.value = '';
+        if (titleEl) titleEl.textContent = 'جدولة مصروف / التزام مستقبلي';
+        if (btnTextEl) btnTextEl.textContent = 'حفظ الجدولة';
+        if (statusContainer) statusContainer.classList.add('hidden');
+
+        // Set default due date to tomorrow
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        const dueEl = document.getElementById('sched-due-date');
+        if (dueEl) dueEl.value = tomorrow.toISOString().split('T')[0];
+    }
+
+    openModal('scheduled-expense-modal');
+    if (typeof initLucide === 'function') initLucide();
+}
+
+/**
+ * Save (create or update) a scheduled expense via backend API.
+ */
+async function saveScheduledExpense() {
+    const id = document.getElementById('sched-edit-id')?.value;
+    const title = (document.getElementById('sched-title')?.value || '').trim();
+    const amount = parseFloat(document.getElementById('sched-amount')?.value);
+    const dueDate = document.getElementById('sched-due-date')?.value;
+    const priority = document.getElementById('sched-priority')?.value || 'medium';
+    const category = document.getElementById('sched-category')?.value || 'عام';
+    const projectId = document.getElementById('sched-project-id')?.value || null;
+    const recurrence = document.getElementById('sched-recurrence')?.value || 'once';
+    const notes = (document.getElementById('sched-notes')?.value || '').trim();
+    const status = document.getElementById('sched-status')?.value || 'pending';
+
+    if (!title) {
+        showToast('يرجى كتابة البيان أو الغرض من المصروف', 'warning');
+        return;
+    }
+    if (!amount || isNaN(amount) || amount <= 0) {
+        showToast('يرجى تحديد مبلغ صالح أكبر من الصفر', 'warning');
+        return;
+    }
+    if (!dueDate) {
+        showToast('يرجى تحديد تاريخ الاستحقاق المتوقع', 'warning');
+        return;
+    }
+
+    const payload = {
+        title,
+        amount,
+        due_date: dueDate,
+        priority,
+        category,
+        project_id: projectId,
+        recurrence,
+        notes,
+        status
+    };
+
+    const url = id ? `/api/scheduled-expenses/${id}` : '/api/scheduled-expenses';
+    const method = id ? 'PUT' : 'POST';
+
+    try {
+        const res = await fetch(url, {
+            method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        }).then(r => r.json());
+
+        if (res && res.success) {
+            closeModal('scheduled-expense-modal');
+            showToast(id ? 'تم تعديل المصروف المجدول بنجاح' : 'تمت جدولة المصروف بنجاح دون التأثير على تقارير المشاريع', 'success');
+            await loadScheduledExpenses();
+        } else {
+            showToast(res?.message || 'تعذر حفظ المصروف المجدول', 'error');
+        }
+    } catch (err) {
+        console.error('Error saving scheduled expense:', err);
+        showToast('حدث خطأ في الاتصال بالخادم', 'error');
+    }
+}
+
+/**
+ * Open confirmation modal to execute a scheduled expense.
+ */
+function openExecuteScheduledExpenseModal(id) {
+    const item = (window.scheduledExpensesState.items || []).find(it => it.id === id);
+    if (!item) {
+        showToast('لم يتم العثور على البند', 'error');
+        return;
+    }
+
+    window._executingScheduledId = id;
+
+    const titleEl = document.getElementById('exec-modal-item-title');
+    const amtEl = document.getElementById('exec-modal-amount');
+    const dateEl = document.getElementById('exec-modal-date');
+    const projEl = document.getElementById('exec-modal-project');
+
+    if (titleEl) titleEl.textContent = item.title;
+    if (amtEl) amtEl.textContent = formatCurrency(item.amount);
+    if (dateEl) dateEl.textContent = item.due_date || '-';
+    if (projEl) projEl.textContent = item.project_name || 'عام (بدون مشروع محدد)';
+
+    // Reset radio choice
+    const radios = document.getElementsByName('exec-choice');
+    if (radios && radios.length > 0) {
+        radios[0].checked = true;
+    }
+
+    openModal('scheduled-expense-execute-modal');
+    if (typeof initLucide === 'function') initLucide();
+}
+
+/**
+ * Confirm execution of scheduled expense.
+ */
+async function confirmExecuteScheduledExpense() {
+    const id = window._executingScheduledId;
+    if (!id) return;
+
+    let convertToActual = false;
+    const radios = document.getElementsByName('exec-choice');
+    for (let r of radios) {
+        if (r.checked && r.value === 'convert_to_actual') {
+            convertToActual = true;
+            break;
+        }
+    }
+
+    try {
+        const res = await fetch(`/api/scheduled-expenses/${id}/execute`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ convert_to_actual: convertToActual })
+        }).then(r => r.json());
+
+        if (res && res.success) {
+            closeModal('scheduled-expense-execute-modal');
+            showToast(res.message || 'تم تأكيد التنفيذ بنجاح', 'success');
+            await loadScheduledExpenses();
+            if (convertToActual && typeof loadExpenses === 'function') {
+                loadExpenses();
+            }
+        } else {
+            showToast(res?.message || 'تعذر تنفيذ المصروف', 'error');
+        }
+    } catch (err) {
+        console.error('Error executing scheduled expense:', err);
+        showToast('حدث خطأ أثناء التنفيذ', 'error');
+    }
+}
+
+/**
+ * Cancel a scheduled expense.
+ */
+async function cancelScheduledExpense(id) {
+    if (!confirm('هل أنت متأكد من إلغاء جدولة هذا المصروف؟ سيتم إزالته من محاكاة السيولة النقدية.')) {
+        return;
+    }
+
+    try {
+        const res = await fetch(`/api/scheduled-expenses/${id}/cancel`, {
+            method: 'POST'
+        }).then(r => r.json());
+
+        if (res && res.success) {
+            showToast('تم إلغاء المصروف المجدول بنجاح', 'success');
+            await loadScheduledExpenses();
+        } else {
+            showToast(res?.message || 'تعذر إلغاء المصروف', 'error');
+        }
+    } catch (err) {
+        console.error('Error cancelling scheduled expense:', err);
+        showToast('حدث خطأ في الاتصال بالخادم', 'error');
+    }
+}
+
+/**
+ * Delete a scheduled expense permanently.
+ */
+async function deleteScheduledExpense(id) {
+    if (!confirm('هل أنت متأكد من حذف هذا المصروف المجدول نهائياً؟')) {
+        return;
+    }
+
+    try {
+        const res = await fetch(`/api/scheduled-expenses/${id}`, {
+            method: 'DELETE'
+        }).then(r => r.json());
+
+        if (res && res.success) {
+            showToast('تم حذف المصروف المجدول بنجاح', 'success');
+            await loadScheduledExpenses();
+        } else {
+            showToast(res?.message || 'تعذر الحذف', 'error');
+        }
+    } catch (err) {
+        console.error('Error deleting scheduled expense:', err);
+        showToast('حدث خطأ أثناء الحذف', 'error');
+    }
+}
+
+/**
+ * Export scheduled expenses and liquidity analysis to Excel.
+ */
+function exportScheduledExpensesExcel() {
+    if (typeof XLSX === 'undefined') {
+        showToast('مكتبة تصدير Excel غير متوفرة حالياً', 'error');
+        return;
+    }
+
+    const items = window.scheduledExpensesState.filteredItems || window.scheduledExpensesState.items || [];
+    const liq = window.scheduledExpensesState.liquidity || {};
+
+    const recurrenceLabels = {
+        once: 'مرة واحدة',
+        weekly: 'أسبوعي',
+        monthly: 'شهري',
+        quarterly: 'ربع سنوي',
+        yearly: 'سنوي'
+    };
+    const priorityLabels = {
+        high: 'عاجل ومؤكد',
+        medium: 'متوسط الأهمية',
+        low: 'عادي / اختياري'
+    };
+    const statusLabels = {
+        pending: 'قيد الجدولة (معلق)',
+        executed: 'تم التنفيذ / الصرف',
+        cancelled: 'ملغي'
+    };
+
+    // 1. Data Rows
+    const dataRows = items.map((it, idx) => ({
+        'م': idx + 1,
+        'تاريخ الاستحقاق': it.due_date || '-',
+        'البيان والغرض': it.title,
+        'المبلغ (ر.س)': Number(it.amount || 0),
+        'الأولوية': priorityLabels[it.priority] || it.priority,
+        'التصنيف': it.category || 'عام',
+        'المشروع المرتبط': it.project_name || 'عام (بدون مشروع)',
+        'التكرار': recurrenceLabels[it.recurrence] || it.recurrence,
+        'الحالة': statusLabels[it.status] || it.status,
+        'ملاحظات': it.notes || '-'
+    }));
+
+    // 2. Summary Rows
+    const summaryRows = [
+        { 'المؤشر المالي للسيولة': 'السيولة النقدية المتاحة حالياً (البنك والخزينة)', 'القيمة (ر.س)': Number(liq.current_liquidity || 0) },
+        { 'المؤشر المالي للسيولة': 'إجمالي المصاريف المجدولة المعلقة', 'القيمة (ر.س)': Number(liq.total_pending_amount || 0) },
+        { 'المؤشر المالي للسيولة': 'صافي السيولة المتبقية المتوقعة بعد الصرف', 'القيمة (ر.س)': Number(liq.projected_remaining_liquidity || 0) },
+        { 'المؤشر المالي للسيولة': 'نسبة تغطية السيولة للالتزامات', 'القيمة (ر.س)': `${liq.coverage_ratio || 0}%` },
+        { 'المؤشر المالي للسيولة': 'المستحق متأخر', 'القيمة (ر.س)': Number(liq.overdue_amount || 0) },
+        { 'المؤشر المالي للسيولة': 'مستحق خلال هذا الأسبوع', 'القيمة (ر.س)': Number(liq.due_this_week || 0) },
+        { 'المؤشر المالي للسيولة': 'مستحق خلال هذا الشهر', 'القيمة (ر.س)': Number(liq.due_this_month || 0) }
+    ];
+
+    const wb = XLSX.utils.book_new();
+    const wsData = XLSX.utils.json_to_sheet(dataRows.length ? dataRows : [{ 'ملاحظة': 'لا توجد بيانات' }]);
+    const wsSummary = XLSX.utils.json_to_sheet(summaryRows);
+
+    XLSX.utils.book_append_sheet(wb, wsData, 'المصاريف_المجدولة');
+    XLSX.utils.book_append_sheet(wb, wsSummary, 'تحليل_السيولة');
+
+    const today = new Date().toISOString().split('T')[0];
+    XLSX.writeFile(wb, `المصاريف_المجدولة_ومحاكاة_السيولة_${today}.xlsx`);
+    showToast('تم تصدير ملف Excel بنجاح', 'success');
+}
+
+/**
+ * Print Scheduled Expenses & Liquidity Analysis report.
+ */
+function printScheduledExpensesReport() {
+    const items = window.scheduledExpensesState.filteredItems || window.scheduledExpensesState.items || [];
+    const liq = window.scheduledExpensesState.liquidity || {};
+    const today = new Date().toLocaleDateString('ar-EG', { year: 'numeric', month: 'long', day: 'numeric' });
+
+    let rowsHtml = '';
+    let total = 0;
+    items.forEach((it, idx) => {
+        const amt = Number(it.amount || 0);
+        total += amt;
+        rowsHtml += `
+            <tr>
+                <td style="text-align:center;">${idx + 1}</td>
+                <td style="text-align:center;">${escapeHtml(it.due_date || '-')}</td>
+                <td><strong>${escapeHtml(it.title)}</strong>${it.notes ? `<br><small style="color:#666;">${escapeHtml(it.notes)}</small>` : ''}</td>
+                <td style="text-align:left; font-weight:bold;">${formatCurrency(amt)}</td>
+                <td style="text-align:center;">${escapeHtml(it.priority === 'high' ? 'عاجل' : it.priority === 'medium' ? 'متوسط' : 'عادي')}</td>
+                <td style="text-align:center;">${escapeHtml(it.category || 'عام')}</td>
+                <td>${escapeHtml(it.project_name || 'عام')}</td>
+                <td style="text-align:center;">${escapeHtml(it.status === 'pending' ? 'معلق' : it.status === 'executed' ? 'تم الصرف' : 'ملغي')}</td>
+            </tr>
+        `;
+    });
+
+    const printWin = window.open('', '_blank', 'width=1000,height=800');
+    if (!printWin) {
+        showToast('يرجى السماح بالنوافذ المنبثقة للطباعة', 'warning');
+        return;
+    }
+
+    printWin.document.write(`
+        <!DOCTYPE html>
+        <html dir="rtl" lang="ar">
+        <head>
+            <meta charset="utf-8">
+            <title>كشف المصاريف المجدولة ومحاكاة السيولة - شركة السجيني</title>
+            <style>
+                body { font-family: 'Cairo', 'Segoe UI', Tahoma, sans-serif; padding: 25px; direction: rtl; color: #1e293b; font-size: 12px; }
+                .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #0891b2; padding-bottom: 12px; margin-bottom: 20px; }
+                .header h1 { margin: 0; font-size: 18px; color: #0891b2; }
+                .header p { margin: 3px 0 0; color: #64748b; font-size: 11px; }
+                .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 20px; }
+                .kpi-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px; text-align: center; }
+                .kpi-title { font-size: 10px; color: #64748b; margin-bottom: 4px; font-weight: bold; }
+                .kpi-val { font-size: 15px; font-weight: bold; color: #0f172a; font-family: monospace; }
+                table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+                th, td { border: 1px solid #cbd5e1; padding: 8px 10px; text-align: right; }
+                th { background-color: #f1f5f9; font-weight: bold; color: #334155; font-size: 11px; }
+                tfoot tr td { background-color: #f8fafc; font-weight: bold; font-size: 12px; }
+                .notice { background: #f0fdfa; border: 1px solid #ccfbf1; padding: 8px 12px; border-radius: 6px; font-size: 10px; color: #0f766e; margin-top: 15px; }
+                .signatures { display: flex; justify-content: space-between; margin-top: 40px; padding-top: 20px; }
+                .sig-box { text-align: center; width: 30%; }
+                .sig-line { margin-top: 35px; border-top: 1px dashed #94a3b8; padding-top: 5px; font-size: 11px; color: #475569; }
+                @media print {
+                    body { padding: 0; }
+                    button { display: none; }
+                }
+            </style>
+        </head>
+        <body>
+            <div class="header">
+                <div>
+                    <h1>شركة السجيني للمقاولات العامة والتصميم</h1>
+                    <p>تقرير المصاريف المجدولة ومحاكاة السيولة النقدية</p>
+                </div>
+                <div style="text-align: left;">
+                    <div style="font-size: 11px; color: #64748b;">تاريخ التقرير: ${today}</div>
+                    <div style="font-size: 10px; color: #94a3b8;">خاص بالإدارة المالية والتخطيط النقدي</div>
+                </div>
+            </div>
+
+            <div class="kpi-grid">
+                <div class="kpi-card">
+                    <div class="kpi-title">السيولة المتاحة حالياً</div>
+                    <div class="kpi-val" style="color: #059669;">${formatCurrency(liq.current_liquidity || 0)}</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-title">المجدول المعلق</div>
+                    <div class="kpi-val" style="color: #0891b2;">${formatCurrency(liq.total_pending_amount || 0)}</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-title">صافي السيولة المتبقية</div>
+                    <div class="kpi-val" style="color: ${Number(liq.projected_remaining_liquidity || 0) < 0 ? '#e11d48' : '#2563eb'};">${formatCurrency(liq.projected_remaining_liquidity || 0)}</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-title">نسبة التغطية</div>
+                    <div class="kpi-val">${liq.coverage_ratio || 0}%</div>
+                </div>
+            </div>
+
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width: 30px; text-align: center;">م</th>
+                        <th style="width: 90px; text-align: center;">تاريخ الاستحقاق</th>
+                        <th>البيان والغرض</th>
+                        <th style="width: 100px; text-align: left;">المبلغ</th>
+                        <th style="width: 60px; text-align: center;">الأولوية</th>
+                        <th style="width: 90px; text-align: center;">التصنيف</th>
+                        <th style="width: 120px;">وسم المشروع</th>
+                        <th style="width: 70px; text-align: center;">الحالة</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${rowsHtml || '<tr><td colspan="8" style="text-align:center; padding: 20px;">لا توجد مصاريف مجدولة مسجلة</td></tr>'}
+                </tbody>
+                <tfoot>
+                    <tr>
+                        <td colspan="3" style="text-align: left;">الإجمالي:</td>
+                        <td style="text-align: left; font-family: monospace;">${formatCurrency(total)}</td>
+                        <td colspan="4"></td>
+                    </tr>
+                </tfoot>
+            </table>
+
+            <div class="notice">
+                * ملاحظة هامة: هذا الكشف مخصص لإدارة التدفقات النقدية ومحاكاة وفرة السيولة ولا يؤثر إطلاقاً على تكاليف أو ميزانيات أو تقارير المشاريع الفعلية.
+            </div>
+
+            <div class="signatures">
+                <div class="sig-box">
+                    <strong>إعداد المحاسب المالي</strong>
+                    <div class="sig-line">التوقيع والاعتماد</div>
+                </div>
+                <div class="sig-box">
+                    <strong>المدير المالي</strong>
+                    <div class="sig-line">أ. ابوالنصر البغدادي</div>
+                </div>
+                <div class="sig-box">
+                    <strong>المدير التنفيذي</strong>
+                    <div class="sig-line">الاعتماد النهائي</div>
                 </div>
             </div>
 

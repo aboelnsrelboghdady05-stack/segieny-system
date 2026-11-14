@@ -5328,6 +5328,263 @@ def manage_opening_cash():
     val = float(database.get_setting('opening_cash_balance', '300000.0') or 300000.0)
     return jsonify({'success': True, 'opening_cash_balance': val})
 
+# ----------------- SCHEDULED EXPENSES & LIQUIDITY SIMULATION API -----------------
+# ميزة المصاريف المجدولة ومحاكاة السيولة النقدية - مستقلة تماماً عن تقارير وتكاليف المشاريع الفعلية
+@app.route('/api/scheduled-expenses', methods=['GET'])
+def get_scheduled_expenses():
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+
+    status_filter = request.args.get('status')
+    priority_filter = request.args.get('priority')
+    project_filter = request.args.get('project_id')
+    timeframe_filter = request.args.get('timeframe') # 'all', 'overdue', 'this_week', 'this_month', 'later'
+
+    today_dt = datetime.now()
+    today_str = today_dt.strftime('%Y-%m-%d')
+    in_7_days_str = (today_dt + timedelta(days=7)).strftime('%Y-%m-%d')
+    current_month_prefix = today_str[:7]
+
+    query = '''
+        SELECT se.*, p.name AS project_name, p.code AS project_code
+        FROM scheduled_expenses se
+        LEFT JOIN projects p ON se.project_id = p.id
+        WHERE 1=1
+    '''
+    params = []
+
+    if status_filter and status_filter != 'all':
+        query += ' AND se.status = ?'
+        params.append(status_filter)
+    if priority_filter and priority_filter != 'all':
+        query += ' AND se.priority = ?'
+        params.append(priority_filter)
+    if project_filter and project_filter != 'all':
+        query += ' AND se.project_id = ?'
+        params.append(project_filter)
+
+    if timeframe_filter == 'overdue':
+        query += ' AND se.due_date < ?'
+        params.append(today_str)
+    elif timeframe_filter == 'this_week':
+        query += ' AND se.due_date >= ? AND se.due_date <= ?'
+        params.extend([today_str, in_7_days_str])
+    elif timeframe_filter == 'this_month':
+        query += ' AND se.due_date LIKE ?'
+        params.append(f'{current_month_prefix}%')
+    elif timeframe_filter == 'later':
+        query += ' AND se.due_date > ?'
+        params.append(in_7_days_str)
+
+    query += ' ORDER BY se.due_date ASC, se.id DESC'
+    cursor.execute(query, params)
+    items = [dict(r) for r in cursor.fetchall()]
+
+    # Real-time Liquidity & Cash Position
+    current_liquidity = float(get_cached_company_bank_balance(cursor) or 0.0)
+    opening_cash = float(database.get_setting('opening_cash_balance', '300000.0') or 300000.0)
+
+    # All pending scheduled items
+    cursor.execute('''
+        SELECT id, amount, due_date, priority, category, project_id, title
+        FROM scheduled_expenses 
+        WHERE status = 'pending'
+    ''')
+    all_pending = [dict(r) for r in cursor.fetchall()]
+
+    total_pending_amount = round(sum(it['amount'] for it in all_pending), 2)
+    due_this_week = round(sum(it['amount'] for it in all_pending if today_str <= (it.get('due_date') or '') <= in_7_days_str), 2)
+    overdue_amount = round(sum(it['amount'] for it in all_pending if (it.get('due_date') or '') < today_str), 2)
+    due_this_month = round(sum(it['amount'] for it in all_pending if (it.get('due_date') or '')[:7] == current_month_prefix), 2)
+    due_later = round(sum(it['amount'] for it in all_pending if (it.get('due_date') or '') > in_7_days_str and (it.get('due_date') or '')[:7] != current_month_prefix), 2)
+
+    projected_remaining_liquidity = round(current_liquidity - total_pending_amount, 2)
+    coverage_ratio = round((current_liquidity / total_pending_amount * 100), 1) if total_pending_amount > 0 else 100.0
+
+    liquidity_status = 'safe'
+    if projected_remaining_liquidity < 0:
+        liquidity_status = 'deficit'
+    elif projected_remaining_liquidity < (current_liquidity * 0.25):
+        liquidity_status = 'warning'
+
+    # Project breakdown of pending scheduled expenses (FOR INFORMATIONAL REFERENCE ONLY)
+    cursor.execute('''
+        SELECT COALESCE(p.name, 'مصاريف عامة وغير مصنفة على مشروع') as name,
+               COALESCE(p.code, 'HQ-GEN') as code,
+               COUNT(se.id) as count,
+               ROUND(SUM(se.amount), 2) as total_amount
+        FROM scheduled_expenses se
+        LEFT JOIN projects p ON se.project_id = p.id
+        WHERE se.status = 'pending'
+        GROUP BY se.project_id
+        ORDER BY total_amount DESC
+    ''')
+    by_project = [dict(r) for r in cursor.fetchall()]
+
+    conn.close()
+
+    return jsonify({
+        'success': True,
+        'items': items,
+        'summary': {
+            'current_liquidity': current_liquidity,
+            'opening_cash_balance': opening_cash,
+            'total_pending_amount': total_pending_amount,
+            'due_this_week': due_this_week,
+            'due_this_month': due_this_month,
+            'overdue_amount': overdue_amount,
+            'due_later': due_later,
+            'pending_count': len(all_pending),
+            'projected_remaining_liquidity': projected_remaining_liquidity,
+            'coverage_ratio': coverage_ratio,
+            'liquidity_status': liquidity_status,
+            'by_project': by_project
+        }
+    })
+
+@app.route('/api/scheduled-expenses', methods=['POST'])
+def create_scheduled_expense():
+    data = request.json or {}
+    title = (data.get('title') or '').strip()
+    try:
+        amount = float(data.get('amount') or 0.0)
+    except (ValueError, TypeError):
+        amount = 0.0
+    due_date = (data.get('due_date') or '').strip()
+
+    if not title:
+        return jsonify({'error': 'بيان / اسم المصروف المجدول مطلوب'}), 400
+    if amount <= 0:
+        return jsonify({'error': 'المبلغ يجب أن يكون أكبر من الصفر'}), 400
+    if not due_date:
+        due_date = datetime.now().strftime('%Y-%m-%d')
+
+    category = (data.get('category') or 'عام').strip()
+    raw_pid = data.get('project_id')
+    project_id = int(raw_pid) if raw_pid and str(raw_pid).isdigit() else None
+    priority = (data.get('priority') or 'medium').strip()
+    recurrence = (data.get('recurrence') or 'once').strip()
+    notes = (data.get('notes') or '').strip()
+    created_by = (data.get('created_by') or 'المدير المالي').strip()
+
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        INSERT INTO scheduled_expenses (
+            title, amount, due_date, category, project_id,
+            priority, recurrence, status, notes, created_by
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
+    ''', (title, amount, due_date, category, project_id, priority, recurrence, notes, created_by))
+    item_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+
+    return jsonify({
+        'success': True,
+        'id': item_id,
+        'message': 'تمت جدولة المصروف بنجاح وتحديث حساب السيولة المتوقعة (دون التأثير على تقارير المشاريع)'
+    })
+
+@app.route('/api/scheduled-expenses/<int:item_id>', methods=['PUT'])
+def update_scheduled_expense(item_id):
+    data = request.json or {}
+    title = (data.get('title') or '').strip()
+    try:
+        amount = float(data.get('amount') or 0.0)
+    except (ValueError, TypeError):
+        amount = 0.0
+    due_date = (data.get('due_date') or '').strip()
+    category = (data.get('category') or 'عام').strip()
+    raw_pid = data.get('project_id')
+    project_id = int(raw_pid) if raw_pid and str(raw_pid).isdigit() else None
+    priority = (data.get('priority') or 'medium').strip()
+    recurrence = (data.get('recurrence') or 'once').strip()
+    notes = (data.get('notes') or '').strip()
+    status = (data.get('status') or 'pending').strip()
+
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        UPDATE scheduled_expenses
+        SET title = ?, amount = ?, due_date = ?, category = ?,
+            project_id = ?, priority = ?, recurrence = ?, notes = ?, status = ?
+        WHERE id = ?
+    ''', (title, amount, due_date, category, project_id, priority, recurrence, notes, status, item_id))
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True, 'message': 'تم حفظ تعديلات المصروف المجدول بنجاح'})
+
+@app.route('/api/scheduled-expenses/<int:item_id>', methods=['DELETE'])
+def delete_scheduled_expense(item_id):
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('DELETE FROM scheduled_expenses WHERE id = ?', (item_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True, 'message': 'تم حذف المصروف المجدول بنجاح'})
+
+@app.route('/api/scheduled-expenses/<int:item_id>/execute', methods=['POST'])
+def execute_scheduled_expense(item_id):
+    data = request.json or {}
+    convert_to_actual = data.get('convert_to_actual', False)
+
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM scheduled_expenses WHERE id = ?', (item_id,))
+    item = cursor.fetchone()
+    if not item:
+        conn.close()
+        return jsonify({'error': 'المصروف المجدول غير موجود'}), 404
+
+    now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    today_date = datetime.now().strftime('%Y-%m-%d')
+    actual_exp_id = None
+
+    if convert_to_actual:
+        cursor.execute('''
+            INSERT INTO expenses (
+                project_id, title, category, amount, payment_method,
+                paid_by, expense_date, notes, payment_status, paid_amount,
+                payment_date, approval_status, approved_by, approved_at, approval_notes, created_by
+            ) VALUES (?, ?, ?, ?, 'تحويل بنكي', 'المدير المالي', ?, ?, 'paid', ?, ?, 'approved', 'ابوالنصر البغدادي (المدير المالي)', ?, 'تم الصرف تنفيذاً لجدولة مصروفات معتمدة', 'المدير المالي')
+        ''', (
+            item['project_id'],
+            item['title'],
+            item['category'] or 'عام',
+            item['amount'],
+            today_date,
+            item['notes'] or 'صرف مصروف مجدول',
+            item['amount'],
+            today_date,
+            now_str
+        ))
+        actual_exp_id = cursor.lastrowid
+        _company_bank_balance_cache['balance'] = None
+
+    cursor.execute('''
+        UPDATE scheduled_expenses
+        SET status = 'executed', executed_at = ?, executed_expense_id = ?
+        WHERE id = ?
+    ''', (now_str, actual_exp_id, item_id))
+    conn.commit()
+    conn.close()
+
+    msg = 'تم تنفيذ المصروف المجدول وترحيله كمصروف فعلي في النظام بنجاح' if convert_to_actual else 'تم تعليم المصروف المجدول كـ (منفذ ومصروف) بنجاح'
+    return jsonify({'success': True, 'message': msg, 'expense_id': actual_exp_id})
+
+@app.route('/api/scheduled-expenses/<int:item_id>/cancel', methods=['POST'])
+def cancel_scheduled_expense(item_id):
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        UPDATE scheduled_expenses
+        SET status = 'cancelled'
+        WHERE id = ?
+    ''', (item_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({'success': True, 'message': 'تم إلغاء المصروف المجدول واستبعاده من التزامات السيولة'})
+
 
 # ----------------- DOCUMENTS & BLUEPRINTS API -----------------
 @app.route('/api/documents', methods=['GET'])

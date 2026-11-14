@@ -5442,7 +5442,7 @@ def get_scheduled_expenses():
             by_project.append(bp)
 
         # Active projects list for dropdowns
-        cursor.execute("SELECT id, name, code FROM projects WHERE is_active = 1 ORDER BY name ASC")
+        cursor.execute("SELECT id, name, code FROM projects ORDER BY name ASC")
         raw_proj_list = [dict(r) for r in cursor.fetchall()]
         projects_list = []
         for p in raw_proj_list:

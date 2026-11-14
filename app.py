@@ -5332,123 +5332,158 @@ def manage_opening_cash():
 # ميزة المصاريف المجدولة ومحاكاة السيولة النقدية - مستقلة تماماً عن تقارير وتكاليف المشاريع الفعلية
 @app.route('/api/scheduled-expenses', methods=['GET'])
 def get_scheduled_expenses():
-    conn = database.get_db_connection()
-    cursor = conn.cursor()
+    try:
+        conn = database.get_db_connection()
+        cursor = conn.cursor()
 
-    status_filter = request.args.get('status')
-    priority_filter = request.args.get('priority')
-    project_filter = request.args.get('project_id')
-    timeframe_filter = request.args.get('timeframe') # 'all', 'overdue', 'this_week', 'this_month', 'later'
+        status_filter = request.args.get('status')
+        priority_filter = request.args.get('priority')
+        project_filter = request.args.get('project_id')
+        timeframe_filter = request.args.get('timeframe') # 'all', 'overdue', 'this_week', 'this_month', 'later'
 
-    today_dt = datetime.now()
-    today_str = today_dt.strftime('%Y-%m-%d')
-    in_7_days_str = (today_dt + timedelta(days=7)).strftime('%Y-%m-%d')
-    current_month_prefix = today_str[:7]
+        today_dt = datetime.now()
+        today_str = today_dt.strftime('%Y-%m-%d')
+        in_7_days_str = (today_dt + timedelta(days=7)).strftime('%Y-%m-%d')
+        current_month_prefix = today_str[:7]
 
-    query = '''
-        SELECT se.*, p.name AS project_name, p.code AS project_code
-        FROM scheduled_expenses se
-        LEFT JOIN projects p ON se.project_id = p.id
-        WHERE 1=1
-    '''
-    params = []
+        query = '''
+            SELECT se.*, p.name AS project_name, p.code AS project_code
+            FROM scheduled_expenses se
+            LEFT JOIN projects p ON se.project_id = p.id
+            WHERE 1=1
+        '''
+        params = []
 
-    if status_filter and status_filter != 'all':
-        query += ' AND se.status = ?'
-        params.append(status_filter)
-    if priority_filter and priority_filter != 'all':
-        query += ' AND se.priority = ?'
-        params.append(priority_filter)
-    if project_filter and project_filter != 'all':
-        query += ' AND se.project_id = ?'
-        params.append(project_filter)
+        if status_filter and status_filter != 'all':
+            query += ' AND se.status = ?'
+            params.append(status_filter)
+        if priority_filter and priority_filter != 'all':
+            query += ' AND se.priority = ?'
+            params.append(priority_filter)
+        if project_filter and project_filter != 'all':
+            if project_filter == 'general':
+                query += ' AND se.project_id IS NULL'
+            else:
+                query += ' AND se.project_id = ?'
+                params.append(project_filter)
 
-    if timeframe_filter == 'overdue':
-        query += ' AND se.due_date < ?'
-        params.append(today_str)
-    elif timeframe_filter == 'this_week':
-        query += ' AND se.due_date >= ? AND se.due_date <= ?'
-        params.extend([today_str, in_7_days_str])
-    elif timeframe_filter == 'this_month':
-        query += ' AND se.due_date LIKE ?'
-        params.append(f'{current_month_prefix}%')
-    elif timeframe_filter == 'later':
-        query += ' AND se.due_date > ?'
-        params.append(in_7_days_str)
+        if timeframe_filter == 'overdue':
+            query += ' AND se.due_date < ?'
+            params.append(today_str)
+        elif timeframe_filter == 'this_week':
+            query += ' AND se.due_date >= ? AND se.due_date <= ?'
+            params.extend([today_str, in_7_days_str])
+        elif timeframe_filter == 'this_month':
+            query += ' AND se.due_date LIKE ?'
+            params.append(f'{current_month_prefix}%')
+        elif timeframe_filter == 'later':
+            query += ' AND se.due_date > ?'
+            params.append(in_7_days_str)
 
-    query += ' ORDER BY se.due_date ASC, se.id DESC'
-    cursor.execute(query, params)
-    items = [dict(r) for r in cursor.fetchall()]
+        query += ' ORDER BY se.due_date ASC, se.id DESC'
+        cursor.execute(query, params)
+        raw_items = [dict(r) for r in cursor.fetchall()]
+        items = []
+        for it in raw_items:
+            it['amount'] = _safe_float(it.get('amount'))
+            try:
+                it['id'] = int(it.get('id') or 0)
+            except (ValueError, TypeError):
+                pass
+            items.append(it)
 
-    # Real-time Liquidity & Cash Position
-    current_liquidity = float(get_cached_company_bank_balance(cursor) or 0.0)
-    opening_cash = float(database.get_setting('opening_cash_balance', '300000.0') or 300000.0)
+        # Real-time Liquidity & Cash Position
+        current_liquidity = float(get_cached_company_bank_balance(cursor) or 0.0)
+        opening_cash = float(database.get_setting('opening_cash_balance', '300000.0') or 300000.0)
 
-    # All pending scheduled items
-    cursor.execute('''
-        SELECT id, amount, due_date, priority, category, project_id, title
-        FROM scheduled_expenses 
-        WHERE status = 'pending'
-    ''')
-    all_pending = [dict(r) for r in cursor.fetchall()]
+        # All pending scheduled items
+        cursor.execute('''
+            SELECT id, amount, due_date, priority, category, project_id, title
+            FROM scheduled_expenses 
+            WHERE status = 'pending'
+        ''')
+        all_pending = [dict(r) for r in cursor.fetchall()]
 
-    total_pending_amount = round(sum(it['amount'] for it in all_pending), 2)
-    due_this_week = round(sum(it['amount'] for it in all_pending if today_str <= (it.get('due_date') or '') <= in_7_days_str), 2)
-    overdue_amount = round(sum(it['amount'] for it in all_pending if (it.get('due_date') or '') < today_str), 2)
-    due_this_month = round(sum(it['amount'] for it in all_pending if (it.get('due_date') or '')[:7] == current_month_prefix), 2)
-    due_later = round(sum(it['amount'] for it in all_pending if (it.get('due_date') or '') > in_7_days_str and (it.get('due_date') or '')[:7] != current_month_prefix), 2)
+        total_pending_amount = round(sum(_safe_float(it.get('amount')) for it in all_pending), 2)
+        due_this_week = round(sum(_safe_float(it.get('amount')) for it in all_pending if today_str <= str(it.get('due_date') or '') <= in_7_days_str), 2)
+        overdue_amount = round(sum(_safe_float(it.get('amount')) for it in all_pending if str(it.get('due_date') or '') < today_str), 2)
+        due_this_month = round(sum(_safe_float(it.get('amount')) for it in all_pending if str(it.get('due_date') or '')[:7] == current_month_prefix), 2)
+        due_later = round(sum(_safe_float(it.get('amount')) for it in all_pending if str(it.get('due_date') or '') > in_7_days_str and str(it.get('due_date') or '')[:7] != current_month_prefix), 2)
 
-    projected_remaining_liquidity = round(current_liquidity - total_pending_amount, 2)
-    coverage_ratio = round((current_liquidity / total_pending_amount * 100), 1) if total_pending_amount > 0 else 100.0
+        projected_remaining_liquidity = round(current_liquidity - total_pending_amount, 2)
+        coverage_ratio = round((current_liquidity / total_pending_amount * 100), 1) if total_pending_amount > 0 else 100.0
 
-    liquidity_status = 'safe'
-    if projected_remaining_liquidity < 0:
-        liquidity_status = 'deficit'
-    elif projected_remaining_liquidity < (current_liquidity * 0.25):
-        liquidity_status = 'warning'
+        liquidity_status = 'safe'
+        if projected_remaining_liquidity < 0:
+            liquidity_status = 'deficit'
+        elif projected_remaining_liquidity < (current_liquidity * 0.25):
+            liquidity_status = 'warning'
 
-    # Project breakdown of pending scheduled expenses (FOR INFORMATIONAL REFERENCE ONLY)
-    cursor.execute('''
-        SELECT COALESCE(p.name, 'مصاريف عامة وغير مصنفة على مشروع') as name,
-               COALESCE(p.code, 'HQ-GEN') as code,
-               COUNT(se.id) as count,
-               ROUND(SUM(se.amount), 2) as total_amount
-        FROM scheduled_expenses se
-        LEFT JOIN projects p ON se.project_id = p.id
-        WHERE se.status = 'pending'
-        GROUP BY se.project_id
-        ORDER BY total_amount DESC
-    ''')
-    by_project = [dict(r) for r in cursor.fetchall()]
+        # Project breakdown of pending scheduled expenses (FOR INFORMATIONAL REFERENCE ONLY)
+        cursor.execute('''
+            SELECT COALESCE(p.name, 'مصاريف عامة وغير مصنفة على مشروع') as name,
+                   COALESCE(p.code, 'HQ-GEN') as code,
+                   COUNT(se.id) as count,
+                   ROUND(SUM(se.amount), 2) as total_amount
+            FROM scheduled_expenses se
+            LEFT JOIN projects p ON se.project_id = p.id
+            WHERE se.status = 'pending'
+            GROUP BY se.project_id
+            ORDER BY total_amount DESC
+        ''')
+        raw_by_project = [dict(r) for r in cursor.fetchall()]
+        by_project = []
+        for bp in raw_by_project:
+            bp['total_amount'] = _safe_float(bp.get('total_amount'))
+            try:
+                bp['count'] = int(bp.get('count') or 0)
+            except (ValueError, TypeError):
+                pass
+            by_project.append(bp)
 
-    # Active projects list for dropdowns
-    cursor.execute("SELECT id, name, code FROM projects WHERE is_active = 1 ORDER BY name ASC")
-    projects_list = [dict(r) for r in cursor.fetchall()]
+        # Active projects list for dropdowns
+        cursor.execute("SELECT id, name, code FROM projects WHERE is_active = 1 ORDER BY name ASC")
+        raw_proj_list = [dict(r) for r in cursor.fetchall()]
+        projects_list = []
+        for p in raw_proj_list:
+            try:
+                p['id'] = int(p.get('id') or 0)
+            except (ValueError, TypeError):
+                pass
+            projects_list.append(p)
 
-    conn.close()
+        conn.close()
 
-    summary_data = {
-        'current_liquidity': current_liquidity,
-        'opening_cash_balance': opening_cash,
-        'total_pending_amount': total_pending_amount,
-        'due_this_week': due_this_week,
-        'due_this_month': due_this_month,
-        'overdue_amount': overdue_amount,
-        'due_later': due_later,
-        'pending_count': len(all_pending),
-        'projected_remaining_liquidity': projected_remaining_liquidity,
-        'coverage_ratio': coverage_ratio,
-        'liquidity_status': liquidity_status,
-        'by_project': by_project
-    }
+        summary_data = {
+            'current_liquidity': current_liquidity,
+            'opening_cash_balance': opening_cash,
+            'total_pending_amount': total_pending_amount,
+            'due_this_week': due_this_week,
+            'due_this_month': due_this_month,
+            'overdue_amount': overdue_amount,
+            'due_later': due_later,
+            'pending_count': len(all_pending),
+            'projected_remaining_liquidity': projected_remaining_liquidity,
+            'coverage_ratio': coverage_ratio,
+            'liquidity_status': liquidity_status,
+            'by_project': by_project
+        }
 
-    return jsonify({
-        'success': True,
-        'items': items,
-        'liquidity': summary_data,
-        'summary': summary_data,
-        'projects': projects_list
-    })
+        return jsonify({
+            'success': True,
+            'items': items,
+            'liquidity': summary_data,
+            'summary': summary_data,
+            'projects': projects_list
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'message': str(e),
+            'traceback': traceback.format_exc()
+        }), 500
 
 @app.route('/api/scheduled-expenses', methods=['POST'])
 def create_scheduled_expense():

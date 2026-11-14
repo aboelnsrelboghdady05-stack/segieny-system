@@ -20090,11 +20090,13 @@ function renderScheduledProjectsBreakdown(breakdown) {
 
     let html = '';
     breakdown.forEach(p => {
+        const pName = p.name || p.project_name || 'عام';
+        const pCount = p.count ?? p.items_count ?? 0;
         html += `
             <div class="p-3.5 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-between">
                 <div class="space-y-0.5 max-w-[70%]">
-                    <strong class="text-xs text-white block truncate" title="${escapeHtml(p.project_name)}">${escapeHtml(p.project_name)}</strong>
-                    <span class="text-[10px] text-slate-400 font-mono">${p.items_count} بند مجدول</span>
+                    <strong class="text-xs text-white block truncate" title="${escapeHtml(pName)}">${escapeHtml(pName)}</strong>
+                    <span class="text-[10px] text-slate-400 font-mono">${pCount} بند مجدول</span>
                 </div>
                 <div class="text-left font-mono font-bold text-xs text-cyan-300">
                     ${formatCurrency(p.total_amount)}

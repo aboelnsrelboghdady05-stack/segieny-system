@@ -5421,25 +5421,33 @@ def get_scheduled_expenses():
     ''')
     by_project = [dict(r) for r in cursor.fetchall()]
 
+    # Active projects list for dropdowns
+    cursor.execute("SELECT id, name, code FROM projects WHERE is_active = 1 ORDER BY name ASC")
+    projects_list = [dict(r) for r in cursor.fetchall()]
+
     conn.close()
+
+    summary_data = {
+        'current_liquidity': current_liquidity,
+        'opening_cash_balance': opening_cash,
+        'total_pending_amount': total_pending_amount,
+        'due_this_week': due_this_week,
+        'due_this_month': due_this_month,
+        'overdue_amount': overdue_amount,
+        'due_later': due_later,
+        'pending_count': len(all_pending),
+        'projected_remaining_liquidity': projected_remaining_liquidity,
+        'coverage_ratio': coverage_ratio,
+        'liquidity_status': liquidity_status,
+        'by_project': by_project
+    }
 
     return jsonify({
         'success': True,
         'items': items,
-        'summary': {
-            'current_liquidity': current_liquidity,
-            'opening_cash_balance': opening_cash,
-            'total_pending_amount': total_pending_amount,
-            'due_this_week': due_this_week,
-            'due_this_month': due_this_month,
-            'overdue_amount': overdue_amount,
-            'due_later': due_later,
-            'pending_count': len(all_pending),
-            'projected_remaining_liquidity': projected_remaining_liquidity,
-            'coverage_ratio': coverage_ratio,
-            'liquidity_status': liquidity_status,
-            'by_project': by_project
-        }
+        'liquidity': summary_data,
+        'summary': summary_data,
+        'projects': projects_list
     })
 
 @app.route('/api/scheduled-expenses', methods=['POST'])
